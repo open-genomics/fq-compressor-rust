@@ -1,0 +1,34 @@
+[package]
+name = "fqc"
+version = "0.1.0"
+edition = "2021"
+authors = ["fq-compressor-rust contributors"]
+description = "High-performance FASTQ compressor with random access support"
+license = "GPL-3.0"
+
+[[bin]]
+name = "fqc"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+zstd = "0.13"
+xxhash-rust = { version = "0.8", features = ["xxh64"] }
+rayon = "1.10"
+thiserror = "1"
+anyhow = "1"
+byteorder = "1"
+log = "0.4"
+env_logger = "0.11"
+indicatif = "0.17"
+flate2 = "1"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.dev]
+opt-level = 0
+debug = true
