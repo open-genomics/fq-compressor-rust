@@ -104,11 +104,19 @@ pub fn detect_compression_format(path: &str) -> CompressionFormat {
 /// Check if a specific compression format is supported
 pub fn is_compression_supported(format: CompressionFormat) -> bool {
     match format {
-        CompressionFormat::Plain => true,
+        CompressionFormat::Plain | CompressionFormat::Zstd => true,
+        #[cfg(feature = "gz")]
         CompressionFormat::Gzip => true,
+        #[cfg(not(feature = "gz"))]
+        CompressionFormat::Gzip => false,
+        #[cfg(feature = "bz2")]
         CompressionFormat::Bzip2 => true,
+        #[cfg(not(feature = "bz2"))]
+        CompressionFormat::Bzip2 => false,
+        #[cfg(feature = "xz")]
         CompressionFormat::Xz => true,
-        CompressionFormat::Zstd => true,
+        #[cfg(not(feature = "xz"))]
+        CompressionFormat::Xz => false,
     }
 }
 
@@ -145,12 +153,15 @@ pub fn open_compressed_reader(path: &str) -> Result<Box<dyn Read + Send>> {
     log::debug!("Opening {} (format: {})", path, format.as_str());
 
     let reader: Box<dyn Read + Send> = match format {
+        #[cfg(feature = "gz")]
         CompressionFormat::Gzip => {
             Box::new(flate2::read::GzDecoder::new(file))
         }
+        #[cfg(feature = "bz2")]
         CompressionFormat::Bzip2 => {
             Box::new(bzip2::read::BzDecoder::new(file))
         }
+        #[cfg(feature = "xz")]
         CompressionFormat::Xz => {
             Box::new(xz2::read::XzDecoder::new(file))
         }
@@ -162,6 +173,12 @@ pub fn open_compressed_reader(path: &str) -> Result<Box<dyn Read + Send>> {
         }
         CompressionFormat::Plain => {
             Box::new(file)
+        }
+        #[allow(unreachable_patterns)]
+        other => {
+            return Err(FqcError::UnsupportedFormat(
+                format!("Compression format {} not enabled (missing feature flag)", other.as_str()),
+            ));
         }
     };
 

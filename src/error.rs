@@ -35,6 +35,9 @@ pub enum FqcError {
 
     #[error("Out of range: {0}")]
     OutOfRange(String),
+
+    #[error("Unsupported format: {0}")]
+    UnsupportedFormat(String),
 }
 
 pub type Result<T> = std::result::Result<T, FqcError>;
@@ -75,6 +78,7 @@ impl FqcError {
             FqcError::UnsupportedVersion { .. } => ExitCode::UnsupportedError,
             FqcError::Parse(_) => ExitCode::FormatError,
             FqcError::OutOfRange(_) => ExitCode::Usage,
+            FqcError::UnsupportedFormat(_) => ExitCode::UnsupportedError,
         }
     }
 
