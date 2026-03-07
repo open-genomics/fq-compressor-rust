@@ -110,11 +110,17 @@ impl OutputWriters {
 
 fn write_to_target(output: &mut dyn Write, read: &ReadRecord, header_only: bool) -> Result<u64> {
     if header_only {
-        writeln!(output, "@{}", read.id)?;
-        Ok((read.id.len() + 2) as u64)
+        if read.comment.is_empty() {
+            writeln!(output, "@{}", read.id)?;
+            Ok((read.id.len() + 2) as u64)
+        } else {
+            writeln!(output, "@{} {}", read.id, read.comment)?;
+            Ok((read.id.len() + 1 + read.comment.len() + 2) as u64)
+        }
     } else {
         write_fastq_record(output, read)?;
-        Ok(read.id.len() as u64 + read.sequence.len() as u64 + read.quality.len() as u64 + 4)
+        let comment_bytes = if read.comment.is_empty() { 0 } else { read.comment.len() + 1 };
+        Ok(read.id.len() as u64 + comment_bytes as u64 + read.sequence.len() as u64 + read.quality.len() as u64 + 4)
     }
 }
 
