@@ -11,6 +11,9 @@ mod fastq;
 mod format;
 mod fqc_reader;
 mod fqc_writer;
+mod io;
+mod pipeline;
+mod reorder_map;
 mod types;
 
 use clap::{Parser, Subcommand};
@@ -115,6 +118,10 @@ enum Commands {
         #[arg(long)]
         scan_all_lengths: bool,
 
+        /// Use pipeline mode (3-stage Reader→Compressor→Writer with backpressure)
+        #[arg(long)]
+        pipeline: bool,
+
         /// Paired-end storage layout: interleaved, consecutive
         #[arg(long, default_value = "interleaved",
               value_parser = clap::builder::PossibleValuesParser::new(["interleaved", "consecutive"]))]
@@ -155,6 +162,10 @@ enum Commands {
         /// Split paired-end output to separate files
         #[arg(long)]
         split_pe: bool,
+
+        /// Use pipeline mode (3-stage Reader→Decompressor→Writer with backpressure)
+        #[arg(long)]
+        pipeline: bool,
 
         /// Overwrite existing output file
         #[arg(short = 'f', long)]
@@ -243,6 +254,7 @@ fn main() {
             interleaved,
             max_block_bases,
             scan_all_lengths,
+            pipeline,
             pe_layout,
         } => {
             let mut opts = CompressOptions {
@@ -261,6 +273,7 @@ fn main() {
                 interleaved,
                 max_block_bases,
                 scan_all_lengths,
+                use_pipeline: pipeline,
                 ..CompressOptions::default()
             };
 
@@ -304,6 +317,7 @@ fn main() {
             skip_corrupted,
             corrupted_placeholder,
             split_pe,
+            pipeline,
             force,
         } => {
             let mut opts = DecompressOptions {
@@ -317,6 +331,7 @@ fn main() {
                 threads: cli.threads,
                 show_progress,
                 force_overwrite: force,
+                use_pipeline: pipeline,
                 ..DecompressOptions::default()
             };
 

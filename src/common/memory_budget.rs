@@ -117,7 +117,7 @@ impl MemoryEstimator {
         let requires_chunking = total_reads > max_reads;
 
         let recommended_chunks = if requires_chunking {
-            ((total_reads + max_reads - 1) / max_reads).max(2)
+            total_reads.div_ceil(max_reads).max(2)
         } else {
             1
         };
@@ -152,7 +152,7 @@ impl MemoryEstimator {
         let available = self.budget.phase2_available_bytes();
         let per_thread = (available as f64 / (num_threads as f64 * MEMORY_SAFETY_MARGIN)) as usize;
         let block_size = per_thread / MEMORY_PER_READ_PHASE2;
-        block_size.max(1000).min(500_000)
+        block_size.clamp(1000, 500_000)
     }
 }
 
@@ -313,4 +313,97 @@ fn get_process_memory_linux() -> usize {
         }
     }
     0
+}
+
+// =============================================================================
+// Dynamic Chunking Strategy
+// =============================================================================
+
+/// Strategy for divide-and-conquer chunking when data exceeds memory limits
+#[derive(Debug, Clone)]
+pub struct ChunkingStrategy {
+    pub num_chunks: usize,
+    pub reads_per_chunk: usize,
+    pub block_size: usize,
+    pub blocks_per_chunk: usize,
+    pub estimated_peak_mb: usize,
+}
+
+impl ChunkingStrategy {
+    /// Compute an optimal chunking strategy given dataset and system constraints
+    pub fn compute(
+        total_reads: usize,
+        avg_read_length: usize,
+        block_size: usize,
+        num_threads: usize,
+        memory_limit_mb: usize,
+    ) -> Self {
+        let effective_limit = if memory_limit_mb == 0 {
+            let system_mb = get_available_memory_mb();
+            // Use 75% of available memory
+            (system_mb as f64 * 0.75) as usize
+        } else {
+            memory_limit_mb
+        };
+
+        let bytes_per_read = avg_read_length * 3 + 80; // seq + qual + id + overhead
+        let phase1_per_read = MEMORY_PER_READ_PHASE1 + bytes_per_read;
+        let phase1_total_mb = (total_reads * phase1_per_read) / (1024 * 1024);
+
+        let available_mb = effective_limit.max(MIN_MEMORY_LIMIT_MB);
+
+        let num_chunks = if phase1_total_mb <= available_mb {
+            1
+        } else {
+            phase1_total_mb.div_ceil(available_mb).max(2)
+        };
+
+        let reads_per_chunk = total_reads.div_ceil(num_chunks);
+        let blocks_per_chunk = reads_per_chunk.div_ceil(block_size);
+
+        let chunk_phase1_mb = (reads_per_chunk * phase1_per_read) / (1024 * 1024);
+        let phase2_per_block_mb = (block_size * MEMORY_PER_READ_PHASE2) / (1024 * 1024);
+        let phase2_mb = phase2_per_block_mb * num_threads.min(blocks_per_chunk);
+        let estimated_peak_mb = chunk_phase1_mb.max(phase2_mb) +
+            DEFAULT_BLOCK_BUFFER_MB + DEFAULT_WORKER_STACK_MB * num_threads;
+
+        Self {
+            num_chunks,
+            reads_per_chunk,
+            block_size,
+            blocks_per_chunk,
+            estimated_peak_mb,
+        }
+    }
+
+    pub fn requires_chunking(&self) -> bool {
+        self.num_chunks > 1
+    }
+
+    /// Summary string for logging
+    pub fn summary(&self) -> String {
+        if self.requires_chunking() {
+            format!(
+                "{} chunks × {} reads/chunk ({} blocks/chunk), est. peak {} MB",
+                self.num_chunks, self.reads_per_chunk,
+                self.blocks_per_chunk, self.estimated_peak_mb
+            )
+        } else {
+            format!(
+                "single pass, {} reads, est. peak {} MB",
+                self.reads_per_chunk, self.estimated_peak_mb
+            )
+        }
+    }
+}
+
+/// Auto-configure memory budget from system state
+pub fn auto_memory_budget(user_limit_mb: usize) -> MemoryBudget {
+    let limit = if user_limit_mb == 0 {
+        let avail = get_available_memory_mb();
+        (avail as f64 * 0.75) as usize
+    } else {
+        user_limit_mb
+    };
+    MemoryBudget::from_memory_limit(limit)
 }
