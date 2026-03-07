@@ -1,6 +1,8 @@
 # fqc 发布说明
 
-> **🔗 C++ 原版**: 本项目是 [fq-compressor（C++ 实现）](../fq-compressor/README.zh-CN.md) 的 Rust 重写版本。C++ 版本采用 Intel TBB 并行和 C++23，详见 [英文 README](../fq-compressor/README.md)。
+[English README](README.md) | [C++ 版本（中文）](../fq-compressor/README.zh-CN.md) | [C++ 版本（English）](../fq-compressor/README.md)
+
+> 本项目是 **fq-compressor** 的 Rust 实现。两个版本共享相同的 `.fqc` 归档格式与 ABC/SCM 压缩算法，Rust 版本以 Rayon + crossbeam 替代 Intel TBB，并引入异步 I/O。
 
 ## [0.1.0] - 2026-03-07
 
