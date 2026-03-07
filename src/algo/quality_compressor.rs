@@ -85,10 +85,7 @@ impl AdaptiveModel {
 
     fn rescale(&mut self) {
         for f in &mut self.frequencies {
-            *f = (*f + 1) / 2;
-            if *f == 0 {
-                *f = 1;
-            }
+            *f = (*f).div_ceil(2).max(1);
         }
     }
 }

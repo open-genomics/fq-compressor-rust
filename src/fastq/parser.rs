@@ -11,7 +11,7 @@ use std::io::{BufRead, BufReader, Read};
 // =============================================================================
 
 /// Configuration for FASTQ parsing behavior
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ParserOptions {
     /// Validate DNA sequence characters (A/C/G/T/N only)
     pub validate_sequence: bool,
@@ -21,15 +21,7 @@ pub struct ParserOptions {
     pub collect_stats: bool,
 }
 
-impl Default for ParserOptions {
-    fn default() -> Self {
-        Self {
-            validate_sequence: false,
-            validate_quality: false,
-            collect_stats: false,
-        }
-    }
-}
+// ParserOptions derives Default (all bool fields default to false)
 
 // =============================================================================
 // Parser Statistics
@@ -95,7 +87,7 @@ pub fn validate_sequence(seq: &str) -> std::result::Result<(), String> {
 /// Validate quality string (Phred+33: ASCII 33-126)
 pub fn validate_quality_string(qual: &str) -> std::result::Result<(), String> {
     for (i, b) in qual.bytes().enumerate() {
-        if b < 33 || b > 126 {
+        if !(33..=126).contains(&b) {
             return Err(format!("Invalid quality value {} at position {} (expected 33-126)", b, i));
         }
     }

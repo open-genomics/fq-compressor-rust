@@ -2,9 +2,14 @@
 name = "fqc"
 version = "0.1.0"
 edition = "2021"
+rust-version = "1.75"
 authors = ["fq-compressor-rust contributors"]
 description = "High-performance FASTQ compressor with random access support"
 license = "GPL-3.0"
+readme = "README.md"
+repository = "https://github.com/lessup/fq-compressor-rust"
+keywords = ["bioinformatics", "fastq", "compression", "genomics"]
+categories = ["compression", "science", "command-line-utilities"]
 
 [[bin]]
 name = "fqc"
@@ -30,12 +35,68 @@ bzip2 = "0.4"
 xz2 = "0.1"
 crossbeam-channel = "0.5"
 
+[dev-dependencies]
+tempfile = "3"
+
 [profile.release]
 opt-level = 3
-lto = true
+lto = "fat"
 codegen-units = 1
 panic = "abort"
+strip = "symbols"
+
+[profile.release-with-debug]
+inherits = "release"
+debug = true
+strip = "none"
 
 [profile.dev]
 opt-level = 0
 debug = true
+
+[profile.test]
+opt-level = 1
+
+[lints.rust]
+unsafe_code = "deny"
+
+[lints.clippy]
+pedantic = { level = "warn", priority = -1 }
+# Casts — pervasive in binary format / bioinformatics code
+too_many_arguments = "allow"
+needless_range_loop = "allow"
+module_name_repetitions = "allow"
+cast_possible_truncation = "allow"
+cast_possible_wrap = "allow"
+cast_sign_loss = "allow"
+cast_precision_loss = "allow"
+cast_lossless = "allow"
+# Documentation style
+missing_errors_doc = "allow"
+missing_panics_doc = "allow"
+doc_markdown = "allow"
+# API ergonomics
+must_use_candidate = "allow"
+return_self_not_must_use = "allow"
+struct_excessive_bools = "allow"
+fn_params_excessive_bools = "allow"
+# Code style preferences
+uninlined_format_args = "allow"
+wildcard_imports = "allow"
+items_after_statements = "allow"
+similar_names = "allow"
+single_match_else = "allow"
+match_same_arms = "allow"
+redundant_closure_for_method_calls = "allow"
+redundant_closure = "allow"
+manual_let_else = "allow"
+if_not_else = "allow"
+unused_self = "allow"
+unnecessary_wraps = "allow"
+type_complexity = "allow"
+explicit_iter_loop = "allow"
+no_effect_underscore_binding = "allow"
+needless_continue = "allow"
+collapsible_if = "allow"
+map_unwrap_or = "allow"
+while_let_loop = "allow"

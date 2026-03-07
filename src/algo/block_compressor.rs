@@ -186,7 +186,7 @@ impl ConsensusSequence {
     fn recompute_consensus(&mut self) {
         self.sequence.resize(self.base_counts.len(), b'A');
         for (i, counts) in self.base_counts.iter().enumerate() {
-            let max_idx = counts.iter().enumerate().max_by_key(|&(_, &c)| c).map(|(i, _)| i).unwrap_or(0);
+            let max_idx = counts.iter().enumerate().max_by_key(|(_, &c)| c).map(|(idx, _)| idx).unwrap_or(0);
             self.sequence[i] = INDEX_TO_BASE[max_idx];
         }
     }
@@ -535,7 +535,7 @@ fn compress_sequences_abc(
         for delta in &contig.deltas {
             buf.write_u32::<LittleEndian>(delta.original_order)?;
             buf.write_i16::<LittleEndian>(delta.position_offset)?;
-            buf.push(if delta.is_rc { 1 } else { 0 });
+            buf.push(u8::from(delta.is_rc));
             buf.write_u16::<LittleEndian>(delta.read_length)?;
             buf.write_u16::<LittleEndian>(delta.mismatch_positions.len() as u16)?;
             for &pos in &delta.mismatch_positions {
@@ -645,7 +645,7 @@ fn decompress_sequences_abc(data: &[u8], read_count: u32) -> Result<Vec<String>>
                 .map_err(|e| FqcError::Format(format!("Truncated ABC num_mismatches: {e}")))?;
 
             let mut mismatch_positions = vec![0u16; num_mismatches as usize];
-            for pos in mismatch_positions.iter_mut() {
+            for pos in &mut mismatch_positions {
                 *pos = cur.read_u16::<LittleEndian>()
                     .map_err(|e| FqcError::Format(format!("Truncated ABC mismatch_pos: {e}")))?;
             }

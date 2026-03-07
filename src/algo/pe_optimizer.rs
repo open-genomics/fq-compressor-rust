@@ -211,8 +211,8 @@ impl PEOptimizer {
             self.stats.bytes_saved += saved as u64;
         } else {
             encoded.use_complementarity = false;
-            encoded.seq2 = r2.sequence.clone();
-            encoded.qual2 = r2.quality.clone();
+            encoded.seq2.clone_from(&r2.sequence);
+            encoded.qual2.clone_from(&r2.quality);
         }
 
         self.stats.total_pairs += 1;
@@ -248,16 +248,17 @@ pub fn generate_r2_id(r1_id: &str) -> String {
 
     // Check for /1 or .1 suffix
     if len >= 2 && bytes[len - 1] == b'1' && (bytes[len - 2] == b'/' || bytes[len - 2] == b'.') {
-        let mut id = r1_id.to_string();
-        unsafe { id.as_bytes_mut()[len - 1] = b'2'; }
+        let mut id = r1_id[..len - 1].to_string();
+        id.push('2');
         return id;
     }
 
     // Check for space-separated format: "id 1:..." -> "id 2:..."
     if let Some(space_pos) = r1_id.find(' ') {
         if space_pos + 1 < len && bytes[space_pos + 1] == b'1' {
-            let mut id = r1_id.to_string();
-            unsafe { id.as_bytes_mut()[space_pos + 1] = b'2'; }
+            let mut id = r1_id[..=space_pos].to_string();
+            id.push('2');
+            id.push_str(&r1_id[space_pos + 2..]);
             return id;
         }
     }
@@ -275,7 +276,7 @@ pub fn serialize_encoded_pair(pair: &PEEncodedPair) -> Vec<u8> {
     let mut buf = Vec::with_capacity(256);
 
     // Flags byte
-    let flags: u8 = if pair.use_complementarity { 1 } else { 0 };
+    let flags: u8 = u8::from(pair.use_complementarity);
     buf.push(flags);
 
     // ID2 (empty if same-pattern as ID1)

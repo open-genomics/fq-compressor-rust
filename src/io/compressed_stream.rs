@@ -73,17 +73,13 @@ pub fn detect_format_from_bytes(magic: &[u8]) -> CompressionFormat {
 
 /// Detect compression format from file extension
 pub fn detect_format_from_extension(path: &str) -> CompressionFormat {
-    let lower = path.to_lowercase();
-    if lower.ends_with(".gz") || lower.ends_with(".gzip") {
-        CompressionFormat::Gzip
-    } else if lower.ends_with(".bz2") {
-        CompressionFormat::Bzip2
-    } else if lower.ends_with(".xz") {
-        CompressionFormat::Xz
-    } else if lower.ends_with(".zst") || lower.ends_with(".zstd") {
-        CompressionFormat::Zstd
-    } else {
-        CompressionFormat::Plain
+    let path = std::path::Path::new(path);
+    match path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+        Some("gz" | "gzip") => CompressionFormat::Gzip,
+        Some("bz2") => CompressionFormat::Bzip2,
+        Some("xz") => CompressionFormat::Xz,
+        Some("zst" | "zstd") => CompressionFormat::Zstd,
+        _ => CompressionFormat::Plain,
     }
 }
 

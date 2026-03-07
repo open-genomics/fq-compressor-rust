@@ -122,7 +122,7 @@ pub struct GlobalHeader {
 
 impl GlobalHeader {
     pub fn new(flags: u64, total_read_count: u64, original_filename: &str, timestamp: u64) -> Self {
-        let fname_bytes = original_filename.as_bytes().len();
+        let fname_bytes = original_filename.len();
         let header_size = (GLOBAL_HEADER_MIN_SIZE + fname_bytes) as u32;
         Self {
             header_size,

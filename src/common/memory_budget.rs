@@ -181,6 +181,7 @@ pub fn get_available_memory_mb() -> usize {
 }
 
 #[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
 fn get_available_memory_windows() -> usize {
     use std::mem;
 
@@ -260,6 +261,7 @@ pub fn get_current_memory_usage_mb() -> usize {
 }
 
 #[cfg(target_os = "windows")]
+#[allow(unsafe_code)]
 fn get_process_memory_windows() -> usize {
     use std::mem;
 

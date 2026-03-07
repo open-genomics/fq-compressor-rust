@@ -213,7 +213,7 @@ impl GlobalAnalyzer {
         if should_reorder {
             log::info!("Performing global reordering on {} reads", total_reads);
             let reorder_map = self.perform_reordering(sequences)?;
-            result.reverse_map = reorder_map.clone();
+            result.reverse_map.clone_from(&reorder_map);
             result.forward_map = self.build_forward_map(&reorder_map);
             result.reordering_performed = true;
         } else {

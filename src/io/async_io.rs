@@ -293,7 +293,7 @@ impl AsyncWriter {
         self.sender.take();
         if let Some(handle) = self.handle.take() {
             handle.join().map_err(|_| {
-                io::Error::new(io::ErrorKind::Other, "AsyncWriter: background thread panicked")
+                io::Error::other("AsyncWriter: background thread panicked")
             })??;
         }
         Ok(())

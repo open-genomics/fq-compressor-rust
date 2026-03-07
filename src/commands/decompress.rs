@@ -83,7 +83,7 @@ impl OutputWriters {
             Self::Single(output) => write_to_target(output.as_mut(), read, header_only),
             Self::Split { r1, r2, pe_layout } => {
                 let to_r1 = match pe_layout {
-                    PeLayout::Interleaved => zero_based_read_idx.is_multiple_of(2),
+                    PeLayout::Interleaved => zero_based_read_idx % 2 == 0,
                     PeLayout::Consecutive => zero_based_read_idx < (total_archive_reads / 2),
                 };
 
