@@ -84,6 +84,7 @@ struct DecompressedResult {
     block_id: u32,
     result: std::result::Result<DecompressedBlockData, FqcError>,
     is_last: bool,
+    expected_read_count: u32,
 }
 
 // =============================================================================
@@ -147,6 +148,15 @@ impl DecompressionPipeline {
             self.find_block_range(&reader)
         } else {
             (0, block_count)
+        };
+
+        // Compute how many reads exist before start_block (for correct range filtering)
+        let reads_before_start_block: u64 = if start_block > 0 {
+            reader.block_index.entries.get(start_block)
+                .map(|e| e.archive_id_start)
+                .unwrap_or(0)
+        } else {
+            0
         };
 
         let compressor_config = Arc::new(BlockCompressorConfig {
@@ -215,6 +225,7 @@ impl DecompressionPipeline {
                         block_id: task.block_id,
                         result: decomp_result,
                         is_last: task.is_last,
+                        expected_read_count: bh.uncompressed_count,
                     }).map_err(|_| {
                         FqcError::Decompression("Decompressor: channel closed".to_string())
                     })?;
@@ -230,6 +241,9 @@ impl DecompressionPipeline {
         let writer_control = control.clone();
         let header_only = self.config.header_only;
         let skip_corrupted = self.config.skip_corrupted;
+        let range_start = self.config.range_start;
+        let range_end = self.config.range_end;
+        let has_range = self.config.has_range();
         let writer_handle = thread::spawn(move || -> Result<(u64, u64)> {
             const ASYNC_WRITE_BUF: usize = 4 * 1024 * 1024; // 4 MB write-behind buffer
             const ASYNC_WRITE_DEPTH: usize = 4;
@@ -247,6 +261,7 @@ impl DecompressionPipeline {
             let mut next_expected: u32 = start_block as u32;
             let mut total_output_bytes: u64 = 0;
             let mut total_reads_written: u64 = 0;
+            let mut global_read_idx: u64 = reads_before_start_block;
 
             for dr in result_rx.iter() {
                 if writer_control.is_cancelled() { break; }
@@ -256,20 +271,37 @@ impl DecompressionPipeline {
                     match dr.result {
                         Ok(decompressed) => {
                             for read in &decompressed.reads {
+                                global_read_idx += 1;
+                                // Per-read range filtering (1-based)
+                                if has_range {
+                                    if range_start > 0 && global_read_idx < range_start {
+                                        continue;
+                                    }
+                                    if range_end > 0 && global_read_idx > range_end {
+                                        continue;
+                                    }
+                                }
                                 if header_only {
-                                    let line = format!("{}\n", read.id);
+                                    let line = if read.comment.is_empty() {
+                                        format!("@{}\n", read.id)
+                                    } else {
+                                        format!("@{} {}\n", read.id, read.comment)
+                                    };
                                     output.write_all(line.as_bytes()).map_err(FqcError::Io)?;
                                     total_output_bytes += line.len() as u64;
                                 } else {
                                     write_record(output.as_mut(), read)?;
-                                    total_output_bytes += (read.id.len() + read.sequence.len() +
-                                        read.quality.len() + 5) as u64;
+                                    let comment_bytes = if read.comment.is_empty() { 0 } else { read.comment.len() + 1 };
+                                    total_output_bytes += (read.id.len() + comment_bytes +
+                                        read.sequence.len() + read.quality.len() + 5) as u64;
                                 }
                                 total_reads_written += 1;
                             }
                         }
                         Err(e) => {
                             if skip_corrupted {
+                                // Account for skipped reads so global_read_idx stays correct
+                                global_read_idx += dr.expected_read_count as u64;
                                 log::warn!("Block {} corrupted, skipping: {}", dr.block_id, e);
                             } else {
                                 return Err(e);
