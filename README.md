@@ -20,11 +20,27 @@ A Rust implementation of the FQC compressor for FASTQ files, featuring the ABC (
 
 ## Installation
 
+### From Source
+
 ```bash
 cargo build --release
 ```
 
 The binary will be at `target/release/fqc` (or `fqc.exe` on Windows).
+
+### Docker
+
+```bash
+# Pull from GitHub Container Registry
+docker pull ghcr.io/lessup/fq-compressor-rust:latest
+
+# Or build locally
+docker build -t fqc .
+
+# Run (mount data directory)
+docker run --rm -v $(pwd):/data fqc compress -i /data/reads.fastq -o /data/reads.fqc
+docker run --rm -v $(pwd):/data fqc decompress -i /data/reads.fqc -o /data/reads.fastq
+```
 
 ## Usage
 

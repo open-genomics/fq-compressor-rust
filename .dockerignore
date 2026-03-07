@@ -1,0 +1,44 @@
+# Build artifacts
+target/
+**/*.rs.bk
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+.windsurf/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# CI/CD (not needed in image)
+.github/
+
+# Documentation (not needed in image)
+docs/
+*.md
+!README.md
+
+# Config files (not needed in image)
+.editorconfig
+.windsurfrules
+clippy.toml
+rustfmt.toml
+taplo.toml
+bacon.toml
+cliff.toml
+deny.toml
+release.toml
+CLAUDE.md
+AGENTS.md
+
+# Test artifacts
+*.fqc
+*_out.fastq
+tests/
