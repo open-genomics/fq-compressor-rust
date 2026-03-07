@@ -5,6 +5,7 @@
 
 mod algo;
 mod commands;
+mod common;
 mod error;
 mod fastq;
 mod format;

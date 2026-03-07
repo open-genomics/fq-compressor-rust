@@ -1,10 +1,5 @@
 // =============================================================================
-// fqc-rust - Algorithm Module
+// fqc-rust - Common Module
 // =============================================================================
 
-pub mod global_analyzer;
-pub mod block_compressor;
-pub mod id_compressor;
-pub mod pe_optimizer;
-pub mod quality_compressor;
-
+pub mod memory_budget;

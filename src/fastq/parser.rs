@@ -92,33 +92,89 @@ impl<R: BufRead> FastqParser<R> {
     }
 }
 
-/// Open a FASTQ file (plain or gzip compressed) for reading.
-/// Detects gzip by magic bytes (0x1f 0x8b) or `.gz` extension.
+/// Detected compression format for input files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CompressionFormat {
+    Plain,
+    Gzip,
+    Bzip2,
+    Xz,
+    Zstd,
+}
+
+/// Detect compression format by magic bytes, with extension fallback.
+fn detect_compression(path: &str) -> CompressionFormat {
+    // Try magic bytes first (most reliable)
+    if let Ok(mut f) = std::fs::File::open(path) {
+        let mut magic = [0u8; 6];
+        if std::io::Read::read(&mut f, &mut magic).unwrap_or(0) >= 2 {
+            // Gzip: 0x1f 0x8b
+            if magic[0] == 0x1f && magic[1] == 0x8b {
+                return CompressionFormat::Gzip;
+            }
+            // Bzip2: 'B' 'Z' 'h'
+            if magic[0] == b'B' && magic[1] == b'Z' && magic[2] == b'h' {
+                return CompressionFormat::Bzip2;
+            }
+            // Zstd: 0x28 0xb5 0x2f 0xfd
+            if magic[0] == 0x28 && magic[1] == 0xb5 && magic[2] == 0x2f && magic[3] == 0xfd {
+                return CompressionFormat::Zstd;
+            }
+            // XZ: 0xfd '7' 'z' 'X' 'Z' 0x00
+            if magic[0] == 0xfd && magic[1] == b'7' && magic[2] == b'z'
+                && magic[3] == b'X' && magic[4] == b'Z' && magic[5] == 0x00 {
+                return CompressionFormat::Xz;
+            }
+        }
+    }
+
+    // Fallback to extension
+    let lower = path.to_lowercase();
+    if lower.ends_with(".gz") || lower.ends_with(".gzip") {
+        CompressionFormat::Gzip
+    } else if lower.ends_with(".bz2") {
+        CompressionFormat::Bzip2
+    } else if lower.ends_with(".xz") {
+        CompressionFormat::Xz
+    } else if lower.ends_with(".zst") || lower.ends_with(".zstd") {
+        CompressionFormat::Zstd
+    } else {
+        CompressionFormat::Plain
+    }
+}
+
+/// Open a FASTQ file (plain or compressed) for reading.
+/// Auto-detects gzip, bzip2, xz, and zstd by magic bytes or extension.
 pub fn open_fastq(path: &str) -> Result<FastqParser<BufReader<Box<dyn Read + Send>>>> {
-    use flate2::read::GzDecoder;
     use std::fs::File;
 
-    let is_gz = path.ends_with(".gz") || path.ends_with(".gzip") || {
-        // Peek at first 2 bytes for gzip magic
-        if let Ok(mut f) = File::open(path) {
-            let mut magic = [0u8; 2];
-            let _ = std::io::Read::read_exact(&mut f, &mut magic);
-            magic == [0x1f, 0x8b]
-        } else {
-            false
+    let format = detect_compression(path);
+    let file = File::open(path)?;
+
+    let reader: Box<dyn Read + Send> = match format {
+        CompressionFormat::Gzip => {
+            log::debug!("Detected gzip input: {}", path);
+            Box::new(flate2::read::GzDecoder::new(file))
+        }
+        CompressionFormat::Bzip2 => {
+            log::debug!("Detected bzip2 input: {}", path);
+            Box::new(bzip2::read::BzDecoder::new(file))
+        }
+        CompressionFormat::Xz => {
+            log::debug!("Detected xz input: {}", path);
+            Box::new(xz2::read::XzDecoder::new(file))
+        }
+        CompressionFormat::Zstd => {
+            log::debug!("Detected zstd input: {}", path);
+            Box::new(zstd::Decoder::new(file)
+                .map_err(|e| FqcError::Io(std::io::Error::new(std::io::ErrorKind::Other, format!("Zstd decoder init failed: {e}"))))?)
+        }
+        CompressionFormat::Plain => {
+            Box::new(file)
         }
     };
 
-    let file = File::open(path)?;
-
-    if is_gz {
-        let decoder = GzDecoder::new(file);
-        let reader: Box<dyn Read + Send> = Box::new(decoder);
-        Ok(FastqParser::new(BufReader::new(reader)))
-    } else {
-        let reader: Box<dyn Read + Send> = Box::new(file);
-        Ok(FastqParser::new(BufReader::new(reader)))
-    }
+    Ok(FastqParser::new(BufReader::new(reader)))
 }
 
 /// Open stdin for FASTQ reading (plain text only)

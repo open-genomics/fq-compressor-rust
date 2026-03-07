@@ -757,43 +757,12 @@ fn decompress_quality(
 // =============================================================================
 
 fn compress_ids(reads: &[ReadRecord], config: &BlockCompressorConfig, zstd_level: i32) -> Result<Vec<u8>> {
-    if config.id_mode == IdMode::Discard {
-        return Ok(Vec::new());
-    }
-
-    let mut buf: Vec<u8> = Vec::with_capacity(reads.len() * 50);
-
-    for read in reads {
-        let id_bytes = read.id.as_bytes();
-        buf.write_u16::<LittleEndian>(id_bytes.len() as u16)?;
-        buf.extend_from_slice(id_bytes);
-    }
-
-    zstd::bulk::compress(&buf, zstd_level)
-        .map_err(|e| FqcError::Compression(format!("ID Zstd compress failed: {e}")))
+    let id_refs: Vec<&str> = reads.iter().map(|r| r.id.as_str()).collect();
+    crate::algo::id_compressor::compress_ids(&id_refs, zstd_level, config.id_mode == IdMode::Discard)
 }
 
 fn decompress_ids(data: &[u8], read_count: u32, _config: &BlockCompressorConfig) -> Result<Vec<String>> {
-    if data.is_empty() {
-        return Ok(vec![String::new(); read_count as usize]);
-    }
-
-    let buf = zstd::stream::decode_all(data)
-        .map_err(|e| FqcError::Decompression(format!("ID Zstd decompress failed: {e}")))?;
-
-    let mut ids = Vec::with_capacity(read_count as usize);
-    let mut cur = Cursor::new(&buf);
-
-    for _ in 0..read_count {
-        let len = cur.read_u16::<LittleEndian>()
-            .map_err(|e| FqcError::Format(format!("Truncated ID data: {e}")))?;
-        let mut id = vec![0u8; len as usize];
-        cur.read_exact(&mut id)
-            .map_err(|e| FqcError::Format(format!("Truncated ID bytes: {e}")))?;
-        ids.push(String::from_utf8_lossy(&id).into_owned());
-    }
-
-    Ok(ids)
+    crate::algo::id_compressor::decompress_ids(data, read_count)
 }
 
 // =============================================================================
