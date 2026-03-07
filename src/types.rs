@@ -277,13 +277,20 @@ pub fn decode_codec_family(codec: u8) -> CodecFamily {
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ReadRecord {
     pub id: String,
+    /// Optional comment after ID (space-separated on the FASTQ header line)
+    pub comment: String,
     pub sequence: String,
     pub quality: String,
 }
 
 impl ReadRecord {
     pub fn new(id: String, sequence: String, quality: String) -> Self {
-        Self { id, sequence, quality }
+        Self { id, comment: String::new(), sequence, quality }
+    }
+
+    /// Construct with all fields including comment
+    pub fn with_comment(id: String, comment: String, sequence: String, quality: String) -> Self {
+        Self { id, comment, sequence, quality }
     }
 
     pub fn is_valid(&self) -> bool {
@@ -345,6 +352,8 @@ pub struct DecompressOptions {
     pub verify: bool,
     pub skip_corrupted: bool,
     pub placeholder_qual: char,
+    /// ID prefix for discard mode reconstruction (e.g., "read" → @read1, @read2, ...)
+    pub id_prefix: String,
     pub threads: usize,
 }
 
@@ -358,6 +367,7 @@ impl Default for DecompressOptions {
             verify: true,
             skip_corrupted: false,
             placeholder_qual: DEFAULT_PLACEHOLDER_QUAL,
+            id_prefix: String::from("read"),
             threads: 0,
         }
     }

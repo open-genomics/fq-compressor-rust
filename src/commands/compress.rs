@@ -490,12 +490,20 @@ impl CompressCommand {
             let mut block_buf = Vec::with_capacity(r1_buf.len() + r2_buf.len());
             match self.opts.pe_layout {
                 PeLayout::Interleaved => {
-                    for (a, b) in r1_buf.drain(..).zip(r2_buf.drain(..)) {
-                        block_buf.push(a);
-                        block_buf.push(b);
+                    let paired_count = r1_buf.len().min(r2_buf.len());
+                    for i in 0..paired_count {
+                        block_buf.push(r1_buf[i].clone());
+                        block_buf.push(r2_buf[i].clone());
                     }
-                    // Any remaining unpaired reads
-                    block_buf.append(&mut r1_buf);
+                    // Any remaining unpaired reads (e.g. odd number of reads)
+                    for i in paired_count..r1_buf.len() {
+                        block_buf.push(r1_buf[i].clone());
+                    }
+                    for i in paired_count..r2_buf.len() {
+                        block_buf.push(r2_buf[i].clone());
+                    }
+                    r1_buf.clear();
+                    r2_buf.clear();
                 }
                 PeLayout::Consecutive => {
                     block_buf.append(&mut r1_buf);
@@ -596,10 +604,19 @@ impl CompressCommand {
             let mut block_buf = Vec::with_capacity(r1_buf.len() + r2_buf.len());
             match self.opts.pe_layout {
                 PeLayout::Interleaved => {
-                    for (r1, r2) in r1_buf.drain(..).zip(r2_buf.drain(..)) {
-                        block_buf.push(r1);
-                        block_buf.push(r2);
+                    let paired_count = r1_buf.len().min(r2_buf.len());
+                    for i in 0..paired_count {
+                        block_buf.push(r1_buf[i].clone());
+                        block_buf.push(r2_buf[i].clone());
                     }
+                    for i in paired_count..r1_buf.len() {
+                        block_buf.push(r1_buf[i].clone());
+                    }
+                    for i in paired_count..r2_buf.len() {
+                        block_buf.push(r2_buf[i].clone());
+                    }
+                    r1_buf.clear();
+                    r2_buf.clear();
                 }
                 PeLayout::Consecutive => {
                     block_buf.append(&mut r1_buf);
@@ -607,10 +624,12 @@ impl CompressCommand {
                 }
             }
 
-            let compressed = compressor.compress(&block_buf, block_id)?;
-            writer.write_block_with_id(&compressed, archive_id_start)?;
-            self.stats.output_bytes += compressed.total_compressed_size() as u64;
-            self.stats.blocks_written += 1;
+            if !block_buf.is_empty() {
+                let compressed = compressor.compress(&block_buf, block_id)?;
+                writer.write_block_with_id(&compressed, archive_id_start)?;
+                self.stats.output_bytes += compressed.total_compressed_size() as u64;
+                self.stats.blocks_written += 1;
+            }
         }
 
         self.stats.input_bytes = self.stats.total_bases;

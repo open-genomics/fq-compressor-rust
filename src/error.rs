@@ -43,6 +43,78 @@ pub enum FqcError {
 pub type Result<T> = std::result::Result<T, FqcError>;
 
 // =============================================================================
+// Error Context (matches C++ ErrorContext)
+// =============================================================================
+
+/// Additional context information for errors.
+/// Provides detailed information about where and why an error occurred.
+#[derive(Debug, Clone, Default)]
+pub struct ErrorContext {
+    /// File path associated with the error (if applicable)
+    pub file_path: Option<String>,
+    /// Block ID where the error occurred (if applicable)
+    pub block_id: Option<u32>,
+    /// Read ID where the error occurred (if applicable)
+    pub read_id: Option<u64>,
+    /// Byte offset in file where error occurred (if applicable)
+    pub byte_offset: Option<u64>,
+}
+
+impl ErrorContext {
+    pub fn new() -> Self { Self::default() }
+
+    pub fn with_file(mut self, path: impl Into<String>) -> Self {
+        self.file_path = Some(path.into()); self
+    }
+
+    pub fn with_block(mut self, id: u32) -> Self {
+        self.block_id = Some(id); self
+    }
+
+    pub fn with_read(mut self, id: u64) -> Self {
+        self.read_id = Some(id); self
+    }
+
+    pub fn with_offset(mut self, offset: u64) -> Self {
+        self.byte_offset = Some(offset); self
+    }
+}
+
+impl std::fmt::Display for ErrorContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mut parts = Vec::new();
+        if let Some(ref p) = self.file_path { parts.push(format!("file={}", p)); }
+        if let Some(b) = self.block_id { parts.push(format!("block={}", b)); }
+        if let Some(r) = self.read_id { parts.push(format!("read={}", r)); }
+        if let Some(o) = self.byte_offset { parts.push(format!("offset={}", o)); }
+        if parts.is_empty() {
+            write!(f, "<no context>")
+        } else {
+            write!(f, "[{}]", parts.join(", "))
+        }
+    }
+}
+
+impl FqcError {
+    /// Wrap this error with additional context information.
+    /// Returns a Format variant containing the original message plus context.
+    pub fn with_context(self, ctx: &ErrorContext) -> Self {
+        let msg = format!("{} {}", self, ctx);
+        match self {
+            FqcError::Io(_) => FqcError::Io(std::io::Error::other(msg)),
+            FqcError::Format(_) => FqcError::Format(msg),
+            FqcError::Compression(_) => FqcError::Compression(msg),
+            FqcError::Decompression(_) => FqcError::Decompression(msg),
+            FqcError::InvalidArgument(_) => FqcError::InvalidArgument(msg),
+            FqcError::Parse(_) => FqcError::Parse(msg),
+            FqcError::OutOfRange(_) => FqcError::OutOfRange(msg),
+            FqcError::UnsupportedFormat(_) => FqcError::UnsupportedFormat(msg),
+            other => other, // ChecksumMismatch, CorruptedBlock, UnsupportedVersion keep structured fields
+        }
+    }
+}
+
+// =============================================================================
 // Exit Code Mapping (matches C++ ErrorCode → CLI exit codes)
 // =============================================================================
 

@@ -43,11 +43,14 @@ impl PEEncodedPair {
         let r1_rc = reverse_complement(r1_seq.as_bytes());
         let mut result: Vec<u8> = r1_rc;
 
-        // Apply differences
+        // Apply differences (extend result if R2 is longer than R1)
         for (i, &pos) in self.diff_positions.iter().enumerate() {
-            if (pos as usize) < result.len() && i < self.diff_bases.len() {
-                result[pos as usize] = self.diff_bases[i];
+            if i >= self.diff_bases.len() { break; }
+            let p = pos as usize;
+            if p >= result.len() {
+                result.resize(p + 1, b'N');
             }
+            result[p] = self.diff_bases[i];
         }
 
         String::from_utf8_lossy(&result).into_owned()
@@ -62,12 +65,15 @@ impl PEEncodedPair {
         // Start with reversed R1 quality
         let mut result: Vec<u8> = r1_qual.as_bytes().iter().rev().copied().collect();
 
-        // Apply quality deltas at diff positions
+        // Apply quality deltas at diff positions (extend if R2 is longer than R1)
         for (i, &pos) in self.diff_positions.iter().enumerate() {
-            if (pos as usize) < result.len() && i < self.qual_delta.len() {
-                let new_qual = (result[pos as usize] as i16) + (self.qual_delta[i] as i16);
-                result[pos as usize] = new_qual.clamp(33, 126) as u8;
+            if i >= self.qual_delta.len() { break; }
+            let p = pos as usize;
+            if p >= result.len() {
+                result.resize(p + 1, b'!'); // Phred '!' = Q0 as default
             }
+            let new_qual = (result[p] as i16) + (self.qual_delta[i] as i16);
+            result[p] = new_qual.clamp(33, 126) as u8;
         }
 
         String::from_utf8_lossy(&result).into_owned()
@@ -223,12 +229,14 @@ impl PEOptimizer {
     pub fn decode_pair(&self, encoded: &PEEncodedPair) -> (ReadRecord, ReadRecord) {
         let r1 = ReadRecord {
             id: encoded.id1.clone(),
+            comment: String::new(),
             sequence: encoded.seq1.clone(),
             quality: encoded.qual1.clone(),
         };
 
         let r2 = ReadRecord {
             id: encoded.id2.clone(),
+            comment: String::new(),
             sequence: encoded.decode_r2_sequence(&encoded.seq1),
             quality: encoded.decode_r2_quality(&encoded.qual1),
         };

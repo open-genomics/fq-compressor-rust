@@ -11,8 +11,8 @@ use crate::error::{FqcError, Result};
 const MAGIC_EXACT: u8 = 0x01;
 const MAGIC_TOKENIZE: u8 = 0x02;
 const MAGIC_DISCARD: u8 = 0x03;
-const DELIMITERS: &[u8] = b":._/ \t@";
-const MIN_PATTERN_MATCH_RATIO: f64 = 0.9;
+const DELIMITERS: &[u8] = b":_/| \t";
+const MIN_PATTERN_MATCH_RATIO: f64 = 0.95;
 
 // =============================================================================
 // Token Types
@@ -82,7 +82,12 @@ fn tokenize(id: &str) -> Vec<Token> {
             if pos > token_start {
                 let s = &id[token_start..pos];
                 if let Some(iv) = try_parse_int(s) {
-                    tokens.push(Token { ttype: TokenType::DynamicInt, value: s.to_string(), int_value: iv });
+                    // Treat leading-zero integers as strings to preserve exact formatting
+                    if s.len() > 1 && s.starts_with('0') {
+                        tokens.push(Token { ttype: TokenType::DynamicString, value: s.to_string(), int_value: 0 });
+                    } else {
+                        tokens.push(Token { ttype: TokenType::DynamicInt, value: s.to_string(), int_value: iv });
+                    }
                 } else {
                     tokens.push(Token { ttype: TokenType::DynamicString, value: s.to_string(), int_value: 0 });
                 }
@@ -98,7 +103,12 @@ fn tokenize(id: &str) -> Vec<Token> {
     if pos > token_start {
         let s = &id[token_start..pos];
         if let Some(iv) = try_parse_int(s) {
-            tokens.push(Token { ttype: TokenType::DynamicInt, value: s.to_string(), int_value: iv });
+            // Treat leading-zero integers as strings to preserve exact formatting
+            if s.len() > 1 && s.starts_with('0') {
+                tokens.push(Token { ttype: TokenType::DynamicString, value: s.to_string(), int_value: 0 });
+            } else {
+                tokens.push(Token { ttype: TokenType::DynamicInt, value: s.to_string(), int_value: iv });
+            }
         } else {
             tokens.push(Token { ttype: TokenType::DynamicString, value: s.to_string(), int_value: 0 });
         }
@@ -496,7 +506,8 @@ pub fn compress_ids(ids: &[&str], zstd_level: i32, discard: bool) -> Result<Vec<
 }
 
 /// Decompress a block of read IDs.
-pub fn decompress_ids(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
+/// `id_prefix` is used for discard mode to generate placeholder IDs.
+pub fn decompress_ids(data: &[u8], num_ids: u32, id_prefix: &str) -> Result<Vec<String>> {
     if data.is_empty() {
         return Ok(vec![String::new(); num_ids as usize]);
     }
@@ -508,7 +519,7 @@ pub fn decompress_ids(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
         MAGIC_EXACT => decompress_exact(payload, num_ids),
         MAGIC_TOKENIZE => decompress_tokenize(payload, num_ids),
         MAGIC_DISCARD => {
-            Ok((1..=num_ids as u64).map(|i| format!("read{}", i)).collect())
+            Ok((1..=num_ids as u64).map(|i| format!("{}{}", id_prefix, i)).collect())
         }
         _ => {
             // Legacy format: len-prefixed Zstd (no magic byte)

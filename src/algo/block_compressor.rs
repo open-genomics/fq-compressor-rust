@@ -71,7 +71,7 @@ fn hamming_distance(s1: &[u8], s2: &[u8], max_dist: usize) -> usize {
     let min_len = s1.len().min(s2.len());
     let mut dist = 0usize;
     for i in 0..min_len {
-        if s1[i] != s2[i] {
+        if (s1[i] | 32) != (s2[i] | 32) {
             dist += 1;
             if dist > max_dist {
                 return max_dist + 1;
@@ -226,7 +226,7 @@ fn compute_delta(read: &[u8], consensus: &[u8], shift: i32, is_rc: bool) -> Delt
         if cons_pos >= consensus.len() {
             mismatch_positions.push(i as u16);
             mismatch_chars.push(aligned[i]);
-        } else if aligned[i] != consensus[cons_pos] {
+        } else if (aligned[i] | 32) != (consensus[cons_pos] | 32) {
             mismatch_positions.push(i as u16);
             mismatch_chars.push(encode_noise(consensus[cons_pos], aligned[i]));
         }
@@ -306,6 +306,8 @@ pub struct BlockCompressorConfig {
     pub max_shift: usize,
     pub consensus_hamming_threshold: usize,
     pub zstd_level: i32,
+    /// ID prefix for discard mode reconstruction (e.g., "read" → @read1, @read2, ...)
+    pub id_prefix: String,
 }
 
 impl Default for BlockCompressorConfig {
@@ -318,6 +320,7 @@ impl Default for BlockCompressorConfig {
             max_shift: 32,
             consensus_hamming_threshold: 16,
             zstd_level: 3,
+            id_prefix: String::from("read"),
         }
     }
 }
@@ -496,9 +499,15 @@ impl BlockCompressor {
         // Decompress IDs
         let ids = decompress_ids(id_stream, read_count, &self.config)?;
 
-        // Assemble reads
+        // Assemble reads (split decompressed full header into id + comment)
         for i in 0..read_count as usize {
-            result.reads[i].id = ids.get(i).cloned().unwrap_or_default();
+            let full_header = ids.get(i).cloned().unwrap_or_default();
+            if let Some(space_pos) = full_header.find(' ') {
+                result.reads[i].id = full_header[..space_pos].to_string();
+                result.reads[i].comment = full_header[space_pos+1..].to_string();
+            } else {
+                result.reads[i].id = full_header;
+            }
             result.reads[i].sequence = sequences.get(i).cloned().unwrap_or_default();
             result.reads[i].quality = qualities.get(i).cloned().unwrap_or_default();
         }
@@ -776,12 +785,20 @@ fn decompress_quality(
 // =============================================================================
 
 fn compress_ids(reads: &[ReadRecord], config: &BlockCompressorConfig, zstd_level: i32) -> Result<Vec<u8>> {
-    let id_refs: Vec<&str> = reads.iter().map(|r| r.id.as_str()).collect();
+    // Combine id + comment into full header line for compression
+    let full_headers: Vec<String> = reads.iter().map(|r| {
+        if r.comment.is_empty() {
+            r.id.clone()
+        } else {
+            format!("{} {}", r.id, r.comment)
+        }
+    }).collect();
+    let id_refs: Vec<&str> = full_headers.iter().map(|s| s.as_str()).collect();
     crate::algo::id_compressor::compress_ids(&id_refs, zstd_level, config.id_mode == IdMode::Discard)
 }
 
-fn decompress_ids(data: &[u8], read_count: u32, _config: &BlockCompressorConfig) -> Result<Vec<String>> {
-    crate::algo::id_compressor::decompress_ids(data, read_count)
+fn decompress_ids(data: &[u8], read_count: u32, config: &BlockCompressorConfig) -> Result<Vec<String>> {
+    crate::algo::id_compressor::decompress_ids(data, read_count, &config.id_prefix)
 }
 
 // =============================================================================
@@ -845,7 +862,7 @@ fn decompress_aux(data: &[u8], read_count: u32) -> Result<Vec<u32>> {
         let mut zigzag = 0u32;
         let mut shift = 0u32;
 
-        loop {
+        for _ in 0..5 {
             if i >= buf.len() { break; }
             let byte = buf[i];
             i += 1;
@@ -869,7 +886,15 @@ fn decompress_aux(data: &[u8], read_count: u32) -> Result<Vec<u32>> {
 
 pub fn compute_block_checksum(reads: &[ReadRecord]) -> u64 {
     let mut hasher = Xxh64::new(0);
-    for r in reads { hasher.update(r.id.as_bytes()); }
+    // Hash the full header line (id + " " + comment) to match the ID stream content.
+    // This ensures backward compatibility: old archives stored the full header as id.
+    for r in reads {
+        hasher.update(r.id.as_bytes());
+        if !r.comment.is_empty() {
+            hasher.update(b" ");
+            hasher.update(r.comment.as_bytes());
+        }
+    }
     for r in reads { hasher.update(r.sequence.as_bytes()); }
     for r in reads { hasher.update(r.quality.as_bytes()); }
     for r in reads {
@@ -918,7 +943,7 @@ pub fn delta_decode_ids(data: &[u8], count: u64) -> Result<Vec<u64>> {
     while i < data.len() && ids.len() < count as usize {
         let mut zigzag = 0u64;
         let mut shift = 0u32;
-        loop {
+        for _ in 0..10 {
             if i >= data.len() { break; }
             let byte = data[i];
             i += 1;

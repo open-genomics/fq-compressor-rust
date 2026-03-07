@@ -186,6 +186,10 @@ enum Commands {
         /// Show detailed block information
         #[arg(long)]
         detailed: bool,
+
+        /// Show codec information for each block
+        #[arg(long)]
+        show_codecs: bool,
     },
 
     /// Verify archive integrity
@@ -202,6 +206,10 @@ enum Commands {
         /// Show detailed verification progress
         #[arg(long)]
         verbose: bool,
+
+        /// Quick mode: only check magic header + footer (skip block decompression)
+        #[arg(long)]
+        quick: bool,
     },
 }
 
@@ -351,19 +359,21 @@ fn main() {
             DecompressCommand::new(opts).execute()
         }
 
-        Commands::Info { input, json, detailed } => {
+        Commands::Info { input, json, detailed, show_codecs } => {
             InfoCommand::new(InfoOptions {
                 input_path: input,
                 json,
                 detailed,
+                show_codecs,
             }).execute()
         }
 
-        Commands::Verify { input, fail_fast, verbose } => {
+        Commands::Verify { input, fail_fast, verbose, quick } => {
             VerifyCommand::new(VerifyOptions {
                 input_path: input,
                 fail_fast,
                 verbose,
+                quick_mode: quick,
             }).execute()
         }
     };

@@ -57,6 +57,9 @@ impl FqcReader {
         }
 
         // Read footer (seek to end - 32 bytes)
+        if file_size < FILE_FOOTER_SIZE as u64 + MAGIC_HEADER_SIZE as u64 {
+            return Err(FqcError::Format("File too small to be a valid .fqc archive".to_string()));
+        }
         let footer_pos = file_size - FILE_FOOTER_SIZE as u64;
         reader.seek(SeekFrom::Start(footer_pos))?;
         let footer = FileFooter::read(&mut reader)?;
@@ -132,8 +135,8 @@ impl FqcReader {
         // Read block header
         let bh = BlockHeader::read(&mut self.reader)?;
 
-        // Payload starts right after the block header
-        let payload_start = entry.offset + BLOCK_HEADER_SIZE as u64;
+        // Payload starts right after the block header (use actual header_size for forward compat)
+        let payload_start = entry.offset + bh.header_size as u64;
 
         let mut block_data = BlockData {
             header: bh.clone(),
@@ -169,6 +172,14 @@ impl FqcReader {
         }
 
         Ok(block_data)
+    }
+
+    /// Read only the block header for a given block_id (no stream data).
+    pub fn read_block_header(&mut self, block_id: u32) -> Result<BlockHeader> {
+        let entry = self.block_index.entries.get(block_id as usize)
+            .ok_or_else(|| FqcError::Format(format!("Block {block_id} not in index")))?;
+        self.reader.seek(SeekFrom::Start(entry.offset))?;
+        BlockHeader::read(&mut self.reader)
     }
 
     /// Look up original read ID from archive ID using the reorder map.

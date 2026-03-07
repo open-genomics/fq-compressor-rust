@@ -187,7 +187,7 @@ impl ReadChunk {
     /// Estimate memory usage of this chunk in bytes
     pub fn estimated_memory(&self) -> usize {
         self.reads.iter()
-            .map(|r| r.id.len() + r.sequence.len() + r.quality.len() + 80)
+            .map(|r| r.id.len() + r.comment.len() + r.sequence.len() + r.quality.len() + 80)
             .sum()
     }
 }

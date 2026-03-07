@@ -17,6 +17,8 @@ pub struct VerifyOptions {
     pub input_path: String,
     pub fail_fast: bool,
     pub verbose: bool,
+    /// Quick verification: only check magic header + footer (skip block decompression)
+    pub quick_mode: bool,
 }
 
 // =============================================================================
@@ -109,6 +111,12 @@ impl VerifyCommand {
             if self.opts.verbose {
                 println!("OK (0x{:016x})", computed);
             }
+        }
+
+        // In quick mode, we only verify magic + footer + global checksum
+        if self.opts.quick_mode {
+            if self.opts.verbose { println!("Quick mode: skipping block-level verification"); }
+            return Ok(true);
         }
 
         let flags = reader.global_header.flags;

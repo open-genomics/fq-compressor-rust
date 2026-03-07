@@ -174,7 +174,12 @@ impl<R: BufRead> FastqParser<R> {
                 self.line_number, id_line
             )));
         }
-        let id = id_line[1..].to_string();
+        let id_full = &id_line[1..];
+        let (id, comment) = if let Some(space_pos) = id_full.find(' ') {
+            (id_full[..space_pos].to_string(), id_full[space_pos+1..].to_string())
+        } else {
+            (id_full.to_string(), String::new())
+        };
         let mut raw_bytes = bytes1;
 
         // Read sequence line
@@ -239,7 +244,7 @@ impl<R: BufRead> FastqParser<R> {
             }
         }
 
-        let record = ReadRecord::new(id, sequence, quality);
+        let record = ReadRecord::with_comment(id, comment, sequence, quality);
         self.record_number += 1;
 
         if self.options.collect_stats {
@@ -488,6 +493,10 @@ pub fn detect_interleaved_format(path: &str) -> Result<bool> {
 pub fn write_record<W: std::io::Write + ?Sized>(w: &mut W, record: &ReadRecord) -> Result<()> {
     w.write_all(b"@")?;
     w.write_all(record.id.as_bytes())?;
+    if !record.comment.is_empty() {
+        w.write_all(b" ")?;
+        w.write_all(record.comment.as_bytes())?;
+    }
     w.write_all(b"\n")?;
     w.write_all(record.sequence.as_bytes())?;
     w.write_all(b"\n+\n")?;

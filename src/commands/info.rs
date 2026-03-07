@@ -5,6 +5,7 @@
 use crate::error::Result;
 use crate::format::{get_id_mode, get_pe_layout, get_quality_mode, get_read_length_class};
 use crate::fqc_reader::FqcReader;
+use crate::types::decode_codec_family;
 
 // =============================================================================
 // InfoOptions
@@ -15,6 +16,8 @@ pub struct InfoOptions {
     pub input_path: String,
     pub json: bool,
     pub detailed: bool,
+    /// Show codec information for each block
+    pub show_codecs: bool,
 }
 
 // =============================================================================
@@ -41,7 +44,7 @@ impl InfoCommand {
     }
 
     fn run(&self) -> Result<()> {
-        let reader = FqcReader::open(&self.opts.input_path)?;
+        let mut reader = FqcReader::open(&self.opts.input_path)?;
 
         let flags = reader.global_header.flags;
         let quality_mode = get_quality_mode(flags);
@@ -94,6 +97,28 @@ impl InfoCommand {
                     println!("  {:>6}  {:>12}  {:>12}  {:>10}  {:>10}",
                         i, entry.offset, entry.compressed_size,
                         entry.archive_id_start, entry.read_count);
+                }
+            }
+
+            if self.opts.show_codecs {
+                let num_blocks = reader.block_count();
+                println!("\nBlock Codecs:");
+                println!("  {:>6}  {:>12}  {:>12}  {:>12}  {:>12}",
+                    "Block", "IDs", "Seq", "Qual", "Aux");
+                for i in 0..num_blocks {
+                    if let Ok(bh) = reader.read_block_header(i as u32) {
+                        let fmt_codec = |c: u8| -> String {
+                            let family = decode_codec_family(c);
+                            let version = c & 0x0F;
+                            format!("{:?}v{}", family, version)
+                        };
+                        println!("  {:>6}  {:>12}  {:>12}  {:>12}  {:>12}",
+                            i,
+                            fmt_codec(bh.codec_ids),
+                            fmt_codec(bh.codec_seq),
+                            fmt_codec(bh.codec_qual),
+                            fmt_codec(bh.codec_aux));
+                    }
                 }
             }
         }

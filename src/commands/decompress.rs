@@ -41,6 +41,7 @@ impl DecompressOptions {
             .unwrap_or_else(|| "N".to_string());
         ReadRecord {
             id: format!("corrupted_block{}_read{}", block_id, read_idx),
+            comment: String::new(),
             sequence: placeholder_seq.clone(),
             quality: "!".repeat(placeholder_seq.len()),
         }
@@ -259,6 +260,10 @@ impl DecompressCommand {
                     }
                     Err(e) => {
                         if self.opts.skip_corrupted {
+                            // Account for skipped reads so global_read_idx stays correct
+                            if let Some(entry) = reader.block_index.entries.get(block_id) {
+                                global_read_idx += entry.read_count as u64;
+                            }
                             log::warn!("Block {} failed, skipping: {}", block_id, e);
                             self.stats.corrupted_blocks += 1;
                         } else {
@@ -351,6 +356,10 @@ impl DecompressCommand {
                     }
                     Err((bid, msg)) => {
                         if skip_corrupted {
+                            // Account for skipped reads so global_read_idx stays correct
+                            if let Some(entry) = reader.block_index.entries.get(bid as usize) {
+                                global_read_idx += entry.read_count as u64;
+                            }
                             log::warn!("Block {} decompress failed, skipping: {}", bid, msg);
                             self.stats.corrupted_blocks += 1;
                         } else {
