@@ -5,9 +5,10 @@
 use crate::error::{FqcError, Result};
 use crate::format::*;
 use crate::algo::block_compressor::{CompressedBlockData, delta_encode_ids};
+use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
 use std::fs::File;
-use std::io::{BufWriter, Write};
+use std::io::{BufWriter, Seek, SeekFrom, Write};
 use xxhash_rust::xxh64::Xxh64;
 
 // =============================================================================
@@ -52,73 +53,23 @@ impl FqcWriter {
         Ok(())
     }
 
+    pub fn patch_total_read_count(&mut self, total_read_count: u64) -> Result<()> {
+        const TOTAL_READ_COUNT_OFFSET: u64 = 4 + 8 + 1 + 1 + 2;
+
+        self.writer.flush()?;
+        self.writer.seek(SeekFrom::Start(MAGIC_HEADER_SIZE as u64 + TOTAL_READ_COUNT_OFFSET))?;
+        self.writer.write_u64::<LittleEndian>(total_read_count)?;
+        self.writer.seek(SeekFrom::Start(self.current_offset))?;
+        Ok(())
+    }
+
     /// Write a compressed block. Returns the block's starting offset.
     pub fn write_block(&mut self, compressed: &CompressedBlockData) -> Result<u64> {
-        let block_start = self.current_offset;
-
-        // Build block header with correct offsets/sizes
-        let mut bh = BlockHeader::default();
-        bh.block_id = compressed.block_id;
-        bh.uncompressed_count = compressed.read_count;
-        bh.uniform_read_length = compressed.uniform_read_length;
-        bh.block_xxhash64 = compressed.block_checksum;
-        bh.codec_ids = compressed.codec_ids;
-        bh.codec_seq = compressed.codec_seq;
-        bh.codec_qual = compressed.codec_qual;
-        bh.codec_aux = compressed.codec_aux;
-        bh.checksum_type = 0; // XxHash64
-
-        // Layout: ids | seq | qual | aux (sequential within payload)
-        bh.offset_ids = 0;
-        bh.size_ids = compressed.id_stream.len() as u64;
-
-        bh.offset_seq = bh.size_ids;
-        bh.size_seq = compressed.seq_stream.len() as u64;
-
-        bh.offset_qual = bh.offset_seq + bh.size_seq;
-        bh.size_qual = compressed.qual_stream.len() as u64;
-
-        bh.offset_aux = bh.offset_qual + bh.size_qual;
-        bh.size_aux = compressed.aux_stream.len() as u64;
-
-        let total_payload =
-            compressed.id_stream.len()
-            + compressed.seq_stream.len()
-            + compressed.qual_stream.len()
-            + compressed.aux_stream.len();
-
-        bh.compressed_size = total_payload as u64;
-
-        // Write block header
-        bh.write(&mut self.writer)?;
-        let header_bytes = BLOCK_HEADER_SIZE as u64;
-
-        // Write payload streams
-        self.writer.write_all(&compressed.id_stream)?;
-        self.writer.write_all(&compressed.seq_stream)?;
-        self.writer.write_all(&compressed.qual_stream)?;
-        self.writer.write_all(&compressed.aux_stream)?;
-
-        let total_block_bytes = header_bytes + total_payload as u64;
-
-        // Update global hasher
-        self.global_hasher.update(&compressed.id_stream);
-        self.global_hasher.update(&compressed.seq_stream);
-        self.global_hasher.update(&compressed.qual_stream);
-        self.global_hasher.update(&compressed.aux_stream);
-
-        // Record index entry
-        self.index_entries.push(IndexEntry {
-            offset: block_start,
-            compressed_size: total_block_bytes,
-            archive_id_start: self.block_count * 100_000, // placeholder
-            read_count: compressed.read_count,
-        });
-
-        self.current_offset += total_block_bytes;
-        self.block_count += 1;
-
-        Ok(block_start)
+        let archive_id_start = self.index_entries
+            .last()
+            .map(|entry| entry.archive_id_end())
+            .unwrap_or(0);
+        self.write_block_with_id(compressed, archive_id_start)
     }
 
     /// Write a block with explicit archive_id_start

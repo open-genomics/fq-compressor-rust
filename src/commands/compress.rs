@@ -5,7 +5,7 @@
 use crate::algo::block_compressor::{BlockCompressor, BlockCompressorConfig, CompressedBlockData};
 use crate::algo::global_analyzer::{GlobalAnalyzer, GlobalAnalyzerConfig};
 use crate::error::{FqcError, Result};
-use crate::fastq::parser::{open_fastq, open_fastq_stdin};
+use crate::fastq::parser::{open_fastq, open_fastq_paired, open_fastq_stdin};
 use crate::format::{build_flags, GlobalHeader};
 use crate::fqc_writer::FqcWriter;
 use crate::types::*;
@@ -34,6 +34,9 @@ pub struct CompressOptions {
     pub auto_detect_length: bool,
     pub block_size: usize,
     pub pe_layout: PeLayout,
+    pub interleaved: bool,
+    pub max_block_bases: usize,
+    pub scan_all_lengths: bool,
 }
 
 impl Default for CompressOptions {
@@ -55,6 +58,9 @@ impl Default for CompressOptions {
             auto_detect_length: true,
             block_size: DEFAULT_BLOCK_SIZE_SHORT,
             pe_layout: PeLayout::Interleaved,
+            interleaved: false,
+            max_block_bases: 0,
+            scan_all_lengths: false,
         }
     }
 }
@@ -131,6 +137,7 @@ impl CompressCommand {
         }
 
         // Phase 0: Read all records
+        let is_paired = self.opts.input2_path.is_some() || self.opts.interleaved;
         log::info!("Reading input file: {}", self.opts.input_path);
         let records = self.read_all_records()?;
 
@@ -156,6 +163,7 @@ impl CompressCommand {
         let block_size = self.effective_block_size(effective_length_class);
         let enable_reorder = self.opts.enable_reorder
             && !self.opts.streaming_mode
+            && !is_paired
             && effective_length_class == ReadLengthClass::Short;
 
         log::info!("Read length class: {}", effective_length_class.as_str());
@@ -189,7 +197,7 @@ impl CompressCommand {
 
         // Build flags
         let flags = build_flags(
-            self.opts.input2_path.is_some(),
+            is_paired,
             !analysis.reordering_performed,
             self.opts.quality_mode,
             self.opts.id_mode,
@@ -294,8 +302,25 @@ impl CompressCommand {
     fn run_streaming(&mut self) -> Result<()> {
         log::info!("Streaming compression mode");
 
+        // Force overwrite check
+        if !self.opts.force_overwrite && std::path::Path::new(&self.opts.output_path).exists() {
+            return Err(FqcError::InvalidArgument(format!(
+                "Output file already exists: {} (use -f to overwrite)",
+                self.opts.output_path
+            )));
+        }
+
         let effective_length_class = self.opts.read_length_class.unwrap_or(ReadLengthClass::Medium);
         let block_size = self.effective_block_size(effective_length_class);
+
+        if let Some(path2) = self.opts.input2_path.clone() {
+            return self.run_streaming_paired(&path2, effective_length_class, block_size);
+        }
+
+        // Interleaved single-file PE streaming
+        if self.opts.interleaved {
+            return self.run_streaming_interleaved(effective_length_class, block_size);
+        }
 
         // Open input
         let mut parser = if self.opts.input_path == "-" {
@@ -362,6 +387,231 @@ impl CompressCommand {
         }
 
         self.stats.input_bytes = self.stats.total_bases;
+        writer.patch_total_read_count(self.stats.total_reads)?;
+        writer.finalize()?;
+        log::info!("Streaming compression complete! {} blocks written.", self.stats.blocks_written);
+        Ok(())
+    }
+
+    /// Streaming compression for interleaved single-file paired-end input.
+    fn run_streaming_interleaved(
+        &mut self,
+        effective_length_class: ReadLengthClass,
+        block_size: usize,
+    ) -> Result<()> {
+        log::info!("Streaming compression mode (interleaved single-file PE)");
+
+        let mut parser = if self.opts.input_path == "-" {
+            open_fastq_stdin()
+        } else {
+            open_fastq(&self.opts.input_path)?
+        };
+
+        let mut writer = FqcWriter::create(&self.opts.output_path)?;
+
+        let flags = build_flags(
+            true, true, self.opts.quality_mode, self.opts.id_mode,
+            false, self.opts.pe_layout, effective_length_class, true,
+        );
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let input_filename = std::path::Path::new(&self.opts.input_path)
+            .file_name().and_then(|n| n.to_str()).unwrap_or("stdin");
+        let global_header = GlobalHeader::new(flags, 0, input_filename, timestamp);
+        writer.write_global_header(&global_header)?;
+
+        let zstd_level = BlockCompressorConfig::zstd_level_for_compression_level(self.opts.level);
+        let block_config = BlockCompressorConfig {
+            read_length_class: effective_length_class,
+            compression_level: self.opts.level,
+            quality_mode: self.opts.quality_mode,
+            id_mode: self.opts.id_mode,
+            zstd_level,
+            ..Default::default()
+        };
+        let compressor = BlockCompressor::new(block_config);
+
+        let mut block_id = 0u32;
+        let mut archive_id_start = 0u64;
+        let target_pairs = (block_size.max(2)) / 2;
+        let mut r1_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
+        let mut r2_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
+
+        // Read pairs from single interleaved file
+        loop {
+            let r1 = match parser.next_record()? {
+                Some(rec) => rec,
+                None => break,
+            };
+            let r2 = match parser.next_record()? {
+                Some(rec) => rec,
+                None => {
+                    log::warn!("Odd number of reads in interleaved file, last read treated as unpaired");
+                    self.stats.total_reads += 1;
+                    self.stats.total_bases += r1.sequence.len() as u64;
+                    r1_buf.push(r1);
+                    break;
+                }
+            };
+
+            self.stats.total_reads += 2;
+            self.stats.total_bases += (r1.sequence.len() + r2.sequence.len()) as u64;
+            r1_buf.push(r1);
+            r2_buf.push(r2);
+
+            if r1_buf.len() >= target_pairs {
+                let mut block_buf = Vec::with_capacity(r1_buf.len() + r2_buf.len());
+                match self.opts.pe_layout {
+                    PeLayout::Interleaved => {
+                        for (a, b) in r1_buf.drain(..).zip(r2_buf.drain(..)) {
+                            block_buf.push(a);
+                            block_buf.push(b);
+                        }
+                    }
+                    PeLayout::Consecutive => {
+                        block_buf.extend(r1_buf.drain(..));
+                        block_buf.extend(r2_buf.drain(..));
+                    }
+                }
+
+                let compressed = compressor.compress(&block_buf, block_id)?;
+                writer.write_block_with_id(&compressed, archive_id_start)?;
+                archive_id_start += block_buf.len() as u64;
+                self.stats.output_bytes += compressed.total_compressed_size() as u64;
+                self.stats.blocks_written += 1;
+                block_id += 1;
+            }
+        }
+
+        // Flush remaining
+        if !r1_buf.is_empty() || !r2_buf.is_empty() {
+            let mut block_buf = Vec::with_capacity(r1_buf.len() + r2_buf.len());
+            match self.opts.pe_layout {
+                PeLayout::Interleaved => {
+                    for (a, b) in r1_buf.drain(..).zip(r2_buf.drain(..)) {
+                        block_buf.push(a);
+                        block_buf.push(b);
+                    }
+                    // Any remaining unpaired reads
+                    block_buf.extend(r1_buf.drain(..));
+                }
+                PeLayout::Consecutive => {
+                    block_buf.extend(r1_buf.drain(..));
+                    block_buf.extend(r2_buf.drain(..));
+                }
+            }
+
+            if !block_buf.is_empty() {
+                let compressed = compressor.compress(&block_buf, block_id)?;
+                writer.write_block_with_id(&compressed, archive_id_start)?;
+                self.stats.output_bytes += compressed.total_compressed_size() as u64;
+                self.stats.blocks_written += 1;
+            }
+        }
+
+        self.stats.input_bytes = self.stats.total_bases;
+        writer.patch_total_read_count(self.stats.total_reads)?;
+        writer.finalize()?;
+        log::info!("Streaming compression complete! {} blocks written.", self.stats.blocks_written);
+        Ok(())
+    }
+
+    fn run_streaming_paired(
+        &mut self,
+        path2: &str,
+        effective_length_class: ReadLengthClass,
+        block_size: usize,
+    ) -> Result<()> {
+        log::info!("Streaming compression mode (paired-end)");
+
+        let mut pe_reader = open_fastq_paired(&self.opts.input_path, path2)?;
+        let mut writer = FqcWriter::create(&self.opts.output_path)?;
+
+        let flags = build_flags(
+            true,
+            true,
+            self.opts.quality_mode,
+            self.opts.id_mode,
+            false,
+            self.opts.pe_layout,
+            effective_length_class,
+            true,
+        );
+        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let input_filename = std::path::Path::new(&self.opts.input_path)
+            .file_name().and_then(|n| n.to_str()).unwrap_or("stdin");
+        let global_header = GlobalHeader::new(flags, 0, input_filename, timestamp);
+        writer.write_global_header(&global_header)?;
+
+        let zstd_level = BlockCompressorConfig::zstd_level_for_compression_level(self.opts.level);
+        let block_config = BlockCompressorConfig {
+            read_length_class: effective_length_class,
+            compression_level: self.opts.level,
+            quality_mode: self.opts.quality_mode,
+            id_mode: self.opts.id_mode,
+            zstd_level,
+            ..Default::default()
+        };
+        let compressor = BlockCompressor::new(block_config);
+
+        let mut block_id = 0u32;
+        let mut archive_id_start = 0u64;
+        let target_pairs = (block_size.max(2)) / 2;
+        let mut r1_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
+        let mut r2_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
+
+        while let Some((r1, r2)) = pe_reader.next_pair()? {
+            self.stats.total_reads += 2;
+            self.stats.total_bases += (r1.sequence.len() + r2.sequence.len()) as u64;
+            r1_buf.push(r1);
+            r2_buf.push(r2);
+
+            if r1_buf.len() >= target_pairs {
+                let mut block_buf = Vec::with_capacity(r1_buf.len() + r2_buf.len());
+                match self.opts.pe_layout {
+                    PeLayout::Interleaved => {
+                        for (r1, r2) in r1_buf.drain(..).zip(r2_buf.drain(..)) {
+                            block_buf.push(r1);
+                            block_buf.push(r2);
+                        }
+                    }
+                    PeLayout::Consecutive => {
+                        block_buf.extend(r1_buf.drain(..));
+                        block_buf.extend(r2_buf.drain(..));
+                    }
+                }
+
+                let compressed = compressor.compress(&block_buf, block_id)?;
+                writer.write_block_with_id(&compressed, archive_id_start)?;
+                archive_id_start += block_buf.len() as u64;
+                self.stats.output_bytes += compressed.total_compressed_size() as u64;
+                self.stats.blocks_written += 1;
+                block_id += 1;
+            }
+        }
+
+        if !r1_buf.is_empty() || !r2_buf.is_empty() {
+            let mut block_buf = Vec::with_capacity(r1_buf.len() + r2_buf.len());
+            match self.opts.pe_layout {
+                PeLayout::Interleaved => {
+                    for (r1, r2) in r1_buf.drain(..).zip(r2_buf.drain(..)) {
+                        block_buf.push(r1);
+                        block_buf.push(r2);
+                    }
+                }
+                PeLayout::Consecutive => {
+                    block_buf.extend(r1_buf.drain(..));
+                    block_buf.extend(r2_buf.drain(..));
+                }
+            }
+
+            let compressed = compressor.compress(&block_buf, block_id)?;
+            writer.write_block_with_id(&compressed, archive_id_start)?;
+            self.stats.output_bytes += compressed.total_compressed_size() as u64;
+            self.stats.blocks_written += 1;
+        }
+
+        self.stats.input_bytes = self.stats.total_bases;
+        writer.patch_total_read_count(self.stats.total_reads)?;
         writer.finalize()?;
         log::info!("Streaming compression complete! {} blocks written.", self.stats.blocks_written);
         Ok(())
@@ -388,10 +638,29 @@ impl CompressCommand {
             let mut parser = open_fastq_stdin();
             parser.collect_all()
         } else if let Some(ref path2) = self.opts.input2_path {
-            // Paired-end: interleave R1/R2
             log::info!("Reading paired-end input: {} + {}", self.opts.input_path, path2);
-            let mut pe_reader = crate::fastq::parser::open_fastq_paired(&self.opts.input_path, path2)?;
-            pe_reader.collect_all_interleaved()
+            let mut pe_reader = open_fastq_paired(&self.opts.input_path, path2)?;
+            match self.opts.pe_layout {
+                PeLayout::Interleaved => pe_reader.collect_all_interleaved(),
+                PeLayout::Consecutive => pe_reader.collect_all_consecutive(),
+            }
+        } else if self.opts.interleaved {
+            // Single file with interleaved PE reads: already in R1,R2,R1,R2 order
+            log::info!("Reading interleaved paired-end input: {}", self.opts.input_path);
+            let mut parser = open_fastq(&self.opts.input_path)?;
+            let records = parser.collect_all()?;
+            // For consecutive PE layout, need to rearrange from interleaved to consecutive
+            if self.opts.pe_layout == PeLayout::Consecutive && records.len() >= 2 {
+                let mut r1 = Vec::with_capacity(records.len() / 2);
+                let mut r2 = Vec::with_capacity(records.len() / 2);
+                for (i, rec) in records.into_iter().enumerate() {
+                    if i % 2 == 0 { r1.push(rec); } else { r2.push(rec); }
+                }
+                r1.extend(r2);
+                Ok(r1)
+            } else {
+                Ok(records)
+            }
         } else {
             let mut parser = open_fastq(&self.opts.input_path)?;
             parser.collect_all()

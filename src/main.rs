@@ -106,6 +106,14 @@ enum Commands {
         #[arg(long)]
         interleaved: bool,
 
+        /// Maximum bases per block (for long reads, 0 = auto)
+        #[arg(long, default_value_t = 0)]
+        max_block_bases: usize,
+
+        /// Scan all reads for length detection (slower but more accurate)
+        #[arg(long)]
+        scan_all_lengths: bool,
+
         /// Paired-end storage layout: interleaved, consecutive
         #[arg(long, default_value = "interleaved",
               value_parser = clap::builder::PossibleValuesParser::new(["interleaved", "consecutive"]))]
@@ -138,6 +146,10 @@ enum Commands {
         /// Skip corrupted blocks instead of failing
         #[arg(long)]
         skip_corrupted: bool,
+
+        /// Placeholder sequence for corrupted reads
+        #[arg(long)]
+        corrupted_placeholder: Option<String>,
 
         /// Split paired-end output to separate files
         #[arg(long)]
@@ -227,7 +239,9 @@ fn main() {
             lossy_quality,
             long_read_mode,
             force,
-            interleaved: _,
+            interleaved,
+            max_block_bases,
+            scan_all_lengths,
             pe_layout,
         } => {
             let mut opts = CompressOptions {
@@ -243,6 +257,9 @@ fn main() {
                 force_overwrite: force,
                 show_progress,
                 pe_layout: parse_pe_layout(&pe_layout),
+                interleaved,
+                max_block_bases,
+                scan_all_lengths,
                 ..CompressOptions::default()
             };
 
@@ -284,6 +301,7 @@ fn main() {
             header_only,
             original_order,
             skip_corrupted,
+            corrupted_placeholder,
             split_pe,
             force,
         } => {
@@ -293,6 +311,7 @@ fn main() {
                 header_only,
                 original_order,
                 skip_corrupted,
+                corrupted_placeholder,
                 split_pe,
                 threads: cli.threads,
                 show_progress,

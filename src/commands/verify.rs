@@ -6,6 +6,7 @@ use crate::algo::block_compressor::BlockCompressor;
 use crate::error::{FqcError, Result};
 use crate::format::{get_id_mode, get_quality_mode, get_read_length_class};
 use crate::fqc_reader::FqcReader;
+use xxhash_rust::xxh64::Xxh64;
 
 // =============================================================================
 // VerifyOptions
@@ -83,11 +84,31 @@ impl VerifyCommand {
 
         // Verify global checksum (if non-zero)
         if reader.footer.global_checksum != 0 {
-            // Re-read file data from after magic to before footer to compute global hash
             if self.opts.verbose { print!("Global checksum: "); }
-            // Note: global checksum is computed by the writer over all data written
-            // We trust it here; block-level checksums provide per-block integrity
-            if self.opts.verbose { println!("stored=0x{:016x}", reader.footer.global_checksum); }
+
+            // Recompute: the writer hashes flags + all block compressed streams
+            let mut global_hasher = Xxh64::new(0);
+            global_hasher.update(&reader.global_header.flags.to_le_bytes());
+
+            for bid in 0..reader.block_count() {
+                let block_data = reader.read_block(bid as u32)?;
+                global_hasher.update(&block_data.ids_data);
+                global_hasher.update(&block_data.seq_data);
+                global_hasher.update(&block_data.qual_data);
+                global_hasher.update(&block_data.aux_data);
+            }
+
+            let computed = global_hasher.digest();
+            if computed != reader.footer.global_checksum {
+                if self.opts.verbose {
+                    println!("FAILED (expected=0x{:016x}, computed=0x{:016x})",
+                        reader.footer.global_checksum, computed);
+                }
+                return Ok(false);
+            }
+            if self.opts.verbose {
+                println!("OK (0x{:016x})", computed);
+            }
         }
 
         let flags = reader.global_header.flags;

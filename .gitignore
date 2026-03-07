@@ -20,4 +20,6 @@ desktop.ini
 # Test artifacts
 *.fqc
 *_out.fastq
-test*.fastq
+*_split*.fastq
+*_range.fastq
+*_header.fastq

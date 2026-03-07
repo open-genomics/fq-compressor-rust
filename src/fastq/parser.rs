@@ -138,28 +138,43 @@ impl<R1: BufRead, R2: BufRead> PairedFastqReader<R1, R2> {
         Self { r1, r2 }
     }
 
+    pub fn next_pair(&mut self) -> Result<Option<(ReadRecord, ReadRecord)>> {
+        match (self.r1.next_record()?, self.r2.next_record()?) {
+            (Some(a), Some(b)) => Ok(Some((a, b))),
+            (Some(_), None) => {
+                log::warn!("R1 has more reads than R2, truncating");
+                Ok(None)
+            }
+            (None, Some(_)) => {
+                log::warn!("R2 has more reads than R1, truncating");
+                Ok(None)
+            }
+            (None, None) => Ok(None),
+        }
+    }
+
     /// Collect all records interleaved: R1_0, R2_0, R1_1, R2_1, ...
     pub fn collect_all_interleaved(&mut self) -> Result<Vec<ReadRecord>> {
         let mut records = Vec::new();
-        loop {
-            match (self.r1.next_record()?, self.r2.next_record()?) {
-                (Some(a), Some(b)) => {
-                    records.push(a);
-                    records.push(b);
-                }
-                (Some(a), None) => {
-                    log::warn!("R1 has more reads than R2, truncating");
-                    records.push(a);
-                    break;
-                }
-                (None, Some(_)) => {
-                    log::warn!("R2 has more reads than R1, truncating");
-                    break;
-                }
-                (None, None) => break,
-            }
+        while let Some((a, b)) = self.next_pair()? {
+            records.push(a);
+            records.push(b);
         }
         Ok(records)
+    }
+
+    /// Collect all records in consecutive PE layout: all R1 reads, then all R2 reads.
+    pub fn collect_all_consecutive(&mut self) -> Result<Vec<ReadRecord>> {
+        let mut r1_reads = Vec::new();
+        let mut r2_reads = Vec::new();
+
+        while let Some((a, b)) = self.next_pair()? {
+            r1_reads.push(a);
+            r2_reads.push(b);
+        }
+
+        r1_reads.extend(r2_reads);
+        Ok(r1_reads)
     }
 }
 
