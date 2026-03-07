@@ -8,6 +8,7 @@
 # IDE
 .idea/
 .vscode/
+.windsurf/
 *.swp
 *.swo
 *~
@@ -23,3 +24,16 @@ desktop.ini
 *_split*.fastq
 *_range.fastq
 *_header.fastq
+
+# Profiling & benchmarks
+perf.data
+perf.data.old
+flamegraph.svg
+*.prof
+*.profraw
+
+# Coverage
+/coverage/
+lcov.info
+*.gcno
+*.gcda
