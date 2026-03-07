@@ -159,15 +159,20 @@ impl ConsensusSequence {
     fn add_read(&mut self, read: &[u8], shift: i32, is_rc: bool) {
         let aligned: Vec<u8> = if is_rc { reverse_complement(read) } else { read.to_vec() };
 
-        let read_start = if shift >= 0 { shift as usize } else { 0 };
-        let new_len = self.base_counts.len().max(read_start + aligned.len());
+        // cons_start: where in consensus the overlap begins
+        // align_start: where in the aligned read the overlap begins
+        let cons_start = if shift >= 0 { shift as usize } else { 0 };
+        let align_start = if shift < 0 { (-shift) as usize } else { 0 };
+        let overlap_len = aligned.len().saturating_sub(align_start);
+        let new_len = self.base_counts.len().max(cons_start + overlap_len);
 
         if new_len > self.base_counts.len() {
             self.base_counts.resize(new_len, [0u16; 4]);
         }
 
-        for (i, &b) in aligned.iter().enumerate() {
-            let pos = read_start + i;
+        for k in 0..overlap_len {
+            let pos = cons_start + k;
+            let b = aligned[align_start + k];
             if pos < self.base_counts.len() {
                 let idx = BASE_TO_INDEX[b as usize] as usize;
                 self.base_counts[pos][idx] = self.base_counts[pos][idx].saturating_add(1);
@@ -200,6 +205,7 @@ struct DeltaEncodedRead {
     mismatch_chars: Vec<u8>,
 }
 
+#[allow(clippy::needless_range_loop)]
 fn compute_delta(read: &[u8], consensus: &[u8], shift: i32, is_rc: bool) -> DeltaEncodedRead {
     let aligned: Vec<u8> = if is_rc { reverse_complement(read) } else { read.to_vec() };
 
@@ -210,8 +216,10 @@ fn compute_delta(read: &[u8], consensus: &[u8], shift: i32, is_rc: bool) -> Delt
     let mut mismatch_chars = Vec::new();
 
     for i in 0..aligned.len() {
-        let _cons_pos = cons_start + i.saturating_sub(read_start);
         if i < read_start {
+            // Positions before the consensus overlap: store as raw base
+            mismatch_positions.push(i as u16);
+            mismatch_chars.push(aligned[i]);
             continue;
         }
         let cons_pos = cons_start + (i - read_start);
@@ -234,6 +242,7 @@ fn compute_delta(read: &[u8], consensus: &[u8], shift: i32, is_rc: bool) -> Delt
     }
 }
 
+#[allow(clippy::needless_range_loop)]
 fn reconstruct_from_delta(delta: &DeltaEncodedRead, consensus: &[u8]) -> Vec<u8> {
     let shift = delta.position_offset as i32;
     let cons_start = if shift >= 0 { shift as usize } else { 0 };
@@ -254,12 +263,16 @@ fn reconstruct_from_delta(delta: &DeltaEncodedRead, consensus: &[u8]) -> Vec<u8>
     for (j, &pos) in delta.mismatch_positions.iter().enumerate() {
         let pos = pos as usize;
         if pos < result.len() {
-            let read_start_usize = read_start;
-            let cons_pos = cons_start + pos.saturating_sub(read_start_usize);
-            if pos >= read_start_usize && cons_pos < consensus.len() {
-                result[pos] = decode_noise(consensus[cons_pos], delta.mismatch_chars[j]);
-            } else {
+            if pos < read_start {
+                // Before consensus overlap: raw base
                 result[pos] = delta.mismatch_chars[j];
+            } else {
+                let cons_pos = cons_start + (pos - read_start);
+                if cons_pos < consensus.len() {
+                    result[pos] = decode_noise(consensus[cons_pos], delta.mismatch_chars[j]);
+                } else {
+                    result[pos] = delta.mismatch_chars[j];
+                }
             }
         }
     }
@@ -440,6 +453,7 @@ impl BlockCompressor {
         Ok(result)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn decompress_raw(
         &self,
         block_id: BlockId,
@@ -539,6 +553,13 @@ fn build_contigs(reads: &[ReadRecord], max_shift: usize, hamming_threshold: usiz
     let mut contigs: Vec<Contig> = Vec::new();
     let mut assigned = vec![false; reads.len()];
 
+    // Temporary struct to track alignment info before final delta recomputation
+    struct AlignInfo {
+        read_index: usize,
+        shift: i32,
+        is_rc: bool,
+    }
+
     for i in 0..reads.len() {
         if assigned[i] { continue; }
 
@@ -547,15 +568,9 @@ fn build_contigs(reads: &[ReadRecord], max_shift: usize, hamming_threshold: usiz
             deltas: Vec::new(),
         };
 
-        let first_delta = DeltaEncodedRead {
-            original_order: i as u32,
-            position_offset: 0,
-            is_rc: false,
-            read_length: reads[i].sequence.len() as u16,
-            mismatch_positions: vec![],
-            mismatch_chars: vec![],
-        };
-        contig.deltas.push(first_delta);
+        let mut align_infos: Vec<AlignInfo> = vec![
+            AlignInfo { read_index: i, shift: 0, is_rc: false },
+        ];
         assigned[i] = true;
 
         for j in (i + 1)..reads.len() {
@@ -568,17 +583,21 @@ fn build_contigs(reads: &[ReadRecord], max_shift: usize, hamming_threshold: usiz
                 hamming_threshold,
             ) {
                 contig.consensus.add_read(reads[j].sequence.as_bytes(), shift, is_rc);
-
-                let mut delta = compute_delta(
-                    reads[j].sequence.as_bytes(),
-                    &contig.consensus.sequence,
-                    shift,
-                    is_rc,
-                );
-                delta.original_order = j as u32;
-                contig.deltas.push(delta);
+                align_infos.push(AlignInfo { read_index: j, shift, is_rc });
                 assigned[j] = true;
             }
+        }
+
+        // Recompute all deltas against the final consensus
+        for info in &align_infos {
+            let mut delta = compute_delta(
+                reads[info.read_index].sequence.as_bytes(),
+                &contig.consensus.sequence,
+                info.shift,
+                info.is_rc,
+            );
+            delta.original_order = info.read_index as u32;
+            contig.deltas.push(delta);
         }
 
         contigs.push(contig);

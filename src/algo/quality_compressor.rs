@@ -125,7 +125,7 @@ impl ArithmeticEncoder {
         let cum_high = model.get_cumulative(symbol + 1) as u64;
 
         self.high = self.low + (range * cum_high) / total - 1;
-        self.low = self.low + (range * cum_low) / total;
+        self.low += (range * cum_low) / total;
 
         self.normalize();
     }
@@ -226,7 +226,7 @@ impl<'a> ArithmeticDecoder<'a> {
         let cum_high = model.get_cumulative(symbol + 1) as u64;
 
         self.high = self.low + (range * cum_high) / total - 1;
-        self.low = self.low + (range * cum_low) / total;
+        self.low += (range * cum_low) / total;
 
         self.normalize();
         symbol
@@ -444,7 +444,7 @@ impl QualityCompressor {
         if data.is_empty() || lengths.is_empty() {
             if self.config.quality_mode == QualityMode::Discard {
                 return Ok(lengths.iter()
-                    .map(|&l| std::iter::repeat('!').take(l as usize).collect())
+                    .map(|&l| "!".repeat(l as usize))
                     .collect());
             }
             return Ok(lengths.iter().map(|_| String::new()).collect());
@@ -452,7 +452,7 @@ impl QualityCompressor {
 
         if self.config.quality_mode == QualityMode::Discard {
             return Ok(lengths.iter()
-                .map(|&l| std::iter::repeat('!').take(l as usize).collect())
+                .map(|&l| "!".repeat(l as usize))
                 .collect());
         }
 

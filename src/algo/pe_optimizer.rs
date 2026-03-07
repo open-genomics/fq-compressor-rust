@@ -161,9 +161,9 @@ impl PEOptimizer {
         }
 
         // Handle length differences (extra bases in seq2)
-        for i in min_len..seq2.len() {
+        for (i, &b) in seq2.iter().enumerate().skip(min_len) {
             positions.push(i as u16);
-            bases.push(seq2[i]);
+            bases.push(b);
         }
 
         (positions, bases)

@@ -328,7 +328,7 @@ impl GlobalAnalyzer {
     fn compute_block_boundaries(&self, total_reads: u64, reads_per_block: usize) -> Vec<BlockBoundary> {
         if total_reads == 0 { return Vec::new(); }
 
-        let num_blocks = (total_reads as usize + reads_per_block - 1) / reads_per_block;
+        let num_blocks = (total_reads as usize).div_ceil(reads_per_block);
         let mut boundaries = Vec::with_capacity(num_blocks);
 
         for block_id in 0..num_blocks {
