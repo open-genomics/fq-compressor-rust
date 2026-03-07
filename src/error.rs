@@ -38,3 +38,48 @@ pub enum FqcError {
 }
 
 pub type Result<T> = std::result::Result<T, FqcError>;
+
+// =============================================================================
+// Exit Code Mapping (matches C++ ErrorCode → CLI exit codes)
+// =============================================================================
+
+/// Standard CLI exit codes for fqc
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum ExitCode {
+    /// Successful execution
+    Success = 0,
+    /// Usage error (invalid arguments, missing files)
+    Usage = 1,
+    /// I/O error (file not found, permission denied, disk full)
+    IoError = 2,
+    /// Format error (invalid magic, bad header, corrupted data)
+    FormatError = 3,
+    /// Checksum or integrity error
+    ChecksumError = 4,
+    /// Unsupported codec or version
+    UnsupportedError = 5,
+}
+
+impl FqcError {
+    /// Map error to a standard CLI exit code
+    pub fn exit_code(&self) -> ExitCode {
+        match self {
+            FqcError::Io(_) => ExitCode::IoError,
+            FqcError::Format(_) => ExitCode::FormatError,
+            FqcError::Compression(_) => ExitCode::IoError,
+            FqcError::Decompression(_) => ExitCode::FormatError,
+            FqcError::InvalidArgument(_) => ExitCode::Usage,
+            FqcError::ChecksumMismatch { .. } => ExitCode::ChecksumError,
+            FqcError::CorruptedBlock { .. } => ExitCode::ChecksumError,
+            FqcError::UnsupportedVersion { .. } => ExitCode::UnsupportedError,
+            FqcError::Parse(_) => ExitCode::FormatError,
+            FqcError::OutOfRange(_) => ExitCode::Usage,
+        }
+    }
+
+    /// Get the numeric exit code
+    pub fn exit_code_num(&self) -> i32 {
+        self.exit_code() as i32
+    }
+}

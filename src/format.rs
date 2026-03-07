@@ -62,6 +62,7 @@ pub mod flags {
     pub const STREAMING_MODE: u64 = 1 << 12;
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn build_flags(
     is_paired: bool,
     preserve_order: bool,
