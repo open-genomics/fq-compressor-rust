@@ -35,7 +35,7 @@ impl InfoCommand {
             Ok(()) => 0,
             Err(e) => {
                 eprintln!("Info failed: {e}");
-                1
+                e.exit_code_num()
             }
         }
     }

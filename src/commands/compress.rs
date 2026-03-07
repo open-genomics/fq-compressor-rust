@@ -8,6 +8,7 @@ use crate::error::{FqcError, Result};
 use crate::fastq::parser::{open_fastq, open_fastq_paired, open_fastq_stdin};
 use crate::format::{build_flags, GlobalHeader};
 use crate::fqc_writer::FqcWriter;
+use crate::pipeline::compression::{CompressionPipeline, CompressionPipelineConfig};
 use crate::types::*;
 use rayon::prelude::*;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -37,6 +38,7 @@ pub struct CompressOptions {
     pub interleaved: bool,
     pub max_block_bases: usize,
     pub scan_all_lengths: bool,
+    pub use_pipeline: bool,
 }
 
 impl Default for CompressOptions {
@@ -61,6 +63,7 @@ impl Default for CompressOptions {
             interleaved: false,
             max_block_bases: 0,
             scan_all_lengths: false,
+            use_pipeline: false,
         }
     }
 }
@@ -123,7 +126,7 @@ impl CompressCommand {
             }
             Err(e) => {
                 eprintln!("Compression failed: {e}");
-                1
+                e.exit_code_num()
             }
         }
     }
@@ -134,6 +137,11 @@ impl CompressCommand {
         // Streaming mode: read and compress blocks incrementally
         if self.opts.streaming_mode {
             return self.run_streaming();
+        }
+
+        // Pipeline mode: use 3-stage Reader→Compressor→Writer pipeline
+        if self.opts.use_pipeline {
+            return self.run_pipeline();
         }
 
         // Phase 0: Read all records
@@ -357,24 +365,19 @@ impl CompressCommand {
         let mut archive_id_start = 0u64;
         let mut block_buf: Vec<ReadRecord> = Vec::with_capacity(block_size);
 
-        loop {
-            match parser.next_record()? {
-                Some(rec) => {
-                    self.stats.total_reads += 1;
-                    self.stats.total_bases += rec.sequence.len() as u64;
-                    block_buf.push(rec);
+        while let Some(rec) = parser.next_record()? {
+            self.stats.total_reads += 1;
+            self.stats.total_bases += rec.sequence.len() as u64;
+            block_buf.push(rec);
 
-                    if block_buf.len() >= block_size {
-                        let compressed = compressor.compress(&block_buf, block_id)?;
-                        writer.write_block_with_id(&compressed, archive_id_start)?;
-                        archive_id_start += block_buf.len() as u64;
-                        self.stats.output_bytes += compressed.total_compressed_size() as u64;
-                        self.stats.blocks_written += 1;
-                        block_id += 1;
-                        block_buf.clear();
-                    }
-                }
-                None => break,
+            if block_buf.len() >= block_size {
+                let compressed = compressor.compress(&block_buf, block_id)?;
+                writer.write_block_with_id(&compressed, archive_id_start)?;
+                archive_id_start += block_buf.len() as u64;
+                self.stats.output_bytes += compressed.total_compressed_size() as u64;
+                self.stats.blocks_written += 1;
+                block_id += 1;
+                block_buf.clear();
             }
         }
 
@@ -468,8 +471,8 @@ impl CompressCommand {
                         }
                     }
                     PeLayout::Consecutive => {
-                        block_buf.extend(r1_buf.drain(..));
-                        block_buf.extend(r2_buf.drain(..));
+                        block_buf.append(&mut r1_buf);
+                        block_buf.append(&mut r2_buf);
                     }
                 }
 
@@ -492,11 +495,11 @@ impl CompressCommand {
                         block_buf.push(b);
                     }
                     // Any remaining unpaired reads
-                    block_buf.extend(r1_buf.drain(..));
+                    block_buf.append(&mut r1_buf);
                 }
                 PeLayout::Consecutive => {
-                    block_buf.extend(r1_buf.drain(..));
-                    block_buf.extend(r2_buf.drain(..));
+                    block_buf.append(&mut r1_buf);
+                    block_buf.append(&mut r2_buf);
                 }
             }
 
@@ -575,8 +578,8 @@ impl CompressCommand {
                         }
                     }
                     PeLayout::Consecutive => {
-                        block_buf.extend(r1_buf.drain(..));
-                        block_buf.extend(r2_buf.drain(..));
+                        block_buf.append(&mut r1_buf);
+                        block_buf.append(&mut r2_buf);
                     }
                 }
 
@@ -599,8 +602,8 @@ impl CompressCommand {
                     }
                 }
                 PeLayout::Consecutive => {
-                    block_buf.extend(r1_buf.drain(..));
-                    block_buf.extend(r2_buf.drain(..));
+                    block_buf.append(&mut r1_buf);
+                    block_buf.append(&mut r2_buf);
                 }
             }
 
@@ -665,6 +668,73 @@ impl CompressCommand {
             let mut parser = open_fastq(&self.opts.input_path)?;
             parser.collect_all()
         }
+    }
+
+    /// Pipeline mode: 3-stage Reader→Compressor→Writer with backpressure
+    fn run_pipeline(&mut self) -> Result<()> {
+        log::info!("Using pipeline compression mode");
+
+        if !self.opts.force_overwrite && std::path::Path::new(&self.opts.output_path).exists() {
+            return Err(FqcError::InvalidArgument(format!(
+                "Output file already exists: {} (use -f to overwrite)",
+                self.opts.output_path
+            )));
+        }
+
+        let effective_length_class = self.opts.read_length_class.unwrap_or(ReadLengthClass::Short);
+        let is_paired = self.opts.input2_path.is_some() || self.opts.interleaved;
+
+        let pipeline_config = CompressionPipelineConfig {
+            num_threads: self.opts.threads,
+            block_size: self.opts.block_size,
+            read_length_class: effective_length_class,
+            quality_mode: self.opts.quality_mode,
+            id_mode: self.opts.id_mode,
+            compression_level: self.opts.level,
+            enable_reorder: self.opts.enable_reorder && !is_paired,
+            save_reorder_map: self.opts.enable_reorder && !is_paired,
+            streaming_mode: false,
+            pe_layout: self.opts.pe_layout,
+            memory_limit_mb: self.opts.memory_limit_mb,
+            ..Default::default()
+        };
+
+        let mut pipeline = CompressionPipeline::new(pipeline_config);
+
+        let input_filename = std::path::Path::new(&self.opts.input_path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("unknown");
+
+        if let Some(ref path2) = self.opts.input2_path {
+            pipeline.run_paired(
+                &self.opts.input_path,
+                path2,
+                &self.opts.output_path,
+                input_filename,
+                self.opts.pe_layout,
+                None,
+            )?;
+        } else {
+            pipeline.run(
+                &self.opts.input_path,
+                &self.opts.output_path,
+                input_filename,
+                None,
+            )?;
+        }
+
+        let stats = pipeline.stats();
+        self.stats.total_reads = stats.total_reads;
+        self.stats.total_bases = 0; // pipeline doesn't track bases separately
+        self.stats.input_bytes = stats.input_bytes;
+        self.stats.output_bytes = stats.output_bytes;
+        self.stats.blocks_written = stats.total_blocks as u64;
+
+        log::info!("Pipeline compression complete! {} blocks, {:.2}x ratio",
+            stats.total_blocks,
+            if stats.compression_ratio() > 0.0 { 1.0 / stats.compression_ratio() } else { 0.0 });
+        Ok(())
     }
 
     fn detect_length_class(&self, records: &[ReadRecord]) -> ReadLengthClass {

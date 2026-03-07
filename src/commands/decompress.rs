@@ -7,6 +7,7 @@ use crate::error::{FqcError, Result};
 use crate::fastq::parser::write_record as write_fastq_record;
 use crate::format::{flags, get_id_mode, get_pe_layout, get_quality_mode, get_read_length_class};
 use crate::fqc_reader::{FqcReader, BlockData};
+use crate::pipeline::decompression::{DecompressionPipeline, DecompressionPipelineConfig};
 use crate::types::*;
 use rayon::prelude::*;
 use std::fs::File;
@@ -31,6 +32,7 @@ pub struct DecompressOptions {
     pub threads: usize,
     pub show_progress: bool,
     pub force_overwrite: bool,
+    pub use_pipeline: bool,
 }
 
 impl DecompressOptions {
@@ -81,7 +83,7 @@ impl OutputWriters {
             Self::Single(output) => write_to_target(output.as_mut(), read, header_only),
             Self::Split { r1, r2, pe_layout } => {
                 let to_r1 = match pe_layout {
-                    PeLayout::Interleaved => zero_based_read_idx % 2 == 0,
+                    PeLayout::Interleaved => zero_based_read_idx.is_multiple_of(2),
                     PeLayout::Consecutive => zero_based_read_idx < (total_archive_reads / 2),
                 };
 
@@ -149,13 +151,18 @@ impl DecompressCommand {
             }
             Err(e) => {
                 eprintln!("Decompression failed: {e}");
-                1
+                e.exit_code_num()
             }
         }
     }
 
     fn run(&mut self) -> Result<()> {
         self.validate_options()?;
+
+        // Pipeline mode
+        if self.opts.use_pipeline && !self.opts.original_order && !self.opts.split_pe {
+            return self.run_pipeline();
+        }
 
         // Open archive
         let mut reader = FqcReader::open(&self.opts.input_path)?;
@@ -438,8 +445,8 @@ impl DecompressCommand {
         // Reorder: forward_map[original_id] = archive_id
         // So to output in original order, iterate original_id 0..N
         // and output all_reads[forward_map[original_id]]
-        for original_id in 0..total_reads {
-            let archive_id = forward_map[original_id] as usize;
+        for (original_id, &fwd) in forward_map.iter().enumerate().take(total_reads) {
+            let archive_id = fwd as usize;
             if archive_id >= all_reads.len() { continue; }
 
             let read = &all_reads[archive_id];
@@ -470,6 +477,44 @@ impl DecompressCommand {
         self.stats.total_reads += 1;
         self.stats.total_bases += read.sequence.len() as u64;
         self.stats.output_bytes += bytes_written;
+        Ok(())
+    }
+
+    /// Pipeline mode: 3-stage Reader→Decompressor→Writer with backpressure
+    fn run_pipeline(&mut self) -> Result<()> {
+        log::info!("Using pipeline decompression mode");
+
+        if self.opts.output_path != "-" && !self.opts.force_overwrite
+            && std::path::Path::new(&self.opts.output_path).exists()
+        {
+            return Err(FqcError::InvalidArgument(format!(
+                "Output file already exists: {} (use -f to overwrite)",
+                self.opts.output_path
+            )));
+        }
+
+        let pipeline_config = DecompressionPipelineConfig {
+            num_threads: self.opts.threads,
+            range_start: self.opts.range_start,
+            range_end: self.opts.range_end,
+            original_order: false,
+            header_only: self.opts.header_only,
+            skip_corrupted: self.opts.skip_corrupted,
+            split_pe: false,
+            ..Default::default()
+        };
+
+        let mut pipeline = DecompressionPipeline::new(pipeline_config);
+        pipeline.run(&self.opts.input_path, &self.opts.output_path, None)?;
+
+        let stats = pipeline.stats();
+        self.stats.total_reads = stats.total_reads;
+        self.stats.blocks_processed = stats.total_blocks as u64;
+        self.stats.output_bytes = stats.output_bytes;
+        self.stats.input_bytes = stats.input_bytes;
+
+        log::info!("Pipeline decompression complete! {} reads, {:.1} MB/s",
+            stats.total_reads, stats.throughput_mbps());
         Ok(())
     }
 

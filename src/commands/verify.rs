@@ -60,7 +60,7 @@ impl VerifyCommand {
             }
             Err(e) => {
                 eprintln!("Verify failed: {e}");
-                1
+                e.exit_code_num()
             }
         }
     }
