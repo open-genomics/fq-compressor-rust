@@ -1,0 +1,36 @@
+# Auto-detect text files and normalize line endings to LF on commit
+# This eliminates the CRLF warnings on Windows
+* text=auto eol=lf
+
+# Rust source files — always LF
+*.rs text eol=lf
+*.toml text eol=lf
+*.lock text eol=lf
+
+# Config / CI
+*.yml text eol=lf
+*.yaml text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+
+# Shell scripts — must be LF even on Windows
+*.sh text eol=lf
+
+# Windows batch — keep CRLF
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Docker
+Dockerfile text eol=lf
+.dockerignore text eol=lf
+
+# Binary files — no conversion
+*.fqc binary
+*.fastq.gz binary
+*.fastq.bz2 binary
+*.fastq.xz binary
+*.fastq.zst binary
+*.png binary
+*.ico binary

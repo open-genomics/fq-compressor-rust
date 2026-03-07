@@ -1,6 +1,11 @@
 # Cargo build configuration
 # https://doc.rust-lang.org/cargo/reference/config.html
 
+[target.x86_64-pc-windows-msvc]
+# Use lld linker for faster linking on Windows (if available)
+# Uncomment if lld-link is installed (ships with LLVM or recent Rust nightly)
+# rustflags = ["-C", "linker=lld-link"]
+
 [target.x86_64-unknown-linux-gnu]
 # Use mold linker on Linux for faster linking (if available)
 # Uncomment if mold is installed: sudo apt install mold
