@@ -310,16 +310,29 @@ impl Write for AsyncWriter {
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.send_buffer()
+        self.send_buffer()?;
+        // Drop sender to signal background thread to finish
+        self.sender.take();
+        // Wait for background thread and propagate errors
+        if let Some(handle) = self.handle.take() {
+            handle.join().map_err(|_| {
+                io::Error::other("AsyncWriter: background thread panicked")
+            })??;
+        }
+        Ok(())
     }
 }
 
 impl Drop for AsyncWriter {
     fn drop(&mut self) {
-        let _ = self.send_buffer();
+        if let Err(e) = self.send_buffer() {
+            log::error!("AsyncWriter drop: failed to send buffer: {e}");
+        }
         self.sender.take();
         if let Some(handle) = self.handle.take() {
-            let _ = handle.join();
+            if let Err(e) = handle.join() {
+                log::error!("AsyncWriter drop: background thread panicked: {e:?}");
+            }
         }
     }
 }

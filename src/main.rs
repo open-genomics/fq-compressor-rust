@@ -3,6 +3,10 @@
 // =============================================================================
 #![allow(dead_code)]
 
+#[cfg(target_env = "musl")]
+#[global_allocator]
+static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
+
 mod algo;
 mod commands;
 mod common;

@@ -120,15 +120,17 @@ pub fn is_compression_supported(format: CompressionFormat) -> bool {
     }
 }
 
-/// Get list of supported compression formats
+/// Get list of supported compression formats (filtered by enabled feature flags)
 pub fn supported_formats() -> Vec<CompressionFormat> {
-    vec![
-        CompressionFormat::Plain,
-        CompressionFormat::Gzip,
-        CompressionFormat::Bzip2,
-        CompressionFormat::Xz,
-        CompressionFormat::Zstd,
-    ]
+    let mut formats = vec![CompressionFormat::Plain];
+    #[cfg(feature = "gz")]
+    formats.push(CompressionFormat::Gzip);
+    #[cfg(feature = "bz2")]
+    formats.push(CompressionFormat::Bzip2);
+    #[cfg(feature = "xz")]
+    formats.push(CompressionFormat::Xz);
+    formats.push(CompressionFormat::Zstd);
+    formats
 }
 
 /// Get list of supported file extensions
