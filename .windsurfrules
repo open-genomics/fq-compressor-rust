@@ -1,0 +1,101 @@
+# Windsurf Rules — fqc (High-Performance FASTQ Compressor)
+
+## Project Identity
+
+This is **fqc**, a Rust CLI tool and library for compressing genomic FASTQ files. It uses the ABC (Alignment-Based Compression) algorithm for short reads and Zstd for medium/long reads. MSRV is Rust 1.75.
+
+## Build & Verify Commands
+
+```bash
+cargo build                    # dev build — must compile cleanly
+cargo test --lib --tests       # 97 tests, 0 failures expected
+cargo clippy --all-targets     # 0 warnings (clippy pedantic enabled)
+cargo fmt --all -- --check     # format check
+```
+
+Always run `cargo test --lib --tests` and `cargo clippy --all-targets` before committing.
+
+## Project Layout
+
+- `src/main.rs` — CLI entry (clap derive): compress, decompress, info, verify commands
+- `src/lib.rs` — library re-exports
+- `src/error.rs` — `FqcError` (11 variants) + `ExitCode` mapping (0-5)
+- `src/types.rs` — `ReadRecord`, `QualityMode`, `IdMode`, `PeLayout`, `ReadLengthClass`
+- `src/format.rs` — FQC binary format structures (magic, headers, footer)
+- `src/fqc_reader.rs` — block-indexed archive reader with random access
+- `src/fqc_writer.rs` — archive writer with block index + finalize
+- `src/reorder_map.rs` — bidirectional read reorder map (ZigZag varint)
+- `src/algo/` — compression algorithms (ABC block_compressor, global_analyzer, quality_compressor, pe_optimizer)
+- `src/commands/` — CLI command implementations (compress, decompress, info, verify)
+- `src/common/memory_budget.rs` — system memory detection + ChunkingStrategy
+- `src/fastq/parser.rs` — FASTQ parser with validation, stats, PE, chunk reading
+- `src/io/async_io.rs` — AsyncReader/AsyncWriter/BufferPool
+- `src/io/compressed_stream.rs` — feature-gated gz/bz2/xz/zst transparent decompression
+- `src/pipeline/` — 3-stage Reader→Compressor→Writer pipelines (crossbeam channels)
+- `tests/` — 6 test suites: test_e2e (15), test_roundtrip (14), test_parser (19), test_reorder_map (23), test_format (15), test_types (11)
+
+## Coding Rules
+
+### Must Follow
+- **MSRV 1.75** — do not use APIs stabilized after Rust 1.75
+- **No unsafe** — `unsafe_code = "deny"` globally; only `#[allow(unsafe_code)]` on Windows FFI in `memory_budget.rs`
+- **Clippy pedantic** — 0 warnings; domain-specific allows configured in `Cargo.toml [lints.clippy]`
+- **Use `log` crate** — `log::info!`, `log::warn!`, `log::debug!`; never `println!` for status output
+- **Use `thiserror`** — new errors go in `FqcError` enum in `error.rs`, map in `exit_code()`
+- **Feature-gated compression** — gz/bz2/xz behind `#[cfg(feature)]` in `compressed_stream.rs`
+- **Test before commit** — all 97 tests must pass
+
+### Style
+- 4-space indent, max line width 120 (see `rustfmt.toml`)
+- Imports grouped: std → external → crate (see `rustfmt.toml` `imports_granularity`)
+- Section separators: `// ====...====` block comments for major sections
+- No comments/docs changes unless explicitly asked
+
+### Avoid
+- Changing FQC binary format without bumping version
+- Deleting or weakening existing tests
+- Platform-specific paths — use `std::path::Path`
+- `unwrap()` in library code — use `?` with `FqcError`
+- Adding dependencies without justification
+
+## Common Patterns
+
+### Add a CLI flag
+1. Add field to options struct in `src/commands/<cmd>.rs`
+2. Add `#[arg]` to `Commands` enum in `src/main.rs`
+3. Wire field in match arm in `main.rs`
+
+### Add an error variant
+1. Add variant to `FqcError` in `src/error.rs`
+2. Add mapping in `FqcError::exit_code()`
+
+### Add a compression format
+1. Add `CompressionFormat` variant in `src/io/compressed_stream.rs`
+2. Add magic bytes + extension detection
+3. Add reader behind `#[cfg(feature)]`
+4. Add optional dep + feature in `Cargo.toml`
+
+### Add a test
+- Use helpers: `compress_file()`, `decompress_file()`, `read_fastq_records()` from `test_e2e.rs`
+- Create temp files, clean up after
+- Round-trip: compress → decompress → compare record-by-record (id, sequence, quality)
+
+## Key Dependencies
+
+| Crate | Purpose |
+|-------|---------|
+| clap 4 (derive) | CLI parsing |
+| zstd 0.13 | Zstd compression (required) |
+| xxhash-rust 0.8 | xxHash64 checksums |
+| rayon 1.10 | Parallel block processing |
+| crossbeam-channel 0.5 | Pipeline stage communication |
+| thiserror 1 | Error derive |
+| byteorder 1 | Little-endian binary I/O |
+| flate2 (optional) | Gzip |
+| bzip2 (optional) | Bzip2 |
+| xz2 (optional) | XZ/LZMA |
+
+## CI/CD
+
+- `ci.yml` — push/PR: check, test (3 OS), clippy, fmt, MSRV 1.75, cargo-deny
+- `release.yml` — `v*` tag: validate version, test, build 5 targets, GitHub Release + checksums
