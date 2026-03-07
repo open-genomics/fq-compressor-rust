@@ -10,9 +10,13 @@ A Rust implementation of the FQC compressor for FASTQ files, featuring the ABC (
 - **Global Read Reordering** — Minimizer-based read reordering to improve compression
 - **Random Access** — Block-indexed archive format for efficient partial decompression
 - **Parallel Processing** — Rayon-based parallel block compression/decompression
+- **Pipeline Mode** — 3-stage Reader→Compressor→Writer pipeline with backpressure (`--pipeline`)
+- **Async I/O** — Background prefetch and write-behind for improved throughput
 - **Streaming Mode** — Low-memory compression from stdin without global reordering
 - **Lossless & Lossy** — Supports lossless, Illumina 8-bin, and discard quality modes
-- **Gzip Input** — Transparent decompression of `.gz` FASTQ files
+- **Compressed Input** — Transparent decompression of `.gz`, `.bz2`, `.xz`, `.zst` FASTQ files
+- **Paired-End** — Interleaved and separate-file paired-end support
+- **Memory Budget** — Auto-detect system memory, dynamic chunking for large datasets
 
 ## Installation
 
@@ -37,13 +41,26 @@ fqc compress -i reads.fastq -o reads.fqc -l 9
 fqc compress -i reads.fastq.gz -o reads.fqc
 
 # Streaming mode (low memory, from stdin)
-cat reads.fastq | fqc --streaming compress -i - -o reads.fqc
+cat reads.fastq | fqc compress --streaming -i - -o reads.fqc
+
+# Pipeline mode (3-stage parallel pipeline with backpressure)
+fqc compress -i reads.fastq -o reads.fqc --pipeline
+
+# Paired-end (separate files)
+fqc compress -i reads_R1.fastq -2 reads_R2.fastq -o reads.fqc
+
+# Paired-end (interleaved single file)
+fqc compress -i interleaved.fastq -o reads.fqc --interleaved
 
 # Discard quality scores
 fqc compress -i reads.fastq -o reads.fqc --lossy-quality discard
 
 # Force medium/long read mode
 fqc compress -i long_reads.fastq -o reads.fqc --long-read-mode long
+
+# Compressed input (auto-detected)
+fqc compress -i reads.fastq.gz -o reads.fqc
+fqc compress -i reads.fastq.bz2 -o reads.fqc
 ```
 
 ### Decompress
@@ -114,6 +131,53 @@ fqc verify -i reads.fqc --verbose
 | Short (<300bp) | ABC (consensus + delta) | SCM Order-2 | Yes |
 | Medium (300bp-10kbp) | Zstd | SCM Order-2 | No |
 | Long (>10kbp) | Zstd | SCM Order-1 | No |
+
+## Architecture
+
+```
+src/
+├── algo/                   # Compression algorithms
+│   ├── block_compressor.rs # ABC + Zstd block compression/decompression
+│   ├── global_analyzer.rs  # Minimizer-based read reordering
+│   ├── quality_compressor.rs # SCM arithmetic coding for quality scores
+│   └── pe_optimizer.rs     # Paired-end complementarity optimization
+├── commands/               # CLI command implementations
+│   ├── compress.rs         # Compress command (default + streaming + pipeline)
+│   ├── decompress.rs       # Decompress command (sequential + parallel + reorder)
+│   ├── info.rs             # Archive info display
+│   └── verify.rs           # Integrity verification
+├── common/
+│   └── memory_budget.rs    # System memory detection, dynamic chunking
+├── fastq/
+│   └── parser.rs           # FASTQ parser (stats, validation, PE, chunk reading)
+├── io/
+│   ├── async_io.rs         # AsyncReader/AsyncWriter with prefetch/write-behind
+│   └── compressed_stream.rs# Transparent gz/bz2/xz/zst decompression
+├── pipeline/
+│   ├── compression.rs      # 3-stage compression pipeline (crossbeam channels)
+│   └── decompression.rs    # 3-stage decompression pipeline
+├── error.rs                # FqcError enum + ExitCode mapping (0-5)
+├── format.rs               # FQC binary format structures
+├── fqc_reader.rs           # Archive reader with random access
+├── fqc_writer.rs           # Archive writer with block index
+├── reorder_map.rs          # Bidirectional read reorder map (ZigZag varint)
+└── types.rs                # Core types and constants
+```
+
+## Testing
+
+```bash
+# Run all 96 tests
+cargo test
+
+# Run specific test suite
+cargo test --test test_e2e        # 14 end-to-end tests
+cargo test --test test_roundtrip  # 14 round-trip compression tests
+cargo test --test test_parser     # 19 parser tests
+cargo test --test test_reorder_map # 23 reorder map tests
+cargo test --test test_format     # 15 format tests
+cargo test --test test_types      # 11 type tests
+```
 
 ## License
 
