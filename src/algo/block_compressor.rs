@@ -2,44 +2,13 @@
 // fqc-rust - Block Compressor (ABC Algorithm + Zstd)
 // =============================================================================
 
+use crate::algo::dna::{BASE_TO_INDEX, INDEX_TO_BASE, reverse_complement};
 use crate::error::{FqcError, Result};
 use crate::types::*;
 use crate::algo::quality_compressor::{QualityCompressor, QualityCompressorConfig, ContextOrder};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read};
 use xxhash_rust::xxh64::Xxh64;
-
-// =============================================================================
-// DNA Utility Tables
-// =============================================================================
-
-const BASE_TO_INDEX: [u8; 256] = {
-    let mut t = [0u8; 256];
-    t[b'A' as usize] = 0; t[b'a' as usize] = 0;
-    t[b'C' as usize] = 1; t[b'c' as usize] = 1;
-    t[b'G' as usize] = 2; t[b'g' as usize] = 2;
-    t[b'T' as usize] = 3; t[b't' as usize] = 3;
-    t
-};
-
-const INDEX_TO_BASE: [u8; 4] = [b'A', b'C', b'G', b'T'];
-
-const COMPLEMENT: [u8; 256] = {
-    let mut t = [0u8; 256];
-    t[b'A' as usize] = b'T'; t[b'a' as usize] = b't';
-    t[b'C' as usize] = b'G'; t[b'c' as usize] = b'g';
-    t[b'G' as usize] = b'C'; t[b'g' as usize] = b'c';
-    t[b'T' as usize] = b'A'; t[b't' as usize] = b'a';
-    t[b'N' as usize] = b'N'; t[b'n' as usize] = b'n';
-    t
-};
-
-pub fn reverse_complement(seq: &[u8]) -> Vec<u8> {
-    seq.iter().rev().map(|&c| {
-        let rc = COMPLEMENT[c as usize];
-        if rc != 0 { rc } else { b'N' }
-    }).collect()
-}
 
 fn encode_noise(ref_base: u8, read_base: u8) -> u8 {
     match (ref_base | 32, read_base | 32) {

@@ -21,6 +21,7 @@ const MEMORY_SAFETY_MARGIN: f64 = 1.2;
 // =============================================================================
 
 #[derive(Debug, Clone)]
+#[allow(clippy::struct_field_names)]
 pub struct MemoryBudget {
     pub max_total_mb: usize,
     pub phase1_reserve_mb: usize,

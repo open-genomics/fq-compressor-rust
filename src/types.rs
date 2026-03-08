@@ -81,7 +81,7 @@ impl QualityMode {
         }
     }
 
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Lossless => "lossless",
             Self::Illumina8 => "illumina8",
@@ -114,7 +114,7 @@ impl IdMode {
         }
     }
 
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Exact => "exact",
             Self::Tokenize => "tokenize",
@@ -146,7 +146,7 @@ impl ReadLengthClass {
         }
     }
 
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Short => "short",
             Self::Medium => "medium",
@@ -157,9 +157,6 @@ impl ReadLengthClass {
 
 /// Classify read length based on statistics
 pub fn classify_read_length(median_length: usize, max_length: usize) -> ReadLengthClass {
-    if max_length >= ULTRA_LONG_READ_THRESHOLD {
-        return ReadLengthClass::Long;
-    }
     if max_length >= LONG_READ_THRESHOLD {
         return ReadLengthClass::Long;
     }
@@ -202,7 +199,7 @@ impl PeLayout {
         }
     }
 
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Interleaved => "interleaved",
             Self::Consecutive => "consecutive",

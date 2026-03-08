@@ -23,7 +23,7 @@ pub enum CompressionFormat {
 }
 
 impl CompressionFormat {
-    pub fn as_str(&self) -> &'static str {
+    pub fn as_str(self) -> &'static str {
         match self {
             Self::Plain => "plain",
             Self::Gzip => "gzip",
@@ -33,7 +33,7 @@ impl CompressionFormat {
         }
     }
 
-    pub fn extension(&self) -> &'static str {
+    pub fn extension(self) -> &'static str {
         match self {
             Self::Plain => "",
             Self::Gzip => ".gz",

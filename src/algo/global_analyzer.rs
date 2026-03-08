@@ -2,40 +2,11 @@
 // fqc-rust - Global Analyzer (Minimizer Bucketing + Read Reordering)
 // =============================================================================
 
+use crate::algo::dna::BASE_TO_INDEX;
 use crate::error::Result;
 use crate::types::*;
 use rayon::prelude::*;
 use std::collections::HashMap;
-
-// =============================================================================
-// DNA Encoding
-// =============================================================================
-
-const BASE_TO_INT: [u8; 256] = {
-    let mut t = [0u8; 256];
-    t[b'A' as usize] = 0; t[b'a' as usize] = 0;
-    t[b'C' as usize] = 1; t[b'c' as usize] = 1;
-    t[b'G' as usize] = 2; t[b'g' as usize] = 2;
-    t[b'T' as usize] = 3; t[b't' as usize] = 3;
-    t
-};
-
-const COMPLEMENT: [u8; 256] = {
-    let mut t = [0u8; 256];
-    t[b'A' as usize] = b'T'; t[b'a' as usize] = b't';
-    t[b'C' as usize] = b'G'; t[b'c' as usize] = b'g';
-    t[b'G' as usize] = b'C'; t[b'g' as usize] = b'c';
-    t[b'T' as usize] = b'A'; t[b't' as usize] = b'a';
-    t[b'N' as usize] = b'N'; t[b'n' as usize] = b'n';
-    t
-};
-
-pub fn reverse_complement(seq: &[u8]) -> Vec<u8> {
-    seq.iter().rev().map(|&c| {
-        let rc = COMPLEMENT[c as usize];
-        if rc != 0 { rc } else { b'N' }
-    }).collect()
-}
 
 // =============================================================================
 // Minimizer Extraction
@@ -53,9 +24,9 @@ fn compute_kmer_hash(seq: &[u8]) -> u64 {
     let mut hash: u64 = 0;
     let mut rc_hash: u64 = 0;
     for i in 0..k {
-        let base = BASE_TO_INT[seq[i] as usize] as u64;
+        let base = BASE_TO_INDEX[seq[i] as usize] as u64;
         hash = (hash << 2) | base;
-        let rc_base = 3 - BASE_TO_INT[seq[k - 1 - i] as usize] as u64;
+        let rc_base = 3 - BASE_TO_INDEX[seq[k - 1 - i] as usize] as u64;
         rc_hash = (rc_hash << 2) | rc_base;
     }
     hash.min(rc_hash)
@@ -88,7 +59,7 @@ pub fn extract_minimizers(seq: &[u8], k: usize, w: usize) -> Vec<Minimizer> {
         if min_pos != prev_min_pos {
             let mut fwd_hash: u64 = 0;
             for i in 0..k {
-                let base = BASE_TO_INT[seq[min_pos + i] as usize] as u64;
+                let base = BASE_TO_INDEX[seq[min_pos + i] as usize] as u64;
                 fwd_hash = (fwd_hash << 2) | base;
             }
             let is_rc = min_hash != fwd_hash;

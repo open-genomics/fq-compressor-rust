@@ -4,7 +4,7 @@
 // Implements PE complementarity encoding: R2 stored as diff from R1-RC.
 // =============================================================================
 
-use crate::algo::block_compressor::reverse_complement;
+use crate::algo::dna::reverse_complement;
 use crate::types::ReadRecord;
 
 // =============================================================================
