@@ -282,12 +282,22 @@ pub struct ReadRecord {
 
 impl ReadRecord {
     pub fn new(id: String, sequence: String, quality: String) -> Self {
-        Self { id, comment: String::new(), sequence, quality }
+        Self {
+            id,
+            comment: String::new(),
+            sequence,
+            quality,
+        }
     }
 
     /// Construct with all fields including comment
     pub fn with_comment(id: String, comment: String, sequence: String, quality: String) -> Self {
-        Self { id, comment, sequence, quality }
+        Self {
+            id,
+            comment,
+            sequence,
+            quality,
+        }
     }
 
     pub fn is_valid(&self) -> bool {

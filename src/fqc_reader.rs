@@ -2,9 +2,9 @@
 // fqc-rust - FQC Archive Reader
 // =============================================================================
 
+use crate::algo::block_compressor::delta_decode_ids;
 use crate::error::{FqcError, Result};
 use crate::format::*;
-use crate::algo::block_compressor::delta_decode_ids;
 use byteorder::ReadBytesExt;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
@@ -39,8 +39,7 @@ pub struct FqcReader {
 
 impl FqcReader {
     pub fn open(path: &str) -> Result<Self> {
-        let file = File::open(path)
-            .map_err(|e| FqcError::Io(e))?;
+        let file = File::open(path).map_err(|e| FqcError::Io(e))?;
         let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
         let mut reader = BufReader::new(file);
 
@@ -58,7 +57,9 @@ impl FqcReader {
 
         // Read footer (seek to end - 32 bytes)
         if file_size < FILE_FOOTER_SIZE as u64 + MAGIC_HEADER_SIZE as u64 {
-            return Err(FqcError::Format("File too small to be a valid .fqc archive".to_string()));
+            return Err(FqcError::Format(
+                "File too small to be a valid .fqc archive".to_string(),
+            ));
         }
         let footer_pos = file_size - FILE_FOOTER_SIZE as u64;
         reader.seek(SeekFrom::Start(footer_pos))?;
@@ -125,7 +126,10 @@ impl FqcReader {
 
     /// Read a block by its block_id. Loads all streams.
     pub fn read_block(&mut self, block_id: u32) -> Result<BlockData> {
-        let entry = self.block_index.entries.get(block_id as usize)
+        let entry = self
+            .block_index
+            .entries
+            .get(block_id as usize)
             .ok_or_else(|| FqcError::Format(format!("Block {block_id} not in index")))?
             .clone();
 
@@ -176,7 +180,10 @@ impl FqcReader {
 
     /// Read only the block header for a given block_id (no stream data).
     pub fn read_block_header(&mut self, block_id: u32) -> Result<BlockHeader> {
-        let entry = self.block_index.entries.get(block_id as usize)
+        let entry = self
+            .block_index
+            .entries
+            .get(block_id as usize)
             .ok_or_else(|| FqcError::Format(format!("Block {block_id} not in index")))?;
         self.reader.seek(SeekFrom::Start(entry.offset))?;
         BlockHeader::read(&mut self.reader)
@@ -184,8 +191,8 @@ impl FqcReader {
 
     /// Look up original read ID from archive ID using the reorder map.
     pub fn lookup_original_id(&self, archive_id: u64) -> Option<u64> {
-        self.reorder_reverse.as_ref().and_then(|m| m.get(archive_id as usize).copied())
+        self.reorder_reverse
+            .as_ref()
+            .and_then(|m| m.get(archive_id as usize).copied())
     }
 }
-
-

@@ -26,14 +26,14 @@ fn test_version_compatibility() {
 #[test]
 fn test_build_and_extract_flags() {
     let f = build_flags(
-        true,                       // is_paired
-        false,                      // preserve_order
-        QualityMode::Illumina8,     // quality_mode
-        IdMode::Tokenize,           // id_mode
-        true,                       // has_reorder_map
-        PeLayout::Consecutive,      // pe_layout
-        ReadLengthClass::Medium,    // read_length_class
-        false,                      // streaming_mode
+        true,                    // is_paired
+        false,                   // preserve_order
+        QualityMode::Illumina8,  // quality_mode
+        IdMode::Tokenize,        // id_mode
+        true,                    // has_reorder_map
+        PeLayout::Consecutive,   // pe_layout
+        ReadLengthClass::Medium, // read_length_class
+        false,                   // streaming_mode
     );
 
     assert_ne!(f & flags::IS_PAIRED, 0);
@@ -49,8 +49,14 @@ fn test_build_and_extract_flags() {
 #[test]
 fn test_build_flags_streaming() {
     let f = build_flags(
-        false, true, QualityMode::Lossless, IdMode::Exact,
-        false, PeLayout::Interleaved, ReadLengthClass::Short, true,
+        false,
+        true,
+        QualityMode::Lossless,
+        IdMode::Exact,
+        false,
+        PeLayout::Interleaved,
+        ReadLengthClass::Short,
+        true,
     );
     assert_ne!(f & flags::STREAMING_MODE, 0);
     assert_ne!(f & flags::PRESERVE_ORDER, 0);
@@ -60,8 +66,16 @@ fn test_build_flags_streaming() {
 #[test]
 fn test_global_header_roundtrip() {
     let gh = GlobalHeader::new(
-        build_flags(false, false, QualityMode::Lossless, IdMode::Exact,
-                    true, PeLayout::Interleaved, ReadLengthClass::Short, false),
+        build_flags(
+            false,
+            false,
+            QualityMode::Lossless,
+            IdMode::Exact,
+            true,
+            PeLayout::Interleaved,
+            ReadLengthClass::Short,
+            false,
+        ),
         1000,
         "test.fastq",
         1_700_000_000,
@@ -147,10 +161,17 @@ fn test_block_header_uniform_length() {
     };
     assert!(bh.has_uniform_length());
 
-    let bh2 = BlockHeader { uniform_read_length: 0, ..Default::default() };
+    let bh2 = BlockHeader {
+        uniform_read_length: 0,
+        ..Default::default()
+    };
     assert!(!bh2.has_uniform_length());
 
-    let bh3 = BlockHeader { uniform_read_length: 150, size_aux: 100, ..Default::default() };
+    let bh3 = BlockHeader {
+        uniform_read_length: 150,
+        size_aux: 100,
+        ..Default::default()
+    };
     assert!(!bh3.has_uniform_length());
 }
 
@@ -203,9 +224,24 @@ fn test_block_index_roundtrip() {
     let index = BlockIndex {
         num_blocks: 3,
         entries: vec![
-            IndexEntry { offset: 100, compressed_size: 500, archive_id_start: 0, read_count: 100 },
-            IndexEntry { offset: 600, compressed_size: 400, archive_id_start: 100, read_count: 100 },
-            IndexEntry { offset: 1000, compressed_size: 300, archive_id_start: 200, read_count: 50 },
+            IndexEntry {
+                offset: 100,
+                compressed_size: 500,
+                archive_id_start: 0,
+                read_count: 100,
+            },
+            IndexEntry {
+                offset: 600,
+                compressed_size: 400,
+                archive_id_start: 100,
+                read_count: 100,
+            },
+            IndexEntry {
+                offset: 1000,
+                compressed_size: 300,
+                archive_id_start: 200,
+                read_count: 50,
+            },
         ],
     };
 

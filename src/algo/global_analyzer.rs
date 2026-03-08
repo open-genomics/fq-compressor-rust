@@ -34,12 +34,12 @@ fn compute_kmer_hash(seq: &[u8]) -> u64 {
 
 pub fn extract_minimizers(seq: &[u8], k: usize, w: usize) -> Vec<Minimizer> {
     let mut minimizers = Vec::new();
-    if seq.len() < k { return minimizers; }
+    if seq.len() < k {
+        return minimizers;
+    }
 
     let num_kmers = seq.len() - k + 1;
-    let hashes: Vec<u64> = (0..num_kmers)
-        .map(|i| compute_kmer_hash(&seq[i..i + k]))
-        .collect();
+    let hashes: Vec<u64> = (0..num_kmers).map(|i| compute_kmer_hash(&seq[i..i + k])).collect();
 
     let window_size = w.min(num_kmers);
     let mut prev_min_pos = usize::MAX;
@@ -63,7 +63,11 @@ pub fn extract_minimizers(seq: &[u8], k: usize, w: usize) -> Vec<Minimizer> {
                 fwd_hash = (fwd_hash << 2) | base;
             }
             let is_rc = min_hash != fwd_hash;
-            minimizers.push(Minimizer { hash: min_hash, position: min_pos as u16, is_rc });
+            minimizers.push(Minimizer {
+                hash: min_hash,
+                position: min_pos as u16,
+                is_rc,
+            });
             prev_min_pos = min_pos;
         }
     }
@@ -129,8 +133,12 @@ pub struct GlobalAnalysisResult {
 
 impl GlobalAnalysisResult {
     pub fn find_block(&self, archive_id: ReadId) -> Option<BlockId> {
-        let idx = self.block_boundaries.partition_point(|b| b.archive_id_start <= archive_id);
-        if idx == 0 { return None; }
+        let idx = self
+            .block_boundaries
+            .partition_point(|b| b.archive_id_start <= archive_id);
+        if idx == 0 {
+            return None;
+        }
         let b = &self.block_boundaries[idx - 1];
         if archive_id >= b.archive_id_start && archive_id < b.archive_id_end {
             Some(b.block_id)
@@ -178,8 +186,7 @@ impl GlobalAnalyzer {
             classify_read_length(median_length, max_length)
         };
 
-        let should_reorder = self.config.enable_reorder
-            && result.length_class == ReadLengthClass::Short;
+        let should_reorder = self.config.enable_reorder && result.length_class == ReadLengthClass::Short;
 
         if should_reorder {
             log::info!("Performing global reordering on {} reads", total_reads);
@@ -197,8 +204,11 @@ impl GlobalAnalyzer {
         result.block_boundaries = self.compute_block_boundaries(total_reads, effective_block_size);
         result.num_blocks = result.block_boundaries.len();
 
-        log::info!("Created {} blocks with {} reads per block",
-            result.num_blocks, effective_block_size);
+        log::info!(
+            "Created {} blocks with {} reads per block",
+            result.num_blocks,
+            effective_block_size
+        );
 
         Ok(result)
     }
@@ -218,13 +228,11 @@ impl GlobalAnalyzer {
         let total_reads = sequences.len();
 
         // Step 1: Extract minimizers in parallel
-        let all_buckets: Vec<Vec<(u64, u64)>> = sequences.par_iter().enumerate()
+        let all_buckets: Vec<Vec<(u64, u64)>> = sequences
+            .par_iter()
+            .enumerate()
             .map(|(i, seq)| {
-                let mins = extract_minimizers(
-                    seq.as_bytes(),
-                    self.config.minimizer_k,
-                    self.config.minimizer_w,
-                );
+                let mins = extract_minimizers(seq.as_bytes(), self.config.minimizer_k, self.config.minimizer_w);
                 mins.into_iter().map(|m| (m.hash, i as u64)).collect()
             })
             .collect();
@@ -248,11 +256,7 @@ impl GlobalAnalyzer {
             let last_read = *ordered.last().unwrap() as usize;
             let last_seq = sequences[last_read].as_bytes();
 
-            let last_mins = extract_minimizers(
-                last_seq,
-                self.config.minimizer_k,
-                self.config.minimizer_w,
-            );
+            let last_mins = extract_minimizers(last_seq, self.config.minimizer_k, self.config.minimizer_w);
 
             let mut best_match: Option<u64> = None;
             let mut best_score = usize::MAX;
@@ -264,7 +268,9 @@ impl GlobalAnalyzer {
                 if let Some(bucket) = bucket_map.get(&m.hash) {
                     for &candidate_id in bucket {
                         let cid = candidate_id as usize;
-                        if used[cid] { continue; }
+                        if used[cid] {
+                            continue;
+                        }
 
                         let clen = sequences[cid].len();
                         let len_diff = last_len.abs_diff(clen);
@@ -297,7 +303,9 @@ impl GlobalAnalyzer {
     }
 
     fn compute_block_boundaries(&self, total_reads: u64, reads_per_block: usize) -> Vec<BlockBoundary> {
-        if total_reads == 0 { return Vec::new(); }
+        if total_reads == 0 {
+            return Vec::new();
+        }
 
         let num_blocks = (total_reads as usize).div_ceil(reads_per_block);
         let mut boundaries = Vec::with_capacity(num_blocks);

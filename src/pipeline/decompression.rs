@@ -115,6 +115,7 @@ impl DecompressionPipeline {
     }
 
     /// Run decompression pipeline
+    #[allow(clippy::too_many_lines)]
     pub fn run(
         &mut self,
         input_path: &str,
@@ -152,7 +153,10 @@ impl DecompressionPipeline {
 
         // Compute how many reads exist before start_block (for correct range filtering)
         let reads_before_start_block: u64 = if start_block > 0 {
-            reader.block_index.entries.get(start_block)
+            reader
+                .block_index
+                .entries
+                .get(start_block)
                 .map(|e| e.archive_id_start)
                 .unwrap_or(0)
         } else {
@@ -176,16 +180,20 @@ impl DecompressionPipeline {
         let reader_control = control.clone();
         let reader_handle = thread::spawn(move || -> Result<()> {
             for block_id in start_block..end_block {
-                if reader_control.is_cancelled() { break; }
+                if reader_control.is_cancelled() {
+                    break;
+                }
 
                 let block_data = reader.read_block(block_id as u32)?;
                 let is_last = block_id + 1 == end_block;
 
-                task_tx.send(BlockTask {
-                    block_id: block_id as u32,
-                    block_data,
-                    is_last,
-                }).map_err(|_| FqcError::Decompression("Reader: channel closed".to_string()))?;
+                task_tx
+                    .send(BlockTask {
+                        block_id: block_id as u32,
+                        block_data,
+                        is_last,
+                    })
+                    .map_err(|_| FqcError::Decompression("Reader: channel closed".to_string()))?;
             }
             Ok(())
         });
@@ -204,7 +212,9 @@ impl DecompressionPipeline {
                 let compressor = BlockCompressor::new((*cfg).clone());
 
                 for task in rx.iter() {
-                    if ctrl.is_cancelled() { break; }
+                    if ctrl.is_cancelled() {
+                        break;
+                    }
 
                     let bh = &task.block_data.header;
                     let decomp_result = compressor.decompress_raw(
@@ -226,9 +236,8 @@ impl DecompressionPipeline {
                         result: decomp_result,
                         is_last: task.is_last,
                         expected_read_count: bh.uncompressed_count,
-                    }).map_err(|_| {
-                        FqcError::Decompression("Decompressor: channel closed".to_string())
-                    })?;
+                    })
+                    .map_err(|_| FqcError::Decompression("Decompressor: channel closed".to_string()))?;
                 }
                 Ok(())
             });
@@ -251,20 +260,20 @@ impl DecompressionPipeline {
             let mut output: Box<dyn std::io::Write> = if output_path_owned == "-" {
                 Box::new(std::io::BufWriter::new(std::io::stdout()))
             } else {
-                let file = std::fs::File::create(&output_path_owned)
-                    .map_err(FqcError::Io)?;
+                let file = std::fs::File::create(&output_path_owned).map_err(FqcError::Io)?;
                 Box::new(AsyncWriter::new(file, ASYNC_WRITE_DEPTH, ASYNC_WRITE_BUF))
             };
 
-            let mut pending: std::collections::BTreeMap<u32, DecompressedResult> =
-                std::collections::BTreeMap::new();
+            let mut pending: std::collections::BTreeMap<u32, DecompressedResult> = std::collections::BTreeMap::new();
             let mut next_expected: u32 = start_block as u32;
             let mut total_output_bytes: u64 = 0;
             let mut total_reads_written: u64 = 0;
             let mut global_read_idx: u64 = reads_before_start_block;
 
             for dr in result_rx.iter() {
-                if writer_control.is_cancelled() { break; }
+                if writer_control.is_cancelled() {
+                    break;
+                }
                 pending.insert(dr.block_id, dr);
 
                 while let Some(dr) = pending.remove(&next_expected) {
@@ -291,9 +300,14 @@ impl DecompressionPipeline {
                                     total_output_bytes += line.len() as u64;
                                 } else {
                                     write_record(output.as_mut(), read)?;
-                                    let comment_bytes = if read.comment.is_empty() { 0 } else { read.comment.len() + 1 };
-                                    total_output_bytes += (read.id.len() + comment_bytes +
-                                        read.sequence.len() + read.quality.len() + 5) as u64;
+                                    let comment_bytes = if read.comment.is_empty() {
+                                        0
+                                    } else {
+                                        read.comment.len() + 1
+                                    };
+                                    total_output_bytes +=
+                                        (read.id.len() + comment_bytes + read.sequence.len() + read.quality.len() + 5)
+                                            as u64;
                                 }
                                 total_reads_written += 1;
                             }
@@ -317,13 +331,15 @@ impl DecompressionPipeline {
         });
 
         // ---- Wait ----
-        reader_handle.join()
+        reader_handle
+            .join()
             .map_err(|_| FqcError::Decompression("Reader thread panicked".to_string()))??;
         for h in decomp_handles {
             h.join()
                 .map_err(|_| FqcError::Decompression("Decompressor thread panicked".to_string()))??;
         }
-        let (reads_written, output_bytes) = writer_handle.join()
+        let (reads_written, output_bytes) = writer_handle
+            .join()
             .map_err(|_| FqcError::Decompression("Writer thread panicked".to_string()))??;
 
         let elapsed = start.elapsed();
@@ -350,8 +366,16 @@ impl DecompressionPipeline {
     /// Find the block range that covers the requested read range
     fn find_block_range(&self, reader: &FqcReader) -> (usize, usize) {
         let entries = &reader.block_index.entries;
-        let range_start = if self.config.range_start > 0 { self.config.range_start - 1 } else { 0 };
-        let range_end = if self.config.range_end > 0 { self.config.range_end } else { reader.total_read_count() };
+        let range_start = if self.config.range_start > 0 {
+            self.config.range_start - 1
+        } else {
+            0
+        };
+        let range_end = if self.config.range_end > 0 {
+            self.config.range_end
+        } else {
+            reader.total_read_count()
+        };
 
         let mut start_block = 0;
         let mut end_block = entries.len();

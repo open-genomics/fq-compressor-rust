@@ -84,17 +84,23 @@ struct CompressStats {
 
 impl CompressStats {
     fn compression_ratio(&self) -> f64 {
-        if self.output_bytes == 0 { return 0.0; }
+        if self.output_bytes == 0 {
+            return 0.0;
+        }
         self.input_bytes as f64 / self.output_bytes as f64
     }
 
     fn bits_per_base(&self) -> f64 {
-        if self.total_bases == 0 { return 0.0; }
+        if self.total_bases == 0 {
+            return 0.0;
+        }
         (self.output_bytes as f64 * 8.0) / self.total_bases as f64
     }
 
     fn throughput_mbps(&self) -> f64 {
-        if self.elapsed_seconds == 0.0 { return 0.0; }
+        if self.elapsed_seconds == 0.0 {
+            return 0.0;
+        }
         (self.input_bytes as f64 / 1_048_576.0) / self.elapsed_seconds
     }
 }
@@ -110,7 +116,10 @@ pub struct CompressCommand {
 
 impl CompressCommand {
     pub fn new(opts: CompressOptions) -> Self {
-        Self { opts, stats: CompressStats::default() }
+        Self {
+            opts,
+            stats: CompressStats::default(),
+        }
     }
 
     pub fn execute(mut self) -> i32 {
@@ -150,7 +159,9 @@ impl CompressCommand {
         let records = self.read_all_records()?;
 
         if records.is_empty() {
-            return Err(FqcError::InvalidArgument("Input file contains no FASTQ records".to_string()));
+            return Err(FqcError::InvalidArgument(
+                "Input file contains no FASTQ records".to_string(),
+            ));
         }
 
         let total_bases: u64 = records.iter().map(|r| r.sequence.len() as u64).sum();
@@ -191,7 +202,11 @@ impl CompressCommand {
         let analyzer = GlobalAnalyzer::new(analyzer_config);
         let analysis = analyzer.analyze(&sequences)?;
 
-        log::info!("Analysis: {} blocks, reordering={}", analysis.num_blocks, analysis.reordering_performed);
+        log::info!(
+            "Analysis: {} blocks, reordering={}",
+            analysis.num_blocks,
+            analysis.reordering_performed
+        );
 
         // Phase 2: Write FQC archive
         if !self.opts.force_overwrite && std::path::Path::new(&self.opts.output_path).exists() {
@@ -242,32 +257,42 @@ impl CompressCommand {
         let block_config = std::sync::Arc::new(block_config);
 
         // Extract block read sets
-        let block_read_sets: Vec<(u32, Vec<ReadRecord>)> = analysis.block_boundaries.iter()
+        let block_read_sets: Vec<(u32, Vec<ReadRecord>)> = analysis
+            .block_boundaries
+            .iter()
             .filter_map(|boundary| {
                 let start = boundary.archive_id_start as usize;
                 let end = boundary.archive_id_end as usize;
 
-                let block_reads: Vec<ReadRecord> = if analysis.reordering_performed && !analysis.reverse_map.is_empty() {
+                let block_reads: Vec<ReadRecord> = if analysis.reordering_performed && !analysis.reverse_map.is_empty()
+                {
                     (start..end)
                         .filter_map(|archive_id| {
-                            analysis.reverse_map.get(archive_id).and_then(|&orig_id| records.get(orig_id as usize).cloned())
+                            analysis
+                                .reverse_map
+                                .get(archive_id)
+                                .and_then(|&orig_id| records.get(orig_id as usize).cloned())
                         })
                         .collect()
                 } else {
-                    (start..end.min(records.len()))
-                        .map(|i| records[i].clone())
-                        .collect()
+                    (start..end.min(records.len())).map(|i| records[i].clone()).collect()
                 };
 
-                if block_reads.is_empty() { None } else { Some((boundary.block_id, block_reads)) }
+                if block_reads.is_empty() {
+                    None
+                } else {
+                    Some((boundary.block_id, block_reads))
+                }
             })
             .collect();
 
         // Parallel block compression
         let num_blocks = block_read_sets.len();
-        log::info!("Compressing {} blocks{}...",
+        log::info!(
+            "Compressing {} blocks{}...",
             num_blocks,
-            if num_blocks > 1 { " in parallel" } else { "" });
+            if num_blocks > 1 { " in parallel" } else { "" }
+        );
 
         let compressed_blocks: Vec<Result<CompressedBlockData>> = block_read_sets
             .par_iter()
@@ -289,8 +314,12 @@ impl CompressCommand {
             self.stats.output_bytes += compressed.total_compressed_size() as u64;
             self.stats.blocks_written += 1;
 
-            log::debug!("Block {} written: {} reads, {} bytes",
-                i, num_reads, compressed.total_compressed_size());
+            log::debug!(
+                "Block {} written: {} reads, {} bytes",
+                i,
+                num_reads,
+                compressed.total_compressed_size()
+            );
         }
 
         // Write reorder map if applicable
@@ -341,12 +370,23 @@ impl CompressCommand {
         let mut writer = FqcWriter::create(&self.opts.output_path)?;
 
         let flags = build_flags(
-            false, true, self.opts.quality_mode, self.opts.id_mode,
-            false, self.opts.pe_layout, effective_length_class, true,
+            false,
+            true,
+            self.opts.quality_mode,
+            self.opts.id_mode,
+            false,
+            self.opts.pe_layout,
+            effective_length_class,
+            true,
         );
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         let input_filename = std::path::Path::new(&self.opts.input_path)
-            .file_name().and_then(|n| n.to_str()).unwrap_or("stdin");
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("stdin");
         let global_header = GlobalHeader::new(flags, 0, input_filename, timestamp);
         writer.write_global_header(&global_header)?;
 
@@ -392,16 +432,15 @@ impl CompressCommand {
         self.stats.input_bytes = self.stats.total_bases;
         writer.patch_total_read_count(self.stats.total_reads)?;
         writer.finalize()?;
-        log::info!("Streaming compression complete! {} blocks written.", self.stats.blocks_written);
+        log::info!(
+            "Streaming compression complete! {} blocks written.",
+            self.stats.blocks_written
+        );
         Ok(())
     }
 
     /// Streaming compression for interleaved single-file paired-end input.
-    fn run_streaming_interleaved(
-        &mut self,
-        effective_length_class: ReadLengthClass,
-        block_size: usize,
-    ) -> Result<()> {
+    fn run_streaming_interleaved(&mut self, effective_length_class: ReadLengthClass, block_size: usize) -> Result<()> {
         log::info!("Streaming compression mode (interleaved single-file PE)");
 
         let mut parser = if self.opts.input_path == "-" {
@@ -413,12 +452,23 @@ impl CompressCommand {
         let mut writer = FqcWriter::create(&self.opts.output_path)?;
 
         let flags = build_flags(
-            true, true, self.opts.quality_mode, self.opts.id_mode,
-            false, self.opts.pe_layout, effective_length_class, true,
+            true,
+            true,
+            self.opts.quality_mode,
+            self.opts.id_mode,
+            false,
+            self.opts.pe_layout,
+            effective_length_class,
+            true,
         );
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         let input_filename = std::path::Path::new(&self.opts.input_path)
-            .file_name().and_then(|n| n.to_str()).unwrap_or("stdin");
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("stdin");
         let global_header = GlobalHeader::new(flags, 0, input_filename, timestamp);
         writer.write_global_header(&global_header)?;
 
@@ -522,7 +572,10 @@ impl CompressCommand {
         self.stats.input_bytes = self.stats.total_bases;
         writer.patch_total_read_count(self.stats.total_reads)?;
         writer.finalize()?;
-        log::info!("Streaming compression complete! {} blocks written.", self.stats.blocks_written);
+        log::info!(
+            "Streaming compression complete! {} blocks written.",
+            self.stats.blocks_written
+        );
         Ok(())
     }
 
@@ -547,9 +600,14 @@ impl CompressCommand {
             effective_length_class,
             true,
         );
-        let timestamp = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+        let timestamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
         let input_filename = std::path::Path::new(&self.opts.input_path)
-            .file_name().and_then(|n| n.to_str()).unwrap_or("stdin");
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("stdin");
         let global_header = GlobalHeader::new(flags, 0, input_filename, timestamp);
         writer.write_global_header(&global_header)?;
 
@@ -635,7 +693,10 @@ impl CompressCommand {
         self.stats.input_bytes = self.stats.total_bases;
         writer.patch_total_read_count(self.stats.total_reads)?;
         writer.finalize()?;
-        log::info!("Streaming compression complete! {} blocks written.", self.stats.blocks_written);
+        log::info!(
+            "Streaming compression complete! {} blocks written.",
+            self.stats.blocks_written
+        );
         Ok(())
     }
 
@@ -676,7 +737,11 @@ impl CompressCommand {
                 let mut r1 = Vec::with_capacity(records.len() / 2);
                 let mut r2 = Vec::with_capacity(records.len() / 2);
                 for (i, rec) in records.into_iter().enumerate() {
-                    if i % 2 == 0 { r1.push(rec); } else { r2.push(rec); }
+                    if i % 2 == 0 {
+                        r1.push(rec);
+                    } else {
+                        r2.push(rec);
+                    }
                 }
                 r1.extend(r2);
                 Ok(r1)
@@ -735,12 +800,7 @@ impl CompressCommand {
                 None,
             )?;
         } else {
-            pipeline.run(
-                &self.opts.input_path,
-                &self.opts.output_path,
-                input_filename,
-                None,
-            )?;
+            pipeline.run(&self.opts.input_path, &self.opts.output_path, input_filename, None)?;
         }
 
         let stats = pipeline.stats();
@@ -750,9 +810,15 @@ impl CompressCommand {
         self.stats.output_bytes = stats.output_bytes;
         self.stats.blocks_written = stats.total_blocks as u64;
 
-        log::info!("Pipeline compression complete! {} blocks, {:.2}x ratio",
+        log::info!(
+            "Pipeline compression complete! {} blocks, {:.2}x ratio",
             stats.total_blocks,
-            if stats.compression_ratio() > 0.0 { 1.0 / stats.compression_ratio() } else { 0.0 });
+            if stats.compression_ratio() > 0.0 {
+                1.0 / stats.compression_ratio()
+            } else {
+                0.0
+            }
+        );
         Ok(())
     }
 

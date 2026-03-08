@@ -10,33 +10,29 @@ use fqc::types::*;
 
 fn make_reads(n: usize, length: usize) -> Vec<ReadRecord> {
     let bases = b"ACGT";
-    (0..n).map(|i| {
-        let seq: String = (0..length)
-            .map(|j| bases[(i + j) % 4] as char)
-            .collect();
-        let qual: String = (0..length)
-            .map(|j| (b'!' + ((i + j) % 40) as u8) as char)
-            .collect();
-        ReadRecord::new(
-            format!("read_{}", i),
-            seq,
-            qual,
-        )
-    }).collect()
+    (0..n)
+        .map(|i| {
+            let seq: String = (0..length).map(|j| bases[(i + j) % 4] as char).collect();
+            let qual: String = (0..length).map(|j| (b'!' + ((i + j) % 40) as u8) as char).collect();
+            ReadRecord::new(format!("read_{}", i), seq, qual)
+        })
+        .collect()
 }
 
 fn decompress_block(compressor: &BlockCompressor, compressed: &CompressedBlockData) -> DecompressedBlockData {
-    compressor.decompress_raw(
-        0,
-        compressed.read_count,
-        compressed.uniform_read_length,
-        compressed.codec_seq,
-        compressed.codec_qual,
-        &compressed.id_stream,
-        &compressed.seq_stream,
-        &compressed.qual_stream,
-        &compressed.aux_stream,
-    ).unwrap()
+    compressor
+        .decompress_raw(
+            0,
+            compressed.read_count,
+            compressed.uniform_read_length,
+            compressed.codec_seq,
+            compressed.codec_qual,
+            &compressed.id_stream,
+            &compressed.seq_stream,
+            &compressed.qual_stream,
+            &compressed.aux_stream,
+        )
+        .unwrap()
 }
 
 fn assert_reads_match(original: &[ReadRecord], restored: &[ReadRecord]) {
@@ -50,20 +46,14 @@ fn assert_reads_match(original: &[ReadRecord], restored: &[ReadRecord]) {
 
 fn make_variable_length_reads(n: usize) -> Vec<ReadRecord> {
     let bases = b"ACGT";
-    (0..n).map(|i| {
-        let length = 100 + (i % 50);
-        let seq: String = (0..length)
-            .map(|j| bases[(i + j) % 4] as char)
-            .collect();
-        let qual: String = (0..length)
-            .map(|j| (b'!' + ((i + j) % 40) as u8) as char)
-            .collect();
-        ReadRecord::new(
-            format!("read_{}", i),
-            seq,
-            qual,
-        )
-    }).collect()
+    (0..n)
+        .map(|i| {
+            let length = 100 + (i % 50);
+            let seq: String = (0..length).map(|j| bases[(i + j) % 4] as char).collect();
+            let qual: String = (0..length).map(|j| (b'!' + ((i + j) % 40) as u8) as char).collect();
+            ReadRecord::new(format!("read_{}", i), seq, qual)
+        })
+        .collect()
 }
 
 // =============================================================================
@@ -264,11 +254,19 @@ fn test_block_compress_decompress_empty() {
     let compressed = compressor.compress(&reads, 0).unwrap();
     assert_eq!(compressed.read_count, 0);
 
-    let decompressed = compressor.decompress_raw(
-        0, 0, 0, compressed.codec_seq, compressed.codec_qual,
-        &compressed.id_stream, &compressed.seq_stream,
-        &compressed.qual_stream, &compressed.aux_stream,
-    ).unwrap();
+    let decompressed = compressor
+        .decompress_raw(
+            0,
+            0,
+            0,
+            compressed.codec_seq,
+            compressed.codec_qual,
+            &compressed.id_stream,
+            &compressed.seq_stream,
+            &compressed.qual_stream,
+            &compressed.aux_stream,
+        )
+        .unwrap();
     assert!(decompressed.reads.is_empty());
 }
 
@@ -299,8 +297,14 @@ fn test_full_archive_roundtrip() {
         let mut writer = FqcWriter::create(fqc_path_str).unwrap();
 
         let f = build_flags(
-            false, false, QualityMode::Lossless, IdMode::Exact,
-            false, PeLayout::Interleaved, ReadLengthClass::Short, false,
+            false,
+            false,
+            QualityMode::Lossless,
+            IdMode::Exact,
+            false,
+            PeLayout::Interleaved,
+            ReadLengthClass::Short,
+            false,
         );
         let gh = GlobalHeader::new(f, reads.len() as u64, "test.fastq", 0);
         writer.write_global_header(&gh).unwrap();
@@ -321,17 +325,19 @@ fn test_full_archive_roundtrip() {
         let block_data = reader.read_block(0).unwrap();
         let bh = &block_data.header;
 
-        let decompressed = compressor.decompress_raw(
-            bh.block_id,
-            bh.uncompressed_count,
-            bh.uniform_read_length,
-            bh.codec_seq,
-            bh.codec_qual,
-            &block_data.ids_data,
-            &block_data.seq_data,
-            &block_data.qual_data,
-            &block_data.aux_data,
-        ).unwrap();
+        let decompressed = compressor
+            .decompress_raw(
+                bh.block_id,
+                bh.uncompressed_count,
+                bh.uniform_read_length,
+                bh.codec_seq,
+                bh.codec_qual,
+                &block_data.ids_data,
+                &block_data.seq_data,
+                &block_data.qual_data,
+                &block_data.aux_data,
+            )
+            .unwrap();
 
         assert_reads_match(&reads, &decompressed.reads);
     }
@@ -369,8 +375,14 @@ fn test_archive_with_reorder_map() {
         let mut writer = FqcWriter::create(fqc_path_str).unwrap();
 
         let f = build_flags(
-            false, false, QualityMode::Lossless, IdMode::Exact,
-            true, PeLayout::Interleaved, ReadLengthClass::Short, false,
+            false,
+            false,
+            QualityMode::Lossless,
+            IdMode::Exact,
+            true,
+            PeLayout::Interleaved,
+            ReadLengthClass::Short,
+            false,
         );
         let gh = GlobalHeader::new(f, 20, "test.fastq", 0);
         writer.write_global_header(&gh).unwrap();

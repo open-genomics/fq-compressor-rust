@@ -22,7 +22,9 @@ use fqc::types::*;
 // =============================================================================
 
 fn test_data_dir() -> std::path::PathBuf {
-    std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("data")
+    std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("data")
 }
 
 /// RAII guard that removes the file on drop, ensuring test cleanup.
@@ -34,7 +36,9 @@ impl TempFile {
         std::fs::create_dir_all(&dir).unwrap();
         Self(dir.join(name).to_string_lossy().to_string())
     }
-    fn path(&self) -> &str { &self.0 }
+    fn path(&self) -> &str {
+        &self.0
+    }
 }
 
 impl Drop for TempFile {
@@ -44,8 +48,13 @@ impl Drop for TempFile {
 }
 
 fn assert_roundtrip_match(original: &[ReadRecord], restored: &[ReadRecord]) {
-    assert_eq!(original.len(), restored.len(),
-        "Read count mismatch: {} vs {}", original.len(), restored.len());
+    assert_eq!(
+        original.len(),
+        restored.len(),
+        "Read count mismatch: {} vs {}",
+        original.len(),
+        restored.len()
+    );
     for (i, (orig, rest)) in original.iter().zip(restored.iter()).enumerate() {
         assert_eq!(orig.id, rest.id, "ID mismatch at read {i}");
         assert_eq!(orig.sequence, rest.sequence, "Sequence mismatch at read {i}");
@@ -122,11 +131,19 @@ fn decompress_file(input_path: &str, output_path: &str) {
     for block_id in 0..block_count {
         let bd = reader.read_block(block_id as u32).unwrap();
         let bh = &bd.header;
-        let dec = compressor.decompress_raw(
-            bh.block_id, bh.uncompressed_count, bh.uniform_read_length,
-            bh.codec_seq, bh.codec_qual,
-            &bd.ids_data, &bd.seq_data, &bd.qual_data, &bd.aux_data,
-        ).unwrap();
+        let dec = compressor
+            .decompress_raw(
+                bh.block_id,
+                bh.uncompressed_count,
+                bh.uniform_read_length,
+                bh.codec_seq,
+                bh.codec_qual,
+                &bd.ids_data,
+                &bd.seq_data,
+                &bd.qual_data,
+                &bd.aux_data,
+            )
+            .unwrap();
         for read in &dec.reads {
             fqc::fastq::parser::write_record(&mut out, read).unwrap();
         }
@@ -172,8 +189,10 @@ fn test_e2e_se_quality_discard() {
         assert_eq!(orig.id, rest.id, "ID mismatch at read {i}");
         assert_eq!(orig.sequence, rest.sequence, "Sequence mismatch at read {i}");
         let first_char = rest.quality.chars().next().unwrap_or('!');
-        assert!(rest.quality.chars().all(|c| c == first_char),
-            "Quality should be uniform placeholder at read {i}");
+        assert!(
+            rest.quality.chars().all(|c| c == first_char),
+            "Quality should be uniform placeholder at read {i}"
+        );
     }
 }
 
@@ -450,16 +469,26 @@ fn test_e2e_multiblock_roundtrip() {
     let decompressed = TempFile::new("e2e_multiblock.fastq");
 
     // Generate 200 reads (block_size for short is typically 50000, so use smaller block)
-    let records: Vec<ReadRecord> = (0..200).map(|i| {
-        let bases = b"ACGT";
-        let seq: String = (0..100).map(|j| bases[(i + j) % 4] as char).collect();
-        let qual = "I".repeat(100);
-        ReadRecord::new(format!("read_{}", i), seq, qual)
-    }).collect();
+    let records: Vec<ReadRecord> = (0..200)
+        .map(|i| {
+            let bases = b"ACGT";
+            let seq: String = (0..100).map(|j| bases[(i + j) % 4] as char).collect();
+            let qual = "I".repeat(100);
+            ReadRecord::new(format!("read_{}", i), seq, qual)
+        })
+        .collect();
 
     let block_size = 50; // Force multiple blocks
-    let flags = build_flags(false, true, QualityMode::Lossless, IdMode::Exact,
-        false, PeLayout::Interleaved, ReadLengthClass::Short, false);
+    let flags = build_flags(
+        false,
+        true,
+        QualityMode::Lossless,
+        IdMode::Exact,
+        false,
+        PeLayout::Interleaved,
+        ReadLengthClass::Short,
+        false,
+    );
 
     let mut writer = FqcWriter::create(compressed.path()).unwrap();
     let gh = GlobalHeader::new(flags, records.len() as u64, "gen.fastq", 0);

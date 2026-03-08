@@ -121,13 +121,8 @@ impl AsyncReader {
     /// Create an AsyncReader wrapping the given reader.
     /// - `prefetch_depth`: number of buffers to read ahead (bounded channel size)
     /// - `buffer_size`: size of each read buffer in bytes
-    pub fn new<R: Read + Send + 'static>(
-        mut reader: R,
-        prefetch_depth: usize,
-        buffer_size: usize,
-    ) -> Self {
-        let (tx, rx): (Sender<FilledBuffer>, Receiver<FilledBuffer>) =
-            bounded(prefetch_depth);
+    pub fn new<R: Read + Send + 'static>(mut reader: R, prefetch_depth: usize, buffer_size: usize) -> Self {
+        let (tx, rx): (Sender<FilledBuffer>, Receiver<FilledBuffer>) = bounded(prefetch_depth);
         let stats = Arc::new(AsyncIOStats::new());
         let bg_stats = stats.clone();
 
@@ -154,7 +149,13 @@ impl AsyncReader {
 
                 bg_stats.add_transfer(total_read as u64);
 
-                if tx.send(FilledBuffer { data: buf, len: total_read }).is_err() {
+                if tx
+                    .send(FilledBuffer {
+                        data: buf,
+                        len: total_read,
+                    })
+                    .is_err()
+                {
                     break; // Receiver dropped
                 }
             }
@@ -210,9 +211,7 @@ impl Read for AsyncReader {
 
         let available = self.current_len - self.current_pos;
         let to_copy = available.min(buf.len());
-        buf[..to_copy].copy_from_slice(
-            &self.current_buf[self.current_pos..self.current_pos + to_copy],
-        );
+        buf[..to_copy].copy_from_slice(&self.current_buf[self.current_pos..self.current_pos + to_copy]);
         self.current_pos += to_copy;
         Ok(to_copy)
     }
@@ -241,13 +240,8 @@ impl AsyncWriter {
     /// Create an AsyncWriter wrapping the given writer.
     /// - `queue_depth`: number of write buffers in flight
     /// - `buffer_size`: size threshold to trigger a flush to the background thread
-    pub fn new<W: Write + Send + 'static>(
-        mut writer: W,
-        queue_depth: usize,
-        buffer_size: usize,
-    ) -> Self {
-        let (tx, rx): (Sender<WriteBuffer>, Receiver<WriteBuffer>) =
-            bounded(queue_depth);
+    pub fn new<W: Write + Send + 'static>(mut writer: W, queue_depth: usize, buffer_size: usize) -> Self {
+        let (tx, rx): (Sender<WriteBuffer>, Receiver<WriteBuffer>) = bounded(queue_depth);
         let stats = Arc::new(AsyncIOStats::new());
         let bg_stats = stats.clone();
 
@@ -279,9 +273,8 @@ impl AsyncWriter {
         }
         let data = std::mem::replace(&mut self.buffer, Vec::with_capacity(self.buffer_size));
         if let Some(ref tx) = self.sender {
-            tx.send(WriteBuffer { data }).map_err(|_| {
-                io::Error::new(io::ErrorKind::BrokenPipe, "AsyncWriter: background thread gone")
-            })?;
+            tx.send(WriteBuffer { data })
+                .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "AsyncWriter: background thread gone"))?;
         }
         Ok(())
     }
@@ -292,9 +285,9 @@ impl AsyncWriter {
         // Drop sender to signal background thread to stop
         self.sender.take();
         if let Some(handle) = self.handle.take() {
-            handle.join().map_err(|_| {
-                io::Error::other("AsyncWriter: background thread panicked")
-            })??;
+            handle
+                .join()
+                .map_err(|_| io::Error::other("AsyncWriter: background thread panicked"))??;
         }
         Ok(())
     }
@@ -315,9 +308,9 @@ impl Write for AsyncWriter {
         self.sender.take();
         // Wait for background thread and propagate errors
         if let Some(handle) = self.handle.take() {
-            handle.join().map_err(|_| {
-                io::Error::other("AsyncWriter: background thread panicked")
-            })??;
+            handle
+                .join()
+                .map_err(|_| io::Error::other("AsyncWriter: background thread panicked"))??;
         }
         Ok(())
     }

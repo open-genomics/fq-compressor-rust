@@ -213,10 +213,7 @@ fn test_combine_chunks() {
     let chunk2 = ReorderMapData::identity(4);
     let chunk3 = ReorderMapData::identity(2);
 
-    let combined = ReorderMapData::combine_chunks(
-        &[chunk1, chunk2, chunk3],
-        &[3, 4, 2],
-    );
+    let combined = ReorderMapData::combine_chunks(&[chunk1, chunk2, chunk3], &[3, 4, 2]);
     assert_eq!(combined.forward_map().len(), 9);
     assert_eq!(combined.reverse_map().len(), 9);
 }

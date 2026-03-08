@@ -45,7 +45,9 @@ impl PEEncodedPair {
 
         // Apply differences (extend result if R2 is longer than R1)
         for (i, &pos) in self.diff_positions.iter().enumerate() {
-            if i >= self.diff_bases.len() { break; }
+            if i >= self.diff_bases.len() {
+                break;
+            }
             let p = pos as usize;
             if p >= result.len() {
                 result.resize(p + 1, b'N');
@@ -67,7 +69,9 @@ impl PEEncodedPair {
 
         // Apply quality deltas at diff positions (extend if R2 is longer than R1)
         for (i, &pos) in self.diff_positions.iter().enumerate() {
-            if i >= self.qual_delta.len() { break; }
+            if i >= self.qual_delta.len() {
+                break;
+            }
             let p = pos as usize;
             if p >= result.len() {
                 result.resize(p + 1, b'!'); // Phred '!' = Q0 as default
@@ -115,7 +119,10 @@ pub struct PEOptimizer {
 
 impl PEOptimizer {
     pub fn new(config: PEOptimizerConfig) -> Self {
-        Self { config, stats: PEOptimizerStats::default() }
+        Self {
+            config,
+            stats: PEOptimizerStats::default(),
+        }
     }
 
     pub fn stats(&self) -> &PEOptimizerStats {
@@ -185,9 +192,7 @@ impl PEOptimizer {
             ..Default::default()
         };
 
-        let (beneficial, _diff_count) = self.check_complementarity(
-            r1.sequence.as_bytes(), r2.sequence.as_bytes()
-        );
+        let (beneficial, _diff_count) = self.check_complementarity(r1.sequence.as_bytes(), r2.sequence.as_bytes());
 
         if beneficial {
             encoded.use_complementarity = true;
@@ -326,7 +331,9 @@ pub fn serialize_encoded_pair(pair: &PEEncodedPair) -> Vec<u8> {
 
 /// Deserialize a PEEncodedPair from bytes.
 pub fn deserialize_encoded_pair(data: &[u8], pos: &mut usize) -> Option<PEEncodedPair> {
-    if *pos >= data.len() { return None; }
+    if *pos >= data.len() {
+        return None;
+    }
 
     let flags = data[*pos];
     *pos += 1;
@@ -334,7 +341,9 @@ pub fn deserialize_encoded_pair(data: &[u8], pos: &mut usize) -> Option<PEEncode
 
     // ID2
     let id2_len = read_varint(data, pos) as usize;
-    if *pos + id2_len > data.len() { return None; }
+    if *pos + id2_len > data.len() {
+        return None;
+    }
     let id2 = String::from_utf8_lossy(&data[*pos..*pos + id2_len]).into_owned();
     *pos += id2_len;
 
@@ -358,22 +367,30 @@ pub fn deserialize_encoded_pair(data: &[u8], pos: &mut usize) -> Option<PEEncode
         pair.diff_positions = positions;
 
         // Diff bases
-        if *pos + diff_count > data.len() { return None; }
+        if *pos + diff_count > data.len() {
+            return None;
+        }
         pair.diff_bases = data[*pos..*pos + diff_count].to_vec();
         *pos += diff_count;
 
         // Quality deltas
-        if *pos + diff_count > data.len() { return None; }
+        if *pos + diff_count > data.len() {
+            return None;
+        }
         pair.qual_delta = data[*pos..*pos + diff_count].iter().map(|&b| b as i8).collect();
         *pos += diff_count;
     } else {
         let seq2_len = read_varint(data, pos) as usize;
-        if *pos + seq2_len > data.len() { return None; }
+        if *pos + seq2_len > data.len() {
+            return None;
+        }
         pair.seq2 = String::from_utf8_lossy(&data[*pos..*pos + seq2_len]).into_owned();
         *pos += seq2_len;
 
         let qual2_len = read_varint(data, pos) as usize;
-        if *pos + qual2_len > data.len() { return None; }
+        if *pos + qual2_len > data.len() {
+            return None;
+        }
         pair.qual2 = String::from_utf8_lossy(&data[*pos..*pos + qual2_len]).into_owned();
         *pos += qual2_len;
     }
@@ -393,11 +410,15 @@ fn read_varint(data: &[u8], pos: &mut usize) -> u64 {
     let mut result: u64 = 0;
     let mut shift = 0u32;
     for _ in 0..10 {
-        if *pos >= data.len() { break; }
+        if *pos >= data.len() {
+            break;
+        }
         let b = data[*pos];
         *pos += 1;
         result |= ((b & 0x7F) as u64) << shift;
-        if b & 0x80 == 0 { return result; }
+        if b & 0x80 == 0 {
+            return result;
+        }
         shift += 7;
     }
     result

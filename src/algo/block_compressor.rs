@@ -2,21 +2,36 @@
 // fqc-rust - Block Compressor (ABC Algorithm + Zstd)
 // =============================================================================
 
-use crate::algo::dna::{BASE_TO_INDEX, INDEX_TO_BASE, reverse_complement};
+use crate::algo::dna::{reverse_complement, BASE_TO_INDEX, INDEX_TO_BASE};
+use crate::algo::quality_compressor::{ContextOrder, QualityCompressor, QualityCompressorConfig};
 use crate::error::{FqcError, Result};
 use crate::types::*;
-use crate::algo::quality_compressor::{QualityCompressor, QualityCompressorConfig, ContextOrder};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read};
 use xxhash_rust::xxh64::Xxh64;
 
 fn encode_noise(ref_base: u8, read_base: u8) -> u8 {
     match (ref_base | 32, read_base | 32) {
-        (b'a', b'c') => b'0', (b'a', b'g') => b'1', (b'a', b't') => b'2', (b'a', _) => b'3',
-        (b'c', b'a') => b'0', (b'c', b'g') => b'1', (b'c', b't') => b'2', (b'c', _) => b'3',
-        (b'g', b't') => b'0', (b'g', b'a') => b'1', (b'g', b'c') => b'2', (b'g', _) => b'3',
-        (b't', b'g') => b'0', (b't', b'c') => b'1', (b't', b'a') => b'2', (b't', _) => b'3',
-        (b'n', b'a') => b'0', (b'n', b'g') => b'1', (b'n', b'c') => b'2', (b'n', _) => b'3',
+        (b'a', b'c') => b'0',
+        (b'a', b'g') => b'1',
+        (b'a', b't') => b'2',
+        (b'a', _) => b'3',
+        (b'c', b'a') => b'0',
+        (b'c', b'g') => b'1',
+        (b'c', b't') => b'2',
+        (b'c', _) => b'3',
+        (b'g', b't') => b'0',
+        (b'g', b'a') => b'1',
+        (b'g', b'c') => b'2',
+        (b'g', _) => b'3',
+        (b't', b'g') => b'0',
+        (b't', b'c') => b'1',
+        (b't', b'a') => b'2',
+        (b't', _) => b'3',
+        (b'n', b'a') => b'0',
+        (b'n', b'g') => b'1',
+        (b'n', b'c') => b'2',
+        (b'n', _) => b'3',
         _ => b'0',
     }
 }
@@ -24,14 +39,18 @@ fn encode_noise(ref_base: u8, read_base: u8) -> u8 {
 fn decode_noise(ref_base: u8, noise_char: u8) -> u8 {
     let idx = noise_char.wrapping_sub(b'0').min(3) as usize;
     const DECODE: [[u8; 4]; 5] = [
-        [b'C', b'G', b'T', b'N'],  // A
-        [b'A', b'G', b'T', b'N'],  // C
-        [b'T', b'A', b'C', b'N'],  // G
-        [b'G', b'C', b'A', b'N'],  // T
-        [b'A', b'G', b'C', b'T'],  // N
+        [b'C', b'G', b'T', b'N'], // A
+        [b'A', b'G', b'T', b'N'], // C
+        [b'T', b'A', b'C', b'N'], // G
+        [b'G', b'C', b'A', b'N'], // T
+        [b'A', b'G', b'C', b'T'], // N
     ];
     let row = match ref_base | 32 {
-        b'a' => 0, b'c' => 1, b'g' => 2, b't' => 3, _ => 4,
+        b'a' => 0,
+        b'c' => 1,
+        b'g' => 2,
+        b't' => 3,
+        _ => 4,
     };
     DECODE[row][idx]
 }
@@ -70,7 +89,9 @@ fn find_best_alignment(
             }
 
             let compare_len = (reference.len() - ref_start).min(read_seq.len() - read_start);
-            if compare_len == 0 { continue; }
+            if compare_len == 0 {
+                continue;
+            }
 
             // Penalty for non-overlapping regions (matches C++ implementation)
             let penalty = read_seq.len() - compare_len;
@@ -155,7 +176,12 @@ impl ConsensusSequence {
     fn recompute_consensus(&mut self) {
         self.sequence.resize(self.base_counts.len(), b'A');
         for (i, counts) in self.base_counts.iter().enumerate() {
-            let max_idx = counts.iter().enumerate().max_by_key(|(_, &c)| c).map(|(idx, _)| idx).unwrap_or(0);
+            let max_idx = counts
+                .iter()
+                .enumerate()
+                .max_by_key(|(_, &c)| c)
+                .map(|(idx, _)| idx)
+                .unwrap_or(0);
             self.sequence[i] = INDEX_TO_BASE[max_idx];
         }
     }
@@ -401,7 +427,12 @@ impl BlockCompressor {
         // Compress sequences
         result.seq_stream = if self.config.read_length_class == ReadLengthClass::Short {
             result.codec_seq = self.config.get_sequence_codec();
-            compress_sequences_abc(reads, self.config.zstd_level, self.config.max_shift, self.config.consensus_hamming_threshold)?
+            compress_sequences_abc(
+                reads,
+                self.config.zstd_level,
+                self.config.max_shift,
+                self.config.consensus_hamming_threshold,
+            )?
         } else {
             result.codec_seq = self.config.get_sequence_codec();
             compress_sequences_zstd(reads, self.config.zstd_level)?
@@ -473,7 +504,7 @@ impl BlockCompressor {
             let full_header = ids.get(i).cloned().unwrap_or_default();
             if let Some(space_pos) = full_header.find(' ') {
                 result.reads[i].id = full_header[..space_pos].to_string();
-                result.reads[i].comment = full_header[space_pos+1..].to_string();
+                result.reads[i].comment = full_header[space_pos + 1..].to_string();
             } else {
                 result.reads[i].id = full_header;
             }
@@ -523,8 +554,7 @@ fn compress_sequences_abc(
         }
     }
 
-    zstd::bulk::compress(&buf, zstd_level)
-        .map_err(|e| FqcError::Compression(format!("ABC Zstd compress failed: {e}")))
+    zstd::bulk::compress(&buf, zstd_level).map_err(|e| FqcError::Compression(format!("ABC Zstd compress failed: {e}")))
 }
 
 fn build_contigs(reads: &[ReadRecord], max_shift: usize, hamming_threshold: usize) -> Vec<Contig> {
@@ -539,20 +569,26 @@ fn build_contigs(reads: &[ReadRecord], max_shift: usize, hamming_threshold: usiz
     }
 
     for i in 0..reads.len() {
-        if assigned[i] { continue; }
+        if assigned[i] {
+            continue;
+        }
 
         let mut contig = Contig {
             consensus: ConsensusSequence::init_from_read(reads[i].sequence.as_bytes()),
             deltas: Vec::new(),
         };
 
-        let mut align_infos: Vec<AlignInfo> = vec![
-            AlignInfo { read_index: i, shift: 0, is_rc: false },
-        ];
+        let mut align_infos: Vec<AlignInfo> = vec![AlignInfo {
+            read_index: i,
+            shift: 0,
+            is_rc: false,
+        }];
         assigned[i] = true;
 
         for j in (i + 1)..reads.len() {
-            if assigned[j] { continue; }
+            if assigned[j] {
+                continue;
+            }
 
             if let Some((shift, is_rc)) = find_best_alignment(
                 reads[j].sequence.as_bytes(),
@@ -561,7 +597,11 @@ fn build_contigs(reads: &[ReadRecord], max_shift: usize, hamming_threshold: usiz
                 hamming_threshold,
             ) {
                 contig.consensus.add_read(reads[j].sequence.as_bytes(), shift, is_rc);
-                align_infos.push(AlignInfo { read_index: j, shift, is_rc });
+                align_infos.push(AlignInfo {
+                    read_index: j,
+                    shift,
+                    is_rc,
+                });
                 assigned[j] = true;
             }
         }
@@ -595,36 +635,44 @@ fn decompress_sequences_abc(data: &[u8], read_count: u32) -> Result<Vec<String>>
     let mut sequences = vec![String::new(); read_count as usize];
     let mut cur = Cursor::new(&buf);
 
-    let num_contigs = cur.read_u32::<LittleEndian>()
+    let num_contigs = cur
+        .read_u32::<LittleEndian>()
         .map_err(|e| FqcError::Format(format!("Truncated ABC data: {e}")))?;
 
     for _ in 0..num_contigs {
-        let cons_len = cur.read_u16::<LittleEndian>()
+        let cons_len = cur
+            .read_u16::<LittleEndian>()
             .map_err(|e| FqcError::Format(format!("Truncated ABC consensus: {e}")))?;
         let mut consensus = vec![0u8; cons_len as usize];
         cur.read_exact(&mut consensus)
             .map_err(|e| FqcError::Format(format!("Truncated ABC consensus bytes: {e}")))?;
 
-        let num_deltas = cur.read_u32::<LittleEndian>()
+        let num_deltas = cur
+            .read_u32::<LittleEndian>()
             .map_err(|e| FqcError::Format(format!("Truncated ABC deltas: {e}")))?;
 
         for _ in 0..num_deltas {
-            let original_order = cur.read_u32::<LittleEndian>()
+            let original_order = cur
+                .read_u32::<LittleEndian>()
                 .map_err(|e| FqcError::Format(format!("Truncated ABC original_order: {e}")))?;
-            let position_offset = cur.read_i16::<LittleEndian>()
+            let position_offset = cur
+                .read_i16::<LittleEndian>()
                 .map_err(|e| FqcError::Format(format!("Truncated ABC position_offset: {e}")))?;
             let mut flags = [0u8; 1];
             cur.read_exact(&mut flags)
                 .map_err(|e| FqcError::Format(format!("Truncated ABC flags: {e}")))?;
             let is_rc = (flags[0] & 1) != 0;
-            let read_length = cur.read_u16::<LittleEndian>()
+            let read_length = cur
+                .read_u16::<LittleEndian>()
                 .map_err(|e| FqcError::Format(format!("Truncated ABC read_length: {e}")))?;
-            let num_mismatches = cur.read_u16::<LittleEndian>()
+            let num_mismatches = cur
+                .read_u16::<LittleEndian>()
                 .map_err(|e| FqcError::Format(format!("Truncated ABC num_mismatches: {e}")))?;
 
             let mut mismatch_positions = vec![0u16; num_mismatches as usize];
             for pos in &mut mismatch_positions {
-                *pos = cur.read_u16::<LittleEndian>()
+                *pos = cur
+                    .read_u16::<LittleEndian>()
                     .map_err(|e| FqcError::Format(format!("Truncated ABC mismatch_pos: {e}")))?;
             }
 
@@ -684,7 +732,8 @@ fn decompress_sequences_zstd(
     let mut cur = Cursor::new(&buf);
 
     for _ in 0..read_count {
-        let len = cur.read_u32::<LittleEndian>()
+        let len = cur
+            .read_u32::<LittleEndian>()
             .map_err(|e| FqcError::Format(format!("Truncated sequence data: {e}")))?;
         let mut seq = vec![0u8; len as usize];
         cur.read_exact(&mut seq)
@@ -743,7 +792,9 @@ fn decompress_quality(
     } else if !lengths.is_empty() {
         lengths.to_vec()
     } else {
-        return Err(FqcError::Format("Missing length info for quality decompress".to_string()));
+        return Err(FqcError::Format(
+            "Missing length info for quality decompress".to_string(),
+        ));
     };
 
     compressor.decompress(data, &length_vec)
@@ -755,13 +806,16 @@ fn decompress_quality(
 
 fn compress_ids(reads: &[ReadRecord], config: &BlockCompressorConfig, zstd_level: i32) -> Result<Vec<u8>> {
     // Combine id + comment into full header line for compression
-    let full_headers: Vec<String> = reads.iter().map(|r| {
-        if r.comment.is_empty() {
-            r.id.clone()
-        } else {
-            format!("{} {}", r.id, r.comment)
-        }
-    }).collect();
+    let full_headers: Vec<String> = reads
+        .iter()
+        .map(|r| {
+            if r.comment.is_empty() {
+                r.id.clone()
+            } else {
+                format!("{} {}", r.id, r.comment)
+            }
+        })
+        .collect();
     let id_refs: Vec<&str> = full_headers.iter().map(|s| s.as_str()).collect();
     crate::algo::id_compressor::compress_ids(&id_refs, zstd_level, config.id_mode == IdMode::Discard)
 }
@@ -811,8 +865,7 @@ fn compress_aux(reads: &[ReadRecord], zstd_level: i32, uniform_length: &mut u32)
         }
     }
 
-    zstd::bulk::compress(&buf, zstd_level)
-        .map_err(|e| FqcError::Compression(format!("Aux Zstd compress failed: {e}")))
+    zstd::bulk::compress(&buf, zstd_level).map_err(|e| FqcError::Compression(format!("Aux Zstd compress failed: {e}")))
 }
 
 fn decompress_aux(data: &[u8], read_count: u32) -> Result<Vec<u32>> {
@@ -832,12 +885,16 @@ fn decompress_aux(data: &[u8], read_count: u32) -> Result<Vec<u32>> {
         let mut shift = 0u32;
 
         for _ in 0..5 {
-            if i >= buf.len() { break; }
+            if i >= buf.len() {
+                break;
+            }
             let byte = buf[i];
             i += 1;
             zigzag |= ((byte & 0x7F) as u32) << shift;
             shift += 7;
-            if (byte & 0x80) == 0 { break; }
+            if (byte & 0x80) == 0 {
+                break;
+            }
         }
 
         let delta = ((zigzag >> 1) as i32) ^ (-((zigzag & 1) as i32));
@@ -864,8 +921,12 @@ pub fn compute_block_checksum(reads: &[ReadRecord]) -> u64 {
             hasher.update(r.comment.as_bytes());
         }
     }
-    for r in reads { hasher.update(r.sequence.as_bytes()); }
-    for r in reads { hasher.update(r.quality.as_bytes()); }
+    for r in reads {
+        hasher.update(r.sequence.as_bytes());
+    }
+    for r in reads {
+        hasher.update(r.quality.as_bytes());
+    }
     for r in reads {
         let len = r.sequence.len() as u32;
         hasher.update(&len.to_le_bytes());
@@ -913,12 +974,16 @@ pub fn delta_decode_ids(data: &[u8], count: u64) -> Result<Vec<u64>> {
         let mut zigzag = 0u64;
         let mut shift = 0u32;
         for _ in 0..10 {
-            if i >= data.len() { break; }
+            if i >= data.len() {
+                break;
+            }
             let byte = data[i];
             i += 1;
             zigzag |= ((byte & 0x7F) as u64) << shift;
             shift += 7;
-            if (byte & 0x80) == 0 { break; }
+            if (byte & 0x80) == 0 {
+                break;
+            }
         }
         let delta = ((zigzag >> 1) as i64) ^ (-((zigzag & 1) as i64));
         prev += delta;

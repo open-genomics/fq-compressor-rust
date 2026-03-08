@@ -19,8 +19,7 @@ use crate::format::{build_flags, GlobalHeader};
 use crate::fqc_writer::FqcWriter;
 use crate::types::*;
 
-use super::{PipelineControl, PipelineStats, ProgressCallback, ReadChunk,
-            DEFAULT_MAX_IN_FLIGHT_BLOCKS};
+use super::{PipelineControl, PipelineStats, ProgressCallback, ReadChunk, DEFAULT_MAX_IN_FLIGHT_BLOCKS};
 
 // =============================================================================
 // CompressionPipelineConfig
@@ -81,21 +80,25 @@ impl CompressionPipelineConfig {
 
     pub fn validate(&self) -> Result<()> {
         if self.block_size > 0 && self.block_size < super::MIN_BLOCK_SIZE {
-            return Err(FqcError::InvalidArgument(
-                format!("Block size {} is too small (min {})", self.block_size, super::MIN_BLOCK_SIZE)));
+            return Err(FqcError::InvalidArgument(format!(
+                "Block size {} is too small (min {})",
+                self.block_size,
+                super::MIN_BLOCK_SIZE
+            )));
         }
         if self.block_size > super::MAX_BLOCK_SIZE {
-            return Err(FqcError::InvalidArgument(
-                format!("Block size {} is too large (max {})", self.block_size, super::MAX_BLOCK_SIZE)));
+            return Err(FqcError::InvalidArgument(format!(
+                "Block size {} is too large (max {})",
+                self.block_size,
+                super::MAX_BLOCK_SIZE
+            )));
         }
         Ok(())
     }
 }
 
 fn num_cpus() -> usize {
-    std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4)
+    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
 }
 
 // =============================================================================
@@ -166,7 +169,8 @@ impl CompressionPipeline {
         }
 
         let total_reads = all_reads.len();
-        let input_bytes: usize = all_reads.iter()
+        let input_bytes: usize = all_reads
+            .iter()
             .map(|r| r.id.len() + r.sequence.len() + r.quality.len() + 4)
             .sum();
 
@@ -179,13 +183,13 @@ impl CompressionPipeline {
                 reads_per_block: block_size,
                 ..Default::default()
             };
-            let sequences: Vec<String> = all_reads.iter()
-                .map(|r| r.sequence.clone())
-                .collect();
+            let sequences: Vec<String> = all_reads.iter().map(|r| r.sequence.clone()).collect();
             let analyzer = GlobalAnalyzer::new(ga_config);
             let result = analyzer.analyze(&sequences)?;
             // reverse_map[archive_id] = original_id
-            let ordered: Vec<ReadRecord> = result.reverse_map.iter()
+            let ordered: Vec<ReadRecord> = result
+                .reverse_map
+                .iter()
                 .map(|&orig_idx| all_reads[orig_idx as usize].clone())
                 .collect();
             (ordered, Some(result.forward_map), Some(result.reverse_map))
@@ -211,24 +215,18 @@ impl CompressionPipeline {
             compression_level: self.config.compression_level,
             quality_mode: self.config.quality_mode,
             id_mode: self.config.id_mode,
-            zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(
-                self.config.compression_level),
+            zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(self.config.compression_level),
             ..Default::default()
         };
 
         // Split reads into chunks
-        let chunks: Vec<Vec<ReadRecord>> = ordered_reads
-            .chunks(block_size)
-            .map(|c| c.to_vec())
-            .collect();
+        let chunks: Vec<Vec<ReadRecord>> = ordered_reads.chunks(block_size).map(|c| c.to_vec()).collect();
         let num_chunks = chunks.len();
 
         // Setup channels with bounded capacity for backpressure
         let max_inflight = self.config.max_in_flight_blocks;
-        let (chunk_tx, chunk_rx): (Sender<ReadChunk>, Receiver<ReadChunk>) =
-            bounded(max_inflight);
-        let (block_tx, block_rx): (Sender<OrderedBlock>, Receiver<OrderedBlock>) =
-            bounded(max_inflight);
+        let (chunk_tx, chunk_rx): (Sender<ReadChunk>, Receiver<ReadChunk>) = bounded(max_inflight);
+        let (block_tx, block_rx): (Sender<OrderedBlock>, Receiver<OrderedBlock>) = bounded(max_inflight);
 
         let control = self.control.clone();
         let compressor_config_arc = Arc::new(compressor_config.clone());
@@ -248,9 +246,9 @@ impl CompressionPipeline {
                     is_last: i + 1 == num_chunks,
                 };
                 start_read_id += chunk.size() as u64;
-                chunk_tx.send(chunk).map_err(|_| {
-                    FqcError::Compression("Reader: channel closed".to_string())
-                })?;
+                chunk_tx
+                    .send(chunk)
+                    .map_err(|_| FqcError::Compression("Reader: channel closed".to_string()))?;
             }
             Ok(())
         });
@@ -268,7 +266,9 @@ impl CompressionPipeline {
             let handle = thread::spawn(move || -> Result<()> {
                 let compressor = BlockCompressor::new((*cfg).clone());
                 for chunk in rx.iter() {
-                    if ctrl.is_cancelled() { break; }
+                    if ctrl.is_cancelled() {
+                        break;
+                    }
 
                     let compressed = compressor.compress(&chunk.reads, chunk.chunk_id)?;
                     ctrl.add_reads(chunk.reads.len() as u64);
@@ -277,9 +277,8 @@ impl CompressionPipeline {
                         chunk_id: chunk.chunk_id,
                         compressed,
                         is_last: chunk.is_last,
-                    }).map_err(|_| {
-                        FqcError::Compression("Compressor: channel closed".to_string())
-                    })?;
+                    })
+                    .map_err(|_| FqcError::Compression("Compressor: channel closed".to_string()))?;
                 }
                 Ok(())
             });
@@ -294,10 +293,15 @@ impl CompressionPipeline {
         let writer_handle = thread::spawn(move || -> Result<u64> {
             let mut writer = FqcWriter::create(&output_path_owned)?;
 
-            let gh = GlobalHeader::new(flags, total_reads as u64, &original_filename_owned, 
+            let gh = GlobalHeader::new(
+                flags,
+                total_reads as u64,
+                &original_filename_owned,
                 std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs()).unwrap_or(0));
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0),
+            );
             writer.write_global_header(&gh)?;
 
             // Collect blocks and write in order
@@ -306,7 +310,9 @@ impl CompressionPipeline {
             let mut total_output_bytes: u64 = 0;
 
             for ordered_block in block_rx.iter() {
-                if writer_control.is_cancelled() { break; }
+                if writer_control.is_cancelled() {
+                    break;
+                }
                 pending.insert(ordered_block.chunk_id, ordered_block);
 
                 // Write all consecutive blocks starting from next_expected
@@ -335,11 +341,15 @@ impl CompressionPipeline {
         });
 
         // ---- Wait for all stages ----
-        reader_handle.join().map_err(|_| FqcError::Compression("Reader thread panicked".to_string()))??;
+        reader_handle
+            .join()
+            .map_err(|_| FqcError::Compression("Reader thread panicked".to_string()))??;
         for h in compressor_handles {
-            h.join().map_err(|_| FqcError::Compression("Compressor thread panicked".to_string()))??;
+            h.join()
+                .map_err(|_| FqcError::Compression("Compressor thread panicked".to_string()))??;
         }
-        let output_bytes = writer_handle.join()
+        let output_bytes = writer_handle
+            .join()
             .map_err(|_| FqcError::Compression("Writer thread panicked".to_string()))??;
 
         // ---- Collect stats ----
@@ -358,7 +368,11 @@ impl CompressionPipeline {
             "Compression complete: {} reads, {} blocks, {:.2}x ratio, {:.1} MB/s",
             self.stats.total_reads,
             self.stats.total_blocks,
-            if self.stats.compression_ratio() > 0.0 { 1.0 / self.stats.compression_ratio() } else { 0.0 },
+            if self.stats.compression_ratio() > 0.0 {
+                1.0 / self.stats.compression_ratio()
+            } else {
+                0.0
+            },
             self.stats.throughput_mbps(),
         );
 
@@ -392,7 +406,8 @@ impl CompressionPipeline {
 
         // Store reads, then run pipeline (reuse single-end logic for Phase 2)
         let total_reads = all_reads.len();
-        let input_bytes: usize = all_reads.iter()
+        let input_bytes: usize = all_reads
+            .iter()
             .map(|r| r.id.len() + r.sequence.len() + r.quality.len() + 4)
             .sum();
         let block_size = self.config.effective_block_size();
@@ -403,12 +418,12 @@ impl CompressionPipeline {
                 reads_per_block: block_size,
                 ..Default::default()
             };
-            let sequences: Vec<String> = all_reads.iter()
-                .map(|r| r.sequence.clone())
-                .collect();
+            let sequences: Vec<String> = all_reads.iter().map(|r| r.sequence.clone()).collect();
             let analyzer = GlobalAnalyzer::new(ga_config);
             let result = analyzer.analyze(&sequences)?;
-            let ordered: Vec<ReadRecord> = result.reverse_map.iter()
+            let ordered: Vec<ReadRecord> = result
+                .reverse_map
+                .iter()
                 .map(|&orig_idx| all_reads[orig_idx as usize].clone())
                 .collect();
             (ordered, Some(result.forward_map), Some(result.reverse_map))
@@ -432,18 +447,22 @@ impl CompressionPipeline {
             compression_level: self.config.compression_level,
             quality_mode: self.config.quality_mode,
             id_mode: self.config.id_mode,
-            zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(
-                self.config.compression_level),
+            zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(self.config.compression_level),
             ..Default::default()
         };
 
         let compressor = BlockCompressor::new(compressor_config);
         let mut writer = FqcWriter::create(output_path)?;
 
-        let gh = GlobalHeader::new(flags, total_reads as u64, original_filename,
+        let gh = GlobalHeader::new(
+            flags,
+            total_reads as u64,
+            original_filename,
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
-                .map(|d| d.as_secs()).unwrap_or(0));
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+        );
         writer.write_global_header(&gh)?;
 
         let mut output_bytes: u64 = 0;

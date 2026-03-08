@@ -3,8 +3,8 @@
 // =============================================================================
 
 use fqc::algo::id_compressor::{compress_ids, decompress_ids};
-use fqc::algo::quality_compressor::{QualityCompressor, QualityCompressorConfig};
 use fqc::algo::pe_optimizer::*;
+use fqc::algo::quality_compressor::{QualityCompressor, QualityCompressorConfig};
 use fqc::types::*;
 
 // =============================================================================
@@ -79,7 +79,10 @@ fn test_quality_compress_decompress_lossless() {
     let lengths: Vec<u32> = qualities.iter().map(|q| q.len() as u32).collect();
     let refs: Vec<&str> = qualities.to_vec();
 
-    let config = QualityCompressorConfig { quality_mode: QualityMode::Lossless, ..Default::default() };
+    let config = QualityCompressorConfig {
+        quality_mode: QualityMode::Lossless,
+        ..Default::default()
+    };
     let mut compressor = QualityCompressor::new(config.clone());
     let compressed = compressor.compress(&refs).unwrap();
     assert!(!compressed.is_empty());
@@ -97,7 +100,10 @@ fn test_quality_compress_decompress_discard() {
     let qualities = ["IIIII", "!!!!!"];
     let refs: Vec<&str> = qualities.to_vec();
 
-    let config = QualityCompressorConfig { quality_mode: QualityMode::Discard, ..Default::default() };
+    let config = QualityCompressorConfig {
+        quality_mode: QualityMode::Discard,
+        ..Default::default()
+    };
     let mut compressor = QualityCompressor::new(config.clone());
     let compressed = compressor.compress(&refs).unwrap();
     assert!(compressed.is_empty());
@@ -115,7 +121,10 @@ fn test_quality_compress_decompress_discard() {
 #[test]
 fn test_quality_compress_decompress_empty() {
     let qualities: Vec<&str> = vec![];
-    let config = QualityCompressorConfig { quality_mode: QualityMode::Lossless, ..Default::default() };
+    let config = QualityCompressorConfig {
+        quality_mode: QualityMode::Lossless,
+        ..Default::default()
+    };
     let mut compressor = QualityCompressor::new(config.clone());
     let compressed = compressor.compress(&qualities).unwrap();
 
@@ -130,7 +139,10 @@ fn test_quality_compress_decompress_varied_lengths() {
     let lengths: Vec<u32> = qualities.iter().map(|q| q.len() as u32).collect();
     let refs: Vec<&str> = qualities.to_vec();
 
-    let config = QualityCompressorConfig { quality_mode: QualityMode::Lossless, ..Default::default() };
+    let config = QualityCompressorConfig {
+        quality_mode: QualityMode::Lossless,
+        ..Default::default()
+    };
     let mut compressor = QualityCompressor::new(config.clone());
     let compressed = compressor.compress(&refs).unwrap();
 

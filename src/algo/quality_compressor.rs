@@ -287,7 +287,11 @@ impl QualityContextModel {
         let models = (0..num_contexts)
             .map(|_| AdaptiveModel::new(NUM_QUALITY_SYMBOLS))
             .collect();
-        Self { order, num_position_bins, models }
+        Self {
+            order,
+            num_position_bins,
+            models,
+        }
     }
 
     fn compute_num_contexts(order: ContextOrder, num_position_bins: usize) -> usize {
@@ -329,7 +333,11 @@ fn compute_position_bin(pos: usize, read_len: usize, num_bins: usize) -> usize {
 
 fn qual_char_to_value(c: char) -> usize {
     let v = c as usize;
-    if v < 33 { 0 } else { (v - 33).min(NUM_QUALITY_SYMBOLS - 1) }
+    if v < 33 {
+        0
+    } else {
+        (v - 33).min(NUM_QUALITY_SYMBOLS - 1)
+    }
 }
 
 fn qual_value_to_char(v: usize) -> char {
@@ -345,7 +353,9 @@ const BIN_REPRESENTATIVES: [u8; 8] = [2, 6, 15, 22, 27, 33, 37, 40];
 
 fn illumina8_to_bin(q: u8) -> u8 {
     for (i, &b) in BIN_BOUNDARIES.iter().enumerate() {
-        if q < b { return i as u8; }
+        if q < b {
+            return i as u8;
+        }
     }
     7
 }
@@ -382,10 +392,7 @@ pub struct QualityCompressor {
 
 impl QualityCompressor {
     pub fn new(config: QualityCompressorConfig) -> Self {
-        let ctx_model = QualityContextModel::new(
-            config.context_order,
-            config.num_position_bins,
-        );
+        let ctx_model = QualityContextModel::new(config.context_order, config.num_position_bins);
         Self { config, ctx_model }
     }
 
@@ -440,17 +447,13 @@ impl QualityCompressor {
     pub fn decompress(&mut self, data: &[u8], lengths: &[u32]) -> Result<Vec<String>> {
         if data.is_empty() || lengths.is_empty() {
             if self.config.quality_mode == QualityMode::Discard {
-                return Ok(lengths.iter()
-                    .map(|&l| "!".repeat(l as usize))
-                    .collect());
+                return Ok(lengths.iter().map(|&l| "!".repeat(l as usize)).collect());
             }
             return Ok(lengths.iter().map(|_| String::new()).collect());
         }
 
         if self.config.quality_mode == QualityMode::Discard {
-            return Ok(lengths.iter()
-                .map(|&l| "!".repeat(l as usize))
-                .collect());
+            return Ok(lengths.iter().map(|&l| "!".repeat(l as usize)).collect());
         }
 
         // Decompress Zstd layer first

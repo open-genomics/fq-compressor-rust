@@ -54,7 +54,10 @@ fn test_classify_read_length() {
 #[test]
 fn test_recommended_block_size() {
     assert_eq!(recommended_block_size(ReadLengthClass::Short), DEFAULT_BLOCK_SIZE_SHORT);
-    assert_eq!(recommended_block_size(ReadLengthClass::Medium), DEFAULT_BLOCK_SIZE_MEDIUM);
+    assert_eq!(
+        recommended_block_size(ReadLengthClass::Medium),
+        DEFAULT_BLOCK_SIZE_MEDIUM
+    );
     assert_eq!(recommended_block_size(ReadLengthClass::Long), DEFAULT_BLOCK_SIZE_LONG);
 }
 

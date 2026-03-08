@@ -60,14 +60,17 @@ pub fn decode_signed_varint(data: &[u8]) -> Option<(i64, usize)> {
 /// In-memory representation of the bidirectional reorder map
 #[derive(Debug, Clone, Default)]
 pub struct ReorderMapData {
-    forward_map: Vec<ReadId>,  // original_id -> archive_id
-    reverse_map: Vec<ReadId>,  // archive_id -> original_id
+    forward_map: Vec<ReadId>, // original_id -> archive_id
+    reverse_map: Vec<ReadId>, // archive_id -> original_id
 }
 
 impl ReorderMapData {
     /// Construct from forward and reverse maps
     pub fn new(forward_map: Vec<ReadId>, reverse_map: Vec<ReadId>) -> Self {
-        Self { forward_map, reverse_map }
+        Self {
+            forward_map,
+            reverse_map,
+        }
     }
 
     /// Build from a reverse map (archive_order), computing forward map automatically
@@ -79,7 +82,10 @@ impl ReorderMapData {
                 forward_map[orig_id as usize] = archive_id as ReadId;
             }
         }
-        Self { forward_map, reverse_map }
+        Self {
+            forward_map,
+            reverse_map,
+        }
     }
 
     /// Build an identity map (no reordering)
@@ -97,7 +103,10 @@ impl ReorderMapData {
 
     /// Get archive ID for an original read ID
     pub fn get_archive_id(&self, original_id: ReadId) -> ReadId {
-        self.forward_map.get(original_id as usize).copied().unwrap_or(original_id)
+        self.forward_map
+            .get(original_id as usize)
+            .copied()
+            .unwrap_or(original_id)
     }
 
     /// Get original ID for an archive read ID
@@ -177,9 +186,7 @@ impl ReorderMapData {
         let mut cur = Cursor::new(data);
         let version = cur.read_u32::<LittleEndian>()?;
         if version != REORDER_MAP_VERSION {
-            return Err(FqcError::Format(format!(
-                "Unsupported reorder map version: {version}"
-            )));
+            return Err(FqcError::Format(format!("Unsupported reorder map version: {version}")));
         }
 
         let total_reads = cur.read_u64::<LittleEndian>()?;
@@ -202,7 +209,10 @@ impl ReorderMapData {
         let forward_map = delta_decode_ids(&fwd_raw, total_reads)?;
         let reverse_map = delta_decode_ids(&rev_raw, total_reads)?;
 
-        Ok(Self { forward_map, reverse_map })
+        Ok(Self {
+            forward_map,
+            reverse_map,
+        })
     }
 
     /// Estimate serialized size in bytes
@@ -216,12 +226,7 @@ impl ReorderMapData {
     // =========================================================================
 
     /// Append another chunk's reorder map with offset adjustment
-    pub fn append_chunk(
-        &mut self,
-        other: &ReorderMapData,
-        archive_id_offset: ReadId,
-        original_id_offset: ReadId,
-    ) {
+    pub fn append_chunk(&mut self, other: &ReorderMapData, archive_id_offset: ReadId, original_id_offset: ReadId) {
         for &orig_id in &other.forward_map {
             self.forward_map.push(orig_id + archive_id_offset);
         }
@@ -231,10 +236,7 @@ impl ReorderMapData {
     }
 
     /// Combine multiple chunk reorder maps into a single global map
-    pub fn combine_chunks(
-        chunks: &[ReorderMapData],
-        chunk_sizes: &[u64],
-    ) -> Self {
+    pub fn combine_chunks(chunks: &[ReorderMapData], chunk_sizes: &[u64]) -> Self {
         let total: u64 = chunk_sizes.iter().sum();
         let mut combined = ReorderMapData {
             forward_map: Vec::with_capacity(total as usize),
@@ -296,14 +298,12 @@ pub struct CompressionStats {
 // =============================================================================
 
 /// Verify that forward and reverse maps are consistent inverses
-pub fn verify_map_consistency(
-    forward_map: &[ReadId],
-    reverse_map: &[ReadId],
-) -> Result<()> {
+pub fn verify_map_consistency(forward_map: &[ReadId], reverse_map: &[ReadId]) -> Result<()> {
     if forward_map.len() != reverse_map.len() {
         return Err(FqcError::Format(format!(
             "Map size mismatch: forward={}, reverse={}",
-            forward_map.len(), reverse_map.len()
+            forward_map.len(),
+            reverse_map.len()
         )));
     }
 
@@ -312,7 +312,8 @@ pub fn verify_map_consistency(
         let archive_id = fwd as usize;
         if archive_id >= n {
             return Err(FqcError::Format(format!(
-                "Forward map[{}]={} out of range (n={})", i, archive_id, n
+                "Forward map[{}]={} out of range (n={})",
+                i, archive_id, n
             )));
         }
         if reverse_map[archive_id] != i as u64 {
@@ -333,14 +334,10 @@ pub fn validate_permutation(map: &[ReadId]) -> Result<()> {
     for (i, &id) in map.iter().enumerate() {
         let id = id as usize;
         if id >= n {
-            return Err(FqcError::Format(format!(
-                "Map[{}]={} out of range (n={})", i, id, n
-            )));
+            return Err(FqcError::Format(format!("Map[{}]={} out of range (n={})", i, id, n)));
         }
         if seen[id] {
-            return Err(FqcError::Format(format!(
-                "Duplicate value {} in map", id
-            )));
+            return Err(FqcError::Format(format!("Duplicate value {} in map", id)));
         }
         seen[id] = true;
     }

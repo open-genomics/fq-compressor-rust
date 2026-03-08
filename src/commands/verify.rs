@@ -44,19 +44,26 @@ pub struct VerifyCommand {
 
 impl VerifyCommand {
     pub fn new(opts: VerifyOptions) -> Self {
-        Self { opts, stats: VerifyStats::default() }
+        Self {
+            opts,
+            stats: VerifyStats::default(),
+        }
     }
 
     pub fn execute(mut self) -> i32 {
         match self.run() {
             Ok(passed) => {
                 if passed {
-                    println!("Verification PASSED: {} blocks checked, {} reads verified",
-                        self.stats.blocks_checked, self.stats.reads_verified);
+                    println!(
+                        "Verification PASSED: {} blocks checked, {} reads verified",
+                        self.stats.blocks_checked, self.stats.reads_verified
+                    );
                     0
                 } else {
-                    eprintln!("Verification FAILED: {}/{} blocks had errors",
-                        self.stats.blocks_failed, self.stats.blocks_checked);
+                    eprintln!(
+                        "Verification FAILED: {}/{} blocks had errors",
+                        self.stats.blocks_failed, self.stats.blocks_checked
+                    );
                     1
                 }
             }
@@ -79,14 +86,20 @@ impl VerifyCommand {
 
         // Verify footer magic
         if !reader.footer.is_valid() {
-            if self.opts.verbose { println!("Footer magic: FAILED"); }
+            if self.opts.verbose {
+                println!("Footer magic: FAILED");
+            }
             return Ok(false);
         }
-        if self.opts.verbose { println!("Footer magic: OK"); }
+        if self.opts.verbose {
+            println!("Footer magic: OK");
+        }
 
         // Verify global checksum (if non-zero)
         if reader.footer.global_checksum != 0 {
-            if self.opts.verbose { print!("Global checksum: "); }
+            if self.opts.verbose {
+                print!("Global checksum: ");
+            }
 
             // Recompute: the writer hashes flags + all block compressed streams
             let mut global_hasher = Xxh64::new(0);
@@ -103,8 +116,10 @@ impl VerifyCommand {
             let computed = global_hasher.digest();
             if computed != reader.footer.global_checksum {
                 if self.opts.verbose {
-                    println!("FAILED (expected=0x{:016x}, computed=0x{:016x})",
-                        reader.footer.global_checksum, computed);
+                    println!(
+                        "FAILED (expected=0x{:016x}, computed=0x{:016x})",
+                        reader.footer.global_checksum, computed
+                    );
                 }
                 return Ok(false);
             }
@@ -115,7 +130,9 @@ impl VerifyCommand {
 
         // In quick mode, we only verify magic + footer + global checksum
         if self.opts.quick_mode {
-            if self.opts.verbose { println!("Quick mode: skipping block-level verification"); }
+            if self.opts.verbose {
+                println!("Quick mode: skipping block-level verification");
+            }
             return Ok(true);
         }
 
@@ -165,12 +182,7 @@ impl VerifyCommand {
         Ok(all_ok)
     }
 
-    fn verify_block(
-        &self,
-        reader: &mut FqcReader,
-        compressor: &BlockCompressor,
-        block_id: u32,
-    ) -> Result<u64> {
+    fn verify_block(&self, reader: &mut FqcReader, compressor: &BlockCompressor, block_id: u32) -> Result<u64> {
         let block_data = reader.read_block(block_id)?;
         let bh = &block_data.header;
 
@@ -203,7 +215,11 @@ impl VerifyCommand {
             if !read.is_valid() {
                 return Err(FqcError::CorruptedBlock {
                     block_id,
-                    reason: format!("Invalid read: seq len={}, qual len={}", read.sequence.len(), read.quality.len()),
+                    reason: format!(
+                        "Invalid read: seq len={}, qual len={}",
+                        read.sequence.len(),
+                        read.quality.len()
+                    ),
                 });
             }
         }

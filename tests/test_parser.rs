@@ -33,11 +33,7 @@ fn test_parse_single_record() {
 
 #[test]
 fn test_parse_multiple_records() {
-    let data = make_fastq_data(&[
-        ("r1", "AAAA", "!!!!"),
-        ("r2", "CCCC", "IIII"),
-        ("r3", "GGGG", "~~~~"),
-    ]);
+    let data = make_fastq_data(&[("r1", "AAAA", "!!!!"), ("r2", "CCCC", "IIII"), ("r3", "GGGG", "~~~~")]);
     let reader = BufReader::new(data.as_slice());
     let mut parser = FastqParser::new(reader);
 
@@ -94,10 +90,7 @@ fn test_read_chunk() {
 
 #[test]
 fn test_line_and_record_tracking() {
-    let data = make_fastq_data(&[
-        ("r1", "AAAA", "!!!!"),
-        ("r2", "CCCC", "IIII"),
-    ]);
+    let data = make_fastq_data(&[("r1", "AAAA", "!!!!"), ("r2", "CCCC", "IIII")]);
     let reader = BufReader::new(data.as_slice());
     let mut parser = FastqParser::new(reader);
 
@@ -218,18 +211,17 @@ fn test_parse_length_mismatch() {
 
 #[test]
 fn test_for_each() {
-    let data = make_fastq_data(&[
-        ("r1", "AAAA", "!!!!"),
-        ("r2", "CCCC", "IIII"),
-    ]);
+    let data = make_fastq_data(&[("r1", "AAAA", "!!!!"), ("r2", "CCCC", "IIII")]);
     let reader = BufReader::new(data.as_slice());
     let mut parser = FastqParser::new(reader);
 
     let mut ids = Vec::new();
-    let count = parser.for_each(|r| {
-        ids.push(r.id.clone());
-        Ok(())
-    }).unwrap();
+    let count = parser
+        .for_each(|r| {
+            ids.push(r.id.clone());
+            Ok(())
+        })
+        .unwrap();
 
     assert_eq!(count, 2);
     assert_eq!(ids, vec!["r1", "r2"]);

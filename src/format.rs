@@ -23,8 +23,8 @@
 // |  File Footer   |  (32 bytes)
 // +----------------+
 
-use crate::types::*;
 use crate::error::{FqcError, Result};
+use crate::types::*;
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Read, Write};
 
@@ -74,14 +74,22 @@ pub fn build_flags(
     streaming_mode: bool,
 ) -> u64 {
     let mut f: u64 = 0;
-    if is_paired { f |= flags::IS_PAIRED; }
-    if preserve_order { f |= flags::PRESERVE_ORDER; }
+    if is_paired {
+        f |= flags::IS_PAIRED;
+    }
+    if preserve_order {
+        f |= flags::PRESERVE_ORDER;
+    }
     f = (f & !flags::QUALITY_MODE_MASK) | ((quality_mode as u64) << flags::QUALITY_MODE_SHIFT);
     f = (f & !flags::ID_MODE_MASK) | ((id_mode as u64) << flags::ID_MODE_SHIFT);
-    if has_reorder_map { f |= flags::HAS_REORDER_MAP; }
+    if has_reorder_map {
+        f |= flags::HAS_REORDER_MAP;
+    }
     f = (f & !flags::PE_LAYOUT_MASK) | ((pe_layout as u64) << flags::PE_LAYOUT_SHIFT);
     f = (f & !flags::READ_LENGTH_CLASS_MASK) | ((read_length_class as u64) << flags::READ_LENGTH_CLASS_SHIFT);
-    if streaming_mode { f |= flags::STREAMING_MODE; }
+    if streaming_mode {
+        f |= flags::STREAMING_MODE;
+    }
     f
 }
 
@@ -163,8 +171,8 @@ impl GlobalHeader {
         let fname_len = r.read_u16::<LittleEndian>()? as usize;
         let mut fname_buf = vec![0u8; fname_len];
         r.read_exact(&mut fname_buf)?;
-        let original_filename = String::from_utf8(fname_buf)
-            .map_err(|e| FqcError::Format(format!("Invalid filename: {e}")))?;
+        let original_filename =
+            String::from_utf8(fname_buf).map_err(|e| FqcError::Format(format!("Invalid filename: {e}")))?;
         let timestamp = r.read_u64::<LittleEndian>()?;
 
         // Skip any extra bytes in the header
@@ -353,7 +361,12 @@ impl IndexEntry {
         let compressed_size = r.read_u64::<LittleEndian>()?;
         let archive_id_start = r.read_u64::<LittleEndian>()?;
         let read_count = r.read_u32::<LittleEndian>()?;
-        Ok(Self { offset, compressed_size, archive_id_start, read_count })
+        Ok(Self {
+            offset,
+            compressed_size,
+            archive_id_start,
+            read_count,
+        })
     }
 }
 
@@ -451,7 +464,12 @@ impl ReorderMapHeader {
             r.read_exact(&mut skip)?;
         }
 
-        Ok(Self { version, total_reads, forward_map_size, reverse_map_size })
+        Ok(Self {
+            version,
+            total_reads,
+            forward_map_size,
+            reverse_map_size,
+        })
     }
 }
 
@@ -500,7 +518,12 @@ impl FileFooter {
         let mut magic_end = [0u8; 8];
         r.read_exact(&mut magic_end)?;
 
-        let footer = Self { index_offset, reorder_map_offset, global_checksum, magic_end };
+        let footer = Self {
+            index_offset,
+            reorder_map_offset,
+            global_checksum,
+            magic_end,
+        };
         if !footer.is_valid() {
             return Err(FqcError::Format("Invalid file footer magic".to_string()));
         }

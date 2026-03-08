@@ -63,7 +63,10 @@ impl InfoCommand {
             println!("  \"file_size\": {},", reader.file_size);
             println!("  \"total_reads\": {},", reader.global_header.total_read_count);
             println!("  \"num_blocks\": {},", reader.block_count());
-            println!("  \"original_filename\": \"{}\",", reader.global_header.original_filename);
+            println!(
+                "  \"original_filename\": \"{}\",",
+                reader.global_header.original_filename
+            );
             println!("  \"timestamp\": {},", reader.global_header.timestamp);
             println!("  \"is_paired\": {},", is_paired);
             println!("  \"has_reorder_map\": {},", has_reorder_map);
@@ -91,20 +94,25 @@ impl InfoCommand {
 
             if self.opts.detailed {
                 println!("\nBlock Index:");
-                println!("  {:>6}  {:>12}  {:>12}  {:>10}  {:>10}",
-                    "Block", "Offset", "CompSize", "ArchiveID", "Reads");
+                println!(
+                    "  {:>6}  {:>12}  {:>12}  {:>10}  {:>10}",
+                    "Block", "Offset", "CompSize", "ArchiveID", "Reads"
+                );
                 for (i, entry) in reader.block_index.entries.iter().enumerate() {
-                    println!("  {:>6}  {:>12}  {:>12}  {:>10}  {:>10}",
-                        i, entry.offset, entry.compressed_size,
-                        entry.archive_id_start, entry.read_count);
+                    println!(
+                        "  {:>6}  {:>12}  {:>12}  {:>10}  {:>10}",
+                        i, entry.offset, entry.compressed_size, entry.archive_id_start, entry.read_count
+                    );
                 }
             }
 
             if self.opts.show_codecs {
                 let num_blocks = reader.block_count();
                 println!("\nBlock Codecs:");
-                println!("  {:>6}  {:>12}  {:>12}  {:>12}  {:>12}",
-                    "Block", "IDs", "Seq", "Qual", "Aux");
+                println!(
+                    "  {:>6}  {:>12}  {:>12}  {:>12}  {:>12}",
+                    "Block", "IDs", "Seq", "Qual", "Aux"
+                );
                 for i in 0..num_blocks {
                     if let Ok(bh) = reader.read_block_header(i as u32) {
                         let fmt_codec = |c: u8| -> String {
@@ -112,12 +120,14 @@ impl InfoCommand {
                             let version = c & 0x0F;
                             format!("{:?}v{}", family, version)
                         };
-                        println!("  {:>6}  {:>12}  {:>12}  {:>12}  {:>12}",
+                        println!(
+                            "  {:>6}  {:>12}  {:>12}  {:>12}  {:>12}",
                             i,
                             fmt_codec(bh.codec_ids),
                             fmt_codec(bh.codec_seq),
                             fmt_codec(bh.codec_qual),
-                            fmt_codec(bh.codec_aux));
+                            fmt_codec(bh.codec_aux)
+                        );
                     }
                 }
             }

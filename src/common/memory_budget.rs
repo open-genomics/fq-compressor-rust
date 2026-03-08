@@ -282,11 +282,7 @@ fn get_process_memory_windows() -> usize {
 
     extern "system" {
         fn GetCurrentProcess() -> isize;
-        fn K32GetProcessMemoryInfo(
-            process: isize,
-            ppsmemCounters: *mut ProcessMemoryCounters,
-            cb: u32,
-        ) -> i32;
+        fn K32GetProcessMemoryInfo(process: isize, ppsmemCounters: *mut ProcessMemoryCounters, cb: u32) -> i32;
     }
 
     unsafe {
@@ -367,8 +363,8 @@ impl ChunkingStrategy {
         let chunk_phase1_mb = (reads_per_chunk * phase1_per_read) / (1024 * 1024);
         let phase2_per_block_mb = (block_size * MEMORY_PER_READ_PHASE2) / (1024 * 1024);
         let phase2_mb = phase2_per_block_mb * num_threads.min(blocks_per_chunk);
-        let estimated_peak_mb = chunk_phase1_mb.max(phase2_mb) +
-            DEFAULT_BLOCK_BUFFER_MB + DEFAULT_WORKER_STACK_MB * num_threads;
+        let estimated_peak_mb =
+            chunk_phase1_mb.max(phase2_mb) + DEFAULT_BLOCK_BUFFER_MB + DEFAULT_WORKER_STACK_MB * num_threads;
 
         Self {
             num_chunks,
@@ -388,8 +384,7 @@ impl ChunkingStrategy {
         if self.requires_chunking() {
             format!(
                 "{} chunks × {} reads/chunk ({} blocks/chunk), est. peak {} MB",
-                self.num_chunks, self.reads_per_chunk,
-                self.blocks_per_chunk, self.estimated_peak_mb
+                self.num_chunks, self.reads_per_chunk, self.blocks_per_chunk, self.estimated_peak_mb
             )
         } else {
             format!(

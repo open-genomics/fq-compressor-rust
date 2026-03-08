@@ -40,13 +40,19 @@ pub struct ParserStats {
 
 impl ParserStats {
     pub fn avg_length(&self) -> f64 {
-        if self.total_records == 0 { 0.0 }
-        else { self.total_bases as f64 / self.total_records as f64 }
+        if self.total_records == 0 {
+            0.0
+        } else {
+            self.total_bases as f64 / self.total_records as f64
+        }
     }
 
     pub fn n_fraction(&self) -> f64 {
-        if self.total_bases == 0 { 0.0 }
-        else { self.total_n_count as f64 / self.total_bases as f64 }
+        if self.total_bases == 0 {
+            0.0
+        } else {
+            self.total_n_count as f64 / self.total_bases as f64
+        }
     }
 
     fn update(&mut self, record: &ReadRecord, raw_bytes: usize) {
@@ -88,7 +94,10 @@ pub fn validate_sequence(seq: &str) -> std::result::Result<(), String> {
 pub fn validate_quality_string(qual: &str) -> std::result::Result<(), String> {
     for (i, b) in qual.bytes().enumerate() {
         if !(33..=126).contains(&b) {
-            return Err(format!("Invalid quality value {} at position {} (expected 33-126)", b, i));
+            return Err(format!(
+                "Invalid quality value {} at position {} (expected 33-126)",
+                b, i
+            ));
         }
     }
     Ok(())
@@ -176,7 +185,7 @@ impl<R: BufRead> FastqParser<R> {
         }
         let id_full = &id_line[1..];
         let (id, comment) = if let Some(space_pos) = id_full.find(' ') {
-            (id_full[..space_pos].to_string(), id_full[space_pos+1..].to_string())
+            (id_full[..space_pos].to_string(), id_full[space_pos + 1..].to_string())
         } else {
             (id_full.to_string(), String::new())
         };
@@ -224,7 +233,10 @@ impl<R: BufRead> FastqParser<R> {
         if sequence.len() != quality.len() {
             return Err(FqcError::Parse(format!(
                 "Record {} ('{}'): sequence length {} != quality length {}",
-                self.record_number + 1, id, sequence.len(), quality.len()
+                self.record_number + 1,
+                id,
+                sequence.len(),
+                quality.len()
             )));
         }
 
@@ -232,14 +244,20 @@ impl<R: BufRead> FastqParser<R> {
         if self.options.validate_sequence {
             if let Err(msg) = validate_sequence(&sequence) {
                 return Err(FqcError::Parse(format!(
-                    "Record {} ('{}'): {}", self.record_number + 1, id, msg
+                    "Record {} ('{}'): {}",
+                    self.record_number + 1,
+                    id,
+                    msg
                 )));
             }
         }
         if self.options.validate_quality {
             if let Err(msg) = validate_quality_string(&quality) {
                 return Err(FqcError::Parse(format!(
-                    "Record {} ('{}'): {}", self.record_number + 1, id, msg
+                    "Record {} ('{}'): {}",
+                    self.record_number + 1,
+                    id,
+                    msg
                 )));
             }
         }
@@ -283,9 +301,7 @@ impl<R: BufRead> FastqParser<R> {
             return Ok(all);
         }
         let step = all.len() as f64 / n as f64;
-        let sampled: Vec<ReadRecord> = (0..n)
-            .map(|i| all[(i as f64 * step) as usize].clone())
-            .collect();
+        let sampled: Vec<ReadRecord> = (0..n).map(|i| all[(i as f64 * step) as usize].clone()).collect();
         Ok(sampled)
     }
 
@@ -403,9 +419,11 @@ impl<R: BufRead> InterleavedPeParser<R> {
         };
         let r2 = match self.parser.next_record()? {
             Some(r) => r,
-            None => return Err(FqcError::Parse(
-                "Interleaved PE file has odd number of records (missing R2 mate)".to_string()
-            )),
+            None => {
+                return Err(FqcError::Parse(
+                    "Interleaved PE file has odd number of records (missing R2 mate)".to_string(),
+                ))
+            }
         };
         Ok(Some((r1, r2)))
     }
@@ -432,9 +450,7 @@ impl<R: BufRead> InterleavedPeParser<R> {
 }
 
 /// Open an interleaved paired-end FASTQ file
-pub fn open_fastq_interleaved(
-    path: &str,
-) -> Result<InterleavedPeParser<BufReader<Box<dyn Read + Send>>>> {
+pub fn open_fastq_interleaved(path: &str) -> Result<InterleavedPeParser<BufReader<Box<dyn Read + Send>>>> {
     let parser = open_fastq(path)?;
     Ok(InterleavedPeParser::new(parser))
 }
@@ -451,15 +467,15 @@ pub fn validate_pe_pair_ids(id1: &str, id2: &str) -> bool {
     }
     // Try /1 /2 suffix convention
     if id1.ends_with("/1") && id2.ends_with("/2") {
-        return id1[..id1.len()-2] == id2[..id2.len()-2];
+        return id1[..id1.len() - 2] == id2[..id2.len() - 2];
     }
     // Try space-separated comment with 1:/2: prefix
     if let (Some(p1), Some(p2)) = (id1.find(' '), id2.find(' ')) {
         let base1 = &id1[..p1];
         let base2 = &id2[..p2];
         if base1 == base2 {
-            let suffix1 = &id1[p1+1..];
-            let suffix2 = &id2[p2+1..];
+            let suffix1 = &id1[p1 + 1..];
+            let suffix2 = &id2[p2 + 1..];
             if suffix1.starts_with("1:") && suffix2.starts_with("2:") {
                 return true;
             }

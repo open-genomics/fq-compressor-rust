@@ -2,9 +2,9 @@
 // fqc-rust - FQC Archive Writer
 // =============================================================================
 
+use crate::algo::block_compressor::{delta_encode_ids, CompressedBlockData};
 use crate::error::{FqcError, Result};
 use crate::format::*;
-use crate::algo::block_compressor::{CompressedBlockData, delta_encode_ids};
 use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
 use std::fs::File;
@@ -26,8 +26,7 @@ pub struct FqcWriter {
 
 impl FqcWriter {
     pub fn create(path: &str) -> Result<Self> {
-        let file = File::create(path)
-            .map_err(|e| FqcError::Io(e))?;
+        let file = File::create(path).map_err(|e| FqcError::Io(e))?;
         let mut writer = BufWriter::new(file);
 
         // Write magic header (8 bytes) + version byte
@@ -57,7 +56,8 @@ impl FqcWriter {
         const TOTAL_READ_COUNT_OFFSET: u64 = 4 + 8 + 1 + 1 + 2;
 
         self.writer.flush()?;
-        self.writer.seek(SeekFrom::Start(MAGIC_HEADER_SIZE as u64 + TOTAL_READ_COUNT_OFFSET))?;
+        self.writer
+            .seek(SeekFrom::Start(MAGIC_HEADER_SIZE as u64 + TOTAL_READ_COUNT_OFFSET))?;
         self.writer.write_u64::<LittleEndian>(total_read_count)?;
         self.writer.seek(SeekFrom::Start(self.current_offset))?;
         Ok(())
@@ -65,7 +65,8 @@ impl FqcWriter {
 
     /// Write a compressed block. Returns the block's starting offset.
     pub fn write_block(&mut self, compressed: &CompressedBlockData) -> Result<u64> {
-        let archive_id_start = self.index_entries
+        let archive_id_start = self
+            .index_entries
             .last()
             .map(|entry| entry.archive_id_end())
             .unwrap_or(0);
@@ -186,4 +187,3 @@ impl FqcWriter {
         Ok(())
     }
 }
-

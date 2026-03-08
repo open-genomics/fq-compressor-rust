@@ -61,32 +61,46 @@ pub struct ErrorContext {
 }
 
 impl ErrorContext {
-    pub fn new() -> Self { Self::default() }
+    pub fn new() -> Self {
+        Self::default()
+    }
 
     pub fn with_file(mut self, path: impl Into<String>) -> Self {
-        self.file_path = Some(path.into()); self
+        self.file_path = Some(path.into());
+        self
     }
 
     pub fn with_block(mut self, id: u32) -> Self {
-        self.block_id = Some(id); self
+        self.block_id = Some(id);
+        self
     }
 
     pub fn with_read(mut self, id: u64) -> Self {
-        self.read_id = Some(id); self
+        self.read_id = Some(id);
+        self
     }
 
     pub fn with_offset(mut self, offset: u64) -> Self {
-        self.byte_offset = Some(offset); self
+        self.byte_offset = Some(offset);
+        self
     }
 }
 
 impl std::fmt::Display for ErrorContext {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let mut parts = Vec::new();
-        if let Some(ref p) = self.file_path { parts.push(format!("file={}", p)); }
-        if let Some(b) = self.block_id { parts.push(format!("block={}", b)); }
-        if let Some(r) = self.read_id { parts.push(format!("read={}", r)); }
-        if let Some(o) = self.byte_offset { parts.push(format!("offset={}", o)); }
+        if let Some(ref p) = self.file_path {
+            parts.push(format!("file={}", p));
+        }
+        if let Some(b) = self.block_id {
+            parts.push(format!("block={}", b));
+        }
+        if let Some(r) = self.read_id {
+            parts.push(format!("read={}", r));
+        }
+        if let Some(o) = self.byte_offset {
+            parts.push(format!("offset={}", o));
+        }
         if parts.is_empty() {
             write!(f, "<no context>")
         } else {

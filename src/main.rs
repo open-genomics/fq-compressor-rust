@@ -22,7 +22,7 @@ mod types;
 
 use clap::{Parser, Subcommand};
 use commands::compress::{CompressCommand, CompressOptions};
-use commands::decompress::{DecompressCommand, DecompressOptions, parse_range};
+use commands::decompress::{parse_range, DecompressCommand, DecompressOptions};
 use commands::info::{InfoCommand, InfoOptions};
 use commands::verify::{VerifyCommand, VerifyOptions};
 use types::*;
@@ -363,23 +363,31 @@ fn main() {
             DecompressCommand::new(opts).execute()
         }
 
-        Commands::Info { input, json, detailed, show_codecs } => {
-            InfoCommand::new(InfoOptions {
-                input_path: input,
-                json,
-                detailed,
-                show_codecs,
-            }).execute()
-        }
+        Commands::Info {
+            input,
+            json,
+            detailed,
+            show_codecs,
+        } => InfoCommand::new(InfoOptions {
+            input_path: input,
+            json,
+            detailed,
+            show_codecs,
+        })
+        .execute(),
 
-        Commands::Verify { input, fail_fast, verbose, quick } => {
-            VerifyCommand::new(VerifyOptions {
-                input_path: input,
-                fail_fast,
-                verbose,
-                quick_mode: quick,
-            }).execute()
-        }
+        Commands::Verify {
+            input,
+            fail_fast,
+            verbose,
+            quick,
+        } => VerifyCommand::new(VerifyOptions {
+            input_path: input,
+            fail_fast,
+            verbose,
+            quick_mode: quick,
+        })
+        .execute(),
     };
 
     std::process::exit(exit_code);

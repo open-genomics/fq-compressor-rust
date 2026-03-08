@@ -84,15 +84,31 @@ fn tokenize(id: &str) -> Vec<Token> {
                 if let Some(iv) = try_parse_int(s) {
                     // Treat leading-zero integers as strings to preserve exact formatting
                     if s.len() > 1 && s.starts_with('0') {
-                        tokens.push(Token { ttype: TokenType::DynamicString, value: s.to_string(), int_value: 0 });
+                        tokens.push(Token {
+                            ttype: TokenType::DynamicString,
+                            value: s.to_string(),
+                            int_value: 0,
+                        });
                     } else {
-                        tokens.push(Token { ttype: TokenType::DynamicInt, value: s.to_string(), int_value: iv });
+                        tokens.push(Token {
+                            ttype: TokenType::DynamicInt,
+                            value: s.to_string(),
+                            int_value: iv,
+                        });
                     }
                 } else {
-                    tokens.push(Token { ttype: TokenType::DynamicString, value: s.to_string(), int_value: 0 });
+                    tokens.push(Token {
+                        ttype: TokenType::DynamicString,
+                        value: s.to_string(),
+                        int_value: 0,
+                    });
                 }
             }
-            tokens.push(Token { ttype: TokenType::Delimiter, value: String::from(bytes[pos] as char), int_value: 0 });
+            tokens.push(Token {
+                ttype: TokenType::Delimiter,
+                value: String::from(bytes[pos] as char),
+                int_value: 0,
+            });
             pos += 1;
             token_start = pos;
         } else {
@@ -105,12 +121,24 @@ fn tokenize(id: &str) -> Vec<Token> {
         if let Some(iv) = try_parse_int(s) {
             // Treat leading-zero integers as strings to preserve exact formatting
             if s.len() > 1 && s.starts_with('0') {
-                tokens.push(Token { ttype: TokenType::DynamicString, value: s.to_string(), int_value: 0 });
+                tokens.push(Token {
+                    ttype: TokenType::DynamicString,
+                    value: s.to_string(),
+                    int_value: 0,
+                });
             } else {
-                tokens.push(Token { ttype: TokenType::DynamicInt, value: s.to_string(), int_value: iv });
+                tokens.push(Token {
+                    ttype: TokenType::DynamicInt,
+                    value: s.to_string(),
+                    int_value: iv,
+                });
             }
         } else {
-            tokens.push(Token { ttype: TokenType::DynamicString, value: s.to_string(), int_value: 0 });
+            tokens.push(Token {
+                ttype: TokenType::DynamicString,
+                value: s.to_string(),
+                int_value: 0,
+            });
         }
     }
 
@@ -122,10 +150,14 @@ fn tokenize(id: &str) -> Vec<Token> {
 // =============================================================================
 
 fn detect_pattern(ids: &[&str]) -> Option<IDPattern> {
-    if ids.is_empty() { return None; }
+    if ids.is_empty() {
+        return None;
+    }
 
     let first_tokens = tokenize(ids[0]);
-    if first_tokens.is_empty() { return None; }
+    if first_tokens.is_empty() {
+        return None;
+    }
 
     let mut pattern = IDPattern::default();
     for t in &first_tokens {
@@ -142,7 +174,9 @@ fn detect_pattern(ids: &[&str]) -> Option<IDPattern> {
     let mut match_count = 0usize;
     for id in ids {
         let tokens = tokenize(id);
-        if tokens.len() != pattern.token_types.len() { continue; }
+        if tokens.len() != pattern.token_types.len() {
+            continue;
+        }
 
         let mut ok = true;
         let mut si = 0;
@@ -152,28 +186,36 @@ fn detect_pattern(ids: &[&str]) -> Option<IDPattern> {
             if t.ttype != expected {
                 // Allow int/string flexibility
                 if !((expected == TokenType::DynamicInt && t.ttype == TokenType::DynamicString)
-                    || (expected == TokenType::DynamicString && t.ttype == TokenType::DynamicInt)) {
-                    ok = false; break;
+                    || (expected == TokenType::DynamicString && t.ttype == TokenType::DynamicInt))
+                {
+                    ok = false;
+                    break;
                 }
             }
             if expected == TokenType::Static {
                 if si >= pattern.static_values.len() || t.value != pattern.static_values[si] {
-                    ok = false; break;
+                    ok = false;
+                    break;
                 }
                 si += 1;
             }
             if expected == TokenType::Delimiter {
                 if di >= pattern.delimiters.len() || t.value.as_bytes().first() != Some(&pattern.delimiters[di]) {
-                    ok = false; break;
+                    ok = false;
+                    break;
                 }
                 di += 1;
             }
         }
-        if ok { match_count += 1; }
+        if ok {
+            match_count += 1;
+        }
     }
 
     let ratio = match_count as f64 / ids.len() as f64;
-    if ratio < MIN_PATTERN_MATCH_RATIO { return None; }
+    if ratio < MIN_PATTERN_MATCH_RATIO {
+        return None;
+    }
     Some(pattern)
 }
 
@@ -201,11 +243,15 @@ fn uvarint_decode(data: &[u8], pos: &mut usize) -> u64 {
     let mut result: u64 = 0;
     let mut shift = 0u32;
     for _ in 0..10 {
-        if *pos >= data.len() { break; }
+        if *pos >= data.len() {
+            break;
+        }
         let b = data[*pos];
         *pos += 1;
         result |= ((b & 0x7F) as u64) << shift;
-        if b & 0x80 == 0 { return result; }
+        if b & 0x80 == 0 {
+            return result;
+        }
         shift += 7;
     }
     result
@@ -265,7 +311,9 @@ fn compress_exact(ids: &[&str], zstd_level: i32) -> Result<Vec<u8>> {
 }
 
 fn decompress_exact(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
-    if num_ids == 0 { return Ok(Vec::new()); }
+    if num_ids == 0 {
+        return Ok(Vec::new());
+    }
     let mut pos = 0;
     let uncompressed_size = uvarint_decode(data, &mut pos) as usize;
     let _ = uncompressed_size;
@@ -302,7 +350,9 @@ fn compress_tokenize(ids: &[&str], pattern: &IDPattern, zstd_level: i32) -> Resu
         let mut int_idx = 0;
         let mut str_idx = 0;
         for (i, ttype) in pattern.token_types.iter().enumerate() {
-            if i >= tokens.len() { break; }
+            if i >= tokens.len() {
+                break;
+            }
             match ttype {
                 TokenType::DynamicInt => {
                     let iv = if tokens[i].ttype == TokenType::DynamicInt {
@@ -325,8 +375,14 @@ fn compress_tokenize(ids: &[&str], pattern: &IDPattern, zstd_level: i32) -> Resu
             }
         }
         // Pad missing columns
-        while int_idx < int_columns.len() { int_columns[int_idx].push(0); int_idx += 1; }
-        while str_idx < str_columns.len() { str_columns[str_idx].push(String::new()); str_idx += 1; }
+        while int_idx < int_columns.len() {
+            int_columns[int_idx].push(0);
+            int_idx += 1;
+        }
+        while str_idx < str_columns.len() {
+            str_columns[str_idx].push(String::new());
+            str_idx += 1;
+        }
     }
 
     // Build uncompressed buffer
@@ -375,7 +431,9 @@ fn compress_tokenize(ids: &[&str], pattern: &IDPattern, zstd_level: i32) -> Resu
 }
 
 fn decompress_tokenize(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
-    if num_ids == 0 { return Ok(Vec::new()); }
+    if num_ids == 0 {
+        return Ok(Vec::new());
+    }
 
     let mut pos = 0;
     let _uncompressed_size = uvarint_decode(data, &mut pos);
@@ -389,7 +447,9 @@ fn decompress_tokenize(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
     let num_types = uvarint_decode(&uncompressed, &mut offset) as usize;
     let mut token_types = Vec::with_capacity(num_types);
     for _ in 0..num_types {
-        if offset >= uncompressed.len() { break; }
+        if offset >= uncompressed.len() {
+            break;
+        }
         let tt = TokenType::from_u8(uncompressed[offset]);
         offset += 1;
         token_types.push(tt);
@@ -411,7 +471,9 @@ fn decompress_tokenize(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
     let num_delims = uvarint_decode(&uncompressed, &mut offset) as usize;
     let mut delimiters = Vec::with_capacity(num_delims);
     for _ in 0..num_delims {
-        if offset >= uncompressed.len() { break; }
+        if offset >= uncompressed.len() {
+            break;
+        }
         delimiters.push(uncompressed[offset]);
         offset += 1;
     }
@@ -449,15 +511,22 @@ fn decompress_tokenize(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
     let mut ids = Vec::with_capacity(num_ids as usize);
     for i in 0..num_ids as usize {
         let mut id = String::new();
-        let mut si = 0; let mut di = 0; let mut ii = 0; let mut sti = 0;
+        let mut si = 0;
+        let mut di = 0;
+        let mut ii = 0;
+        let mut sti = 0;
         for tt in &token_types {
             match tt {
                 TokenType::Static => {
-                    if si < static_values.len() { id.push_str(&static_values[si]); }
+                    if si < static_values.len() {
+                        id.push_str(&static_values[si]);
+                    }
                     si += 1;
                 }
                 TokenType::Delimiter => {
-                    if di < delimiters.len() { id.push(delimiters[di] as char); }
+                    if di < delimiters.len() {
+                        id.push(delimiters[di] as char);
+                    }
                     di += 1;
                 }
                 TokenType::DynamicInt => {
@@ -518,9 +587,7 @@ pub fn decompress_ids(data: &[u8], num_ids: u32, id_prefix: &str) -> Result<Vec<
     match magic {
         MAGIC_EXACT => decompress_exact(payload, num_ids),
         MAGIC_TOKENIZE => decompress_tokenize(payload, num_ids),
-        MAGIC_DISCARD => {
-            Ok((1..=num_ids as u64).map(|i| format!("{}{}", id_prefix, i)).collect())
-        }
+        MAGIC_DISCARD => Ok((1..=num_ids as u64).map(|i| format!("{}{}", id_prefix, i)).collect()),
         _ => {
             // Legacy format: len-prefixed Zstd (no magic byte)
             // Fall back to the old decompression path
@@ -541,7 +608,8 @@ fn decompress_legacy(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
     let mut cur = Cursor::new(&buf);
 
     for _ in 0..num_ids {
-        let len = cur.read_u16::<LittleEndian>()
+        let len = cur
+            .read_u16::<LittleEndian>()
             .map_err(|e| FqcError::Format(format!("Truncated ID data: {e}")))?;
         let mut id = vec![0u8; len as usize];
         cur.read_exact(&mut id)

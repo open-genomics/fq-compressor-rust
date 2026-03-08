@@ -6,7 +6,7 @@ use crate::algo::block_compressor::{BlockCompressor, BlockCompressorConfig, Deco
 use crate::error::{FqcError, Result};
 use crate::fastq::parser::write_record as write_fastq_record;
 use crate::format::{flags, get_id_mode, get_pe_layout, get_quality_mode, get_read_length_class};
-use crate::fqc_reader::{FqcReader, BlockData};
+use crate::fqc_reader::{BlockData, FqcReader};
 use crate::pipeline::decompression::{DecompressionPipeline, DecompressionPipelineConfig};
 use crate::types::*;
 use rayon::prelude::*;
@@ -37,8 +37,7 @@ pub struct DecompressOptions {
 
 impl DecompressOptions {
     pub fn placeholder_record(&self, block_id: u32, read_idx: usize) -> ReadRecord {
-        let placeholder_seq = self.corrupted_placeholder.clone()
-            .unwrap_or_else(|| "N".to_string());
+        let placeholder_seq = self.corrupted_placeholder.clone().unwrap_or_else(|| "N".to_string());
         ReadRecord {
             id: format!("corrupted_block{}_read{}", block_id, read_idx),
             comment: String::new(),
@@ -119,14 +118,20 @@ fn write_to_target(output: &mut dyn Write, read: &ReadRecord, header_only: bool)
         }
     } else {
         write_fastq_record(output, read)?;
-        let comment_bytes = if read.comment.is_empty() { 0 } else { read.comment.len() + 1 };
+        let comment_bytes = if read.comment.is_empty() {
+            0
+        } else {
+            read.comment.len() + 1
+        };
         Ok(read.id.len() as u64 + comment_bytes as u64 + read.sequence.len() as u64 + read.quality.len() as u64 + 4)
     }
 }
 
 impl DecompressStats {
     fn throughput_mbps(&self) -> f64 {
-        if self.elapsed_seconds == 0.0 { return 0.0; }
+        if self.elapsed_seconds == 0.0 {
+            return 0.0;
+        }
         (self.output_bytes as f64 / 1_048_576.0) / self.elapsed_seconds
     }
 }
@@ -142,7 +147,10 @@ pub struct DecompressCommand {
 
 impl DecompressCommand {
     pub fn new(opts: DecompressOptions) -> Self {
-        Self { opts, stats: DecompressStats::default() }
+        Self {
+            opts,
+            stats: DecompressStats::default(),
+        }
     }
 
     pub fn execute(mut self) -> i32 {
@@ -174,7 +182,8 @@ impl DecompressCommand {
         // Open archive
         let mut reader = FqcReader::open(&self.opts.input_path)?;
 
-        log::info!("Archive: {} reads, {} blocks",
+        log::info!(
+            "Archive: {} reads, {} blocks",
             reader.total_read_count(),
             reader.block_count()
         );
@@ -182,7 +191,9 @@ impl DecompressCommand {
         // Load reorder map if needed
         if self.opts.original_order {
             if !reader.has_reorder_map() {
-                return Err(FqcError::Format("Original order requested but no reorder map present".to_string()));
+                return Err(FqcError::Format(
+                    "Original order requested but no reorder map present".to_string(),
+                ));
             }
             reader.load_reorder_map()?;
             log::info!("Reorder map loaded");
@@ -205,10 +216,14 @@ impl DecompressCommand {
         // Open output
         let mut output = if self.opts.split_pe {
             if !is_paired {
-                return Err(FqcError::InvalidArgument("--split-pe requires a paired-end archive".to_string()));
+                return Err(FqcError::InvalidArgument(
+                    "--split-pe requires a paired-end archive".to_string(),
+                ));
             }
             if self.opts.output_path == "-" {
-                return Err(FqcError::InvalidArgument("--split-pe cannot be used with stdout output".to_string()));
+                return Err(FqcError::InvalidArgument(
+                    "--split-pe cannot be used with stdout output".to_string(),
+                ));
             }
 
             let (r1_path, r2_path) = derive_split_output_paths(&self.opts.output_path);
@@ -253,14 +268,27 @@ impl DecompressCommand {
             self.run_original_order(&mut reader, &compressor, block_count, total_archive_reads, &mut output)?;
         } else if block_count > 1 && self.opts.threads != 1 {
             // Parallel decompression: read blocks sequentially, decompress in parallel, write sequentially
-            self.run_parallel(&mut reader, &block_config, block_count, total_archive_reads, &mut output)?;
+            self.run_parallel(
+                &mut reader,
+                &block_config,
+                block_count,
+                total_archive_reads,
+                &mut output,
+            )?;
         } else {
             // Normal mode: stream blocks directly to output
             let mut global_read_idx = 0u64;
             for block_id in 0..block_count {
                 log::debug!("Processing block {}/{}", block_id + 1, block_count);
 
-                match self.process_block(&mut reader, &compressor, block_id as u32, total_archive_reads, &mut global_read_idx, &mut output) {
+                match self.process_block(
+                    &mut reader,
+                    &compressor,
+                    block_id as u32,
+                    total_archive_reads,
+                    &mut global_read_idx,
+                    &mut output,
+                ) {
                     Ok(()) => {
                         self.stats.blocks_processed += 1;
                     }
@@ -287,7 +315,11 @@ impl DecompressCommand {
 
         output.flush()?;
 
-        log::info!("Decompression complete: {} reads, {} blocks", self.stats.total_reads, self.stats.blocks_processed);
+        log::info!(
+            "Decompression complete: {} reads, {} blocks",
+            self.stats.total_reads,
+            self.stats.blocks_processed
+        );
         Ok(())
     }
 
@@ -330,19 +362,27 @@ impl DecompressCommand {
 
             // Phase 2: Decompress in parallel
             let cfg = Arc::clone(&config);
-            let results: Vec<std::result::Result<(u32, DecompressedBlockData), (u32, String)>> =
-                block_data_vec.into_par_iter().map(|(bid, bd)| {
+            let results: Vec<std::result::Result<(u32, DecompressedBlockData), (u32, String)>> = block_data_vec
+                .into_par_iter()
+                .map(|(bid, bd)| {
                     let comp = BlockCompressor::new((*cfg).clone());
                     let bh = &bd.header;
                     match comp.decompress_raw(
-                        bh.block_id, bh.uncompressed_count, bh.uniform_read_length,
-                        bh.codec_seq, bh.codec_qual,
-                        &bd.ids_data, &bd.seq_data, &bd.qual_data, &bd.aux_data,
+                        bh.block_id,
+                        bh.uncompressed_count,
+                        bh.uniform_read_length,
+                        bh.codec_seq,
+                        bh.codec_qual,
+                        &bd.ids_data,
+                        &bd.seq_data,
+                        &bd.qual_data,
+                        &bd.aux_data,
                     ) {
                         Ok(dec) => Ok((bid, dec)),
                         Err(e) => Err((bid, format!("{}", e))),
                     }
-                }).collect();
+                })
+                .collect();
 
             // Phase 3: Write results sequentially (sorted by block_id)
             let mut sorted: Vec<_> = results;
@@ -425,7 +465,9 @@ impl DecompressCommand {
     ) -> Result<()> {
         log::info!("Restoring original read order...");
 
-        let forward_map = reader.reorder_forward.clone()
+        let forward_map = reader
+            .reorder_forward
+            .clone()
             .ok_or_else(|| FqcError::Format("Forward reorder map missing".to_string()))?;
         let total_reads = forward_map.len();
 
@@ -437,10 +479,15 @@ impl DecompressCommand {
             let bh = &block_data.header;
 
             match compressor.decompress_raw(
-                bh.block_id, bh.uncompressed_count, bh.uniform_read_length,
-                bh.codec_seq, bh.codec_qual,
-                &block_data.ids_data, &block_data.seq_data,
-                &block_data.qual_data, &block_data.aux_data,
+                bh.block_id,
+                bh.uncompressed_count,
+                bh.uniform_read_length,
+                bh.codec_seq,
+                bh.codec_qual,
+                &block_data.ids_data,
+                &block_data.seq_data,
+                &block_data.qual_data,
+                &block_data.aux_data,
             ) {
                 Ok(decompressed) => {
                     all_reads.extend(decompressed.reads);
@@ -462,7 +509,9 @@ impl DecompressCommand {
         // and output all_reads[forward_map[original_id]]
         for (original_id, &fwd) in forward_map.iter().enumerate().take(total_reads) {
             let archive_id = fwd as usize;
-            if archive_id >= all_reads.len() { continue; }
+            if archive_id >= all_reads.len() {
+                continue;
+            }
 
             let read = &all_reads[archive_id];
             self.emit_read(output, read, original_id as u64, total_archive_reads)?;
@@ -488,7 +537,8 @@ impl DecompressCommand {
             return Ok(());
         }
 
-        let bytes_written = output.write_record(read, self.opts.header_only, zero_based_read_idx, total_archive_reads)?;
+        let bytes_written =
+            output.write_record(read, self.opts.header_only, zero_based_read_idx, total_archive_reads)?;
         self.stats.total_reads += 1;
         self.stats.total_bases += read.sequence.len() as u64;
         self.stats.output_bytes += bytes_written;
@@ -499,7 +549,8 @@ impl DecompressCommand {
     fn run_pipeline(&mut self) -> Result<()> {
         log::info!("Using pipeline decompression mode");
 
-        if self.opts.output_path != "-" && !self.opts.force_overwrite
+        if self.opts.output_path != "-"
+            && !self.opts.force_overwrite
             && std::path::Path::new(&self.opts.output_path).exists()
         {
             return Err(FqcError::InvalidArgument(format!(
@@ -528,8 +579,11 @@ impl DecompressCommand {
         self.stats.output_bytes = stats.output_bytes;
         self.stats.input_bytes = stats.input_bytes;
 
-        log::info!("Pipeline decompression complete! {} reads, {:.1} MB/s",
-            stats.total_reads, stats.throughput_mbps());
+        log::info!(
+            "Pipeline decompression complete! {} reads, {:.1} MB/s",
+            stats.total_reads,
+            stats.throughput_mbps()
+        );
         Ok(())
     }
 
@@ -541,7 +595,9 @@ impl DecompressCommand {
             )));
         }
         if self.opts.split_pe && self.opts.output_path == "-" {
-            return Err(FqcError::InvalidArgument("--split-pe cannot be used with stdout output".to_string()));
+            return Err(FqcError::InvalidArgument(
+                "--split-pe cannot be used with stdout output".to_string(),
+            ));
         }
         Ok(())
     }
@@ -587,13 +643,17 @@ pub fn parse_range(s: &str) -> Result<(u64, u64)> {
         let start: u64 = if start_str.is_empty() {
             1
         } else {
-            start_str.parse().map_err(|_| FqcError::Parse(format!("Invalid range: {s}")))?
+            start_str
+                .parse()
+                .map_err(|_| FqcError::Parse(format!("Invalid range: {s}")))?
         };
 
         let end: u64 = if end_str.is_empty() {
             0
         } else {
-            end_str.parse().map_err(|_| FqcError::Parse(format!("Invalid range: {s}")))?
+            end_str
+                .parse()
+                .map_err(|_| FqcError::Parse(format!("Invalid range: {s}")))?
         };
 
         Ok((start, end))

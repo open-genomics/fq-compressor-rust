@@ -59,19 +59,24 @@ pub struct PipelineStats {
 
 impl PipelineStats {
     pub fn compression_ratio(&self) -> f64 {
-        if self.input_bytes == 0 { return 1.0; }
+        if self.input_bytes == 0 {
+            return 1.0;
+        }
         self.output_bytes as f64 / self.input_bytes as f64
     }
 
     pub fn bits_per_base(&self) -> f64 {
-        if self.input_bytes == 0 { return 0.0; }
+        if self.input_bytes == 0 {
+            return 0.0;
+        }
         (self.output_bytes as f64 * 8.0) / (self.input_bytes as f64 * 0.5)
     }
 
     pub fn throughput_mbps(&self) -> f64 {
-        if self.processing_time_ms == 0 { return 0.0; }
-        (self.input_bytes as f64 / (1024.0 * 1024.0)) /
-            (self.processing_time_ms as f64 / 1000.0)
+        if self.processing_time_ms == 0 {
+            return 0.0;
+        }
+        (self.input_bytes as f64 / (1024.0 * 1024.0)) / (self.processing_time_ms as f64 / 1000.0)
     }
 }
 
@@ -103,7 +108,9 @@ impl ProgressInfo {
 
     pub fn estimated_remaining_ms(&self) -> u64 {
         let r = self.ratio();
-        if r <= 0.0 || r >= 1.0 { return 0; }
+        if r <= 0.0 || r >= 1.0 {
+            return 0;
+        }
         ((self.elapsed_ms as f64) * (1.0 - r) / r) as u64
     }
 }
@@ -186,7 +193,8 @@ impl ReadChunk {
 
     /// Estimate memory usage of this chunk in bytes
     pub fn estimated_memory(&self) -> usize {
-        self.reads.iter()
+        self.reads
+            .iter()
             .map(|r| r.id.len() + r.comment.len() + r.sequence.len() + r.quality.len() + 80)
             .sum()
     }

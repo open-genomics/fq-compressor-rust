@@ -74,7 +74,12 @@ pub fn detect_format_from_bytes(magic: &[u8]) -> CompressionFormat {
 /// Detect compression format from file extension
 pub fn detect_format_from_extension(path: &str) -> CompressionFormat {
     let path = std::path::Path::new(path);
-    match path.extension().and_then(|e| e.to_str()).map(str::to_ascii_lowercase).as_deref() {
+    match path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(str::to_ascii_lowercase)
+        .as_deref()
+    {
         Some("gz" | "gzip") => CompressionFormat::Gzip,
         Some("bz2") => CompressionFormat::Bzip2,
         Some("xz") => CompressionFormat::Xz,
@@ -146,41 +151,33 @@ pub fn supported_extensions() -> Vec<&'static str> {
 /// Returns a boxed reader that transparently decompresses.
 pub fn open_compressed_reader(path: &str) -> Result<Box<dyn Read + Send>> {
     let format = detect_compression_format(path);
-    let file = std::fs::File::open(path)
-        .map_err(|e| FqcError::Io(std::io::Error::new(
+    let file = std::fs::File::open(path).map_err(|e| {
+        FqcError::Io(std::io::Error::new(
             e.kind(),
             format!("Cannot open file '{}': {}", path, e),
-        )))?;
+        ))
+    })?;
 
     log::debug!("Opening {} (format: {})", path, format.as_str());
 
     let reader: Box<dyn Read + Send> = match format {
         #[cfg(feature = "gz")]
-        CompressionFormat::Gzip => {
-            Box::new(flate2::read::GzDecoder::new(file))
-        }
+        CompressionFormat::Gzip => Box::new(flate2::read::GzDecoder::new(file)),
         #[cfg(feature = "bz2")]
-        CompressionFormat::Bzip2 => {
-            Box::new(bzip2::read::BzDecoder::new(file))
-        }
+        CompressionFormat::Bzip2 => Box::new(bzip2::read::BzDecoder::new(file)),
         #[cfg(feature = "xz")]
-        CompressionFormat::Xz => {
-            Box::new(xz2::read::XzDecoder::new(file))
-        }
-        CompressionFormat::Zstd => {
-            Box::new(zstd::Decoder::new(file)
-                .map_err(|e| FqcError::Io(std::io::Error::other(
-                    format!("Zstd decoder init failed: {e}"),
-                )))?)
-        }
-        CompressionFormat::Plain => {
-            Box::new(file)
-        }
+        CompressionFormat::Xz => Box::new(xz2::read::XzDecoder::new(file)),
+        CompressionFormat::Zstd => Box::new(
+            zstd::Decoder::new(file)
+                .map_err(|e| FqcError::Io(std::io::Error::other(format!("Zstd decoder init failed: {e}"))))?,
+        ),
+        CompressionFormat::Plain => Box::new(file),
         #[allow(unreachable_patterns)]
         other => {
-            return Err(FqcError::UnsupportedFormat(
-                format!("Compression format {} not enabled (missing feature flag)", other.as_str()),
-            ));
+            return Err(FqcError::UnsupportedFormat(format!(
+                "Compression format {} not enabled (missing feature flag)",
+                other.as_str()
+            )));
         }
     };
 
