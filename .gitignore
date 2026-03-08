@@ -38,3 +38,7 @@ flamegraph.svg
 lcov.info
 *.gcno
 *.gcda
+
+# Documentation build (Honkit)
+docs/.site/
+node_modules/

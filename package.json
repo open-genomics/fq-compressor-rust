@@ -1,0 +1,16 @@
+{
+  "name": "fq-compressor-rust-docs",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Documentation tooling for fq-compressor-rust",
+  "scripts": {
+    "docs:build": "honkit build docs/gitbook docs/.site",
+    "docs:serve": "honkit serve docs/gitbook",
+    "docs:pdf": "honkit pdf docs/gitbook docs/.site/fqc-rust.pdf"
+  },
+  "devDependencies": {
+    "honkit": "^5.1.4",
+    "gitbook-plugin-expandable-chapters": "^0.2.0",
+    "gitbook-plugin-back-to-top-button": "^0.1.4"
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "title": "fqc (fq-compressor-rust)",
+  "description": "High-performance FASTQ compressor written in Rust",
+  "author": "LessUp",
+  "language": "en",
+  "gitbook": ">=3.0.0",
+  "links": {
+    "sidebar": {
+      "GitHub": "https://github.com/LessUp/fq-compressor-rust"
+    }
+  },
+  "plugins": [
+    "-sharing",
+    "expandable-chapters",
+    "back-to-top-button"
+  ],
+  "structure": {
+    "readme": "README.md",
+    "summary": "SUMMARY.md"
+  }
+}
