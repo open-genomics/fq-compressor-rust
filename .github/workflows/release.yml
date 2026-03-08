@@ -1,12 +1,25 @@
+# .github/workflows/release.yml
+# =============================================================================
+# fq-compressor-rust Release Pipeline
+# =============================================================================
+# Triggered by version tags. Validates version consistency, runs tests,
+# builds cross-platform binaries, and creates a GitHub Release.
+# =============================================================================
+
 name: Release
 
 on:
   push:
     tags:
-      - "v[0-9]+.*"
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
 
 env:
   CARGO_TERM_COLOR: always

@@ -1,3 +1,11 @@
+# .github/workflows/ci.yml
+# =============================================================================
+# fq-compressor-rust CI Pipeline
+# =============================================================================
+# This workflow validates build/test health across platforms.
+# Code quality checks (fmt, clippy) are handled by the separate quality.yml.
+# =============================================================================
+
 name: CI
 
 on:
@@ -6,11 +14,21 @@ on:
   pull_request:
     branches: [master, main]
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: -Dwarnings
 
 jobs:
+  # ===========================================================================
+  # Quick Check Job
+  # ===========================================================================
   check:
     name: Check
     runs-on: ubuntu-latest
@@ -20,8 +38,12 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --all-targets
 
+  # ===========================================================================
+  # Cross-Platform Test Job
+  # ===========================================================================
   test:
-    name: Test
+    name: Test (${{ matrix.os }})
+    needs: check
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -33,27 +55,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo test --lib --tests
 
-  clippy:
-    name: Clippy
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-      - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --all-targets -- -D warnings
-
-  fmt:
-    name: Format
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt
-      - run: cargo fmt --all -- --check
-
+  # ===========================================================================
+  # MSRV Verification Job
+  # ===========================================================================
   msrv:
     name: MSRV (1.75)
     runs-on: ubuntu-latest
@@ -63,6 +67,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo check --all-targets
 
+  # ===========================================================================
+  # Dependency Audit Job
+  # ===========================================================================
   deny:
     name: Dependency Audit
     runs-on: ubuntu-latest

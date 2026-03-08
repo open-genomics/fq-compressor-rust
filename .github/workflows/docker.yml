@@ -1,3 +1,11 @@
+# .github/workflows/docker.yml
+# =============================================================================
+# Docker Image Build & Push
+# =============================================================================
+# Builds and pushes Docker images to GitHub Container Registry.
+# Images are pushed on tag/branch push; PR builds are validated but not pushed.
+# =============================================================================
+
 name: Docker
 
 on:
@@ -7,6 +15,10 @@ on:
     branches: [master, main]
   pull_request:
     branches: [master, main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   REGISTRY: ghcr.io
