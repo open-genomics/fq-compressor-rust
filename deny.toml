@@ -17,16 +17,17 @@ ignore = []
 
 [licenses]
 allow = [
-    "MIT",
+    "0BSD",
     "Apache-2.0",
-    "BSD-2-Clause",
-    "BSD-3-Clause",
-    "ISC",
-    "Zlib",
-    "Unicode-3.0",
-    "Unicode-DFS-2016",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSL-1.0",
     "GPL-3.0",
+    "MIT",
+    "Unicode-3.0",
+    "Unlicense",
+    "Zlib",
 ]
+unused-allowed-license = "warn"
 
 [bans]
 multiple-versions = "warn"
