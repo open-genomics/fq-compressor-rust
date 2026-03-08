@@ -9,7 +9,7 @@ This is **fqc**, a high-performance FASTQ compressor in Rust. It compresses geno
 ```bash
 # Always run before committing
 cargo build                    # must compile cleanly
-cargo test --lib --tests       # 97 tests, 0 failures expected
+cargo test --lib --tests       # 131 tests, 0 failures expected
 cargo clippy --all-targets     # 0 warnings expected (pedantic enabled)
 cargo fmt --all -- --check     # must pass
 ```
@@ -28,6 +28,7 @@ src/
 ├── reorder_map.rs    # ZigZag delta + varint encoded bidirectional map
 ├── algo/             # Compression algorithms
 │   ├── block_compressor.rs   # ABC (consensus + delta) / Zstd
+│   ├── dna.rs               # Shared DNA encoding tables + reverse complement
 │   ├── global_analyzer.rs    # Minimizer reordering
 │   ├── quality_compressor.rs # SCM arithmetic coding
 │   └── pe_optimizer.rs       # Paired-end optimization
@@ -49,11 +50,13 @@ src/
     └── decompression.rs  # 3-stage decompression pipeline
 
 tests/
+├── test_algo.rs         # 19 algorithm tests (ID/quality compressor, PE optimizer)
+├── test_dna.rs          # 15 DNA utility tests (encoding tables, reverse complement)
 ├── test_e2e.rs          # 15 end-to-end tests
-├── test_roundtrip.rs    # 14 compress→decompress round-trip
+├── test_format.rs       # 15 binary format tests
 ├── test_parser.rs       # 19 FASTQ parser tests
 ├── test_reorder_map.rs  # 23 reorder map tests
-├── test_format.rs       # 15 binary format tests
+├── test_roundtrip.rs    # 14 compress→decompress round-trip
 └── test_types.rs        # 11 type/constant tests
 ```
 
@@ -63,7 +66,7 @@ tests/
 - **MSRV 1.75** — do not use APIs stabilized after Rust 1.75
 - **No unsafe** — `unsafe_code = "deny"` in Cargo.toml; only `#[allow(unsafe_code)]` on Windows FFI (`memory_budget.rs`)
 - **Clippy pedantic clean** — `[lints.clippy] pedantic = "warn"` with tuned allows
-- **All 97 tests pass** — run `cargo test --lib --tests` before any change
+- **All 131 tests pass** — run `cargo test --lib --tests` before any change
 - **Use `log` crate** — `log::info!`, `log::warn!`, `log::debug!`; never `println!` for status
 - **Use `thiserror`** — add new error variants to `FqcError`, map in `exit_code()`
 - **Feature-gated compression** — gz/bz2/xz behind `#[cfg(feature)]` in `compressed_stream.rs`
@@ -107,7 +110,7 @@ tests/
 
 ### Add a test
 1. Use `compress_file()` / `decompress_file()` / `read_fastq_records()` helpers from `test_e2e.rs`
-2. Create temp files, clean up after test
+2. Use `TempFile` RAII guard for automatic cleanup
 3. Assert record-by-record equality for round-trip tests
 
 ## Dependencies
@@ -125,6 +128,7 @@ tests/
 | `flate2` (optional) | Gzip support |
 | `bzip2` (optional) | Bzip2 support |
 | `xz2` (optional) | XZ/LZMA support |
+| `tikv-jemallocator` (0.6) | Jemalloc allocator for musl static builds |
 
 ## CI/CD
 

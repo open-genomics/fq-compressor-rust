@@ -11,7 +11,7 @@
 cargo build              # dev build
 cargo build --release    # optimized release build
 
-# Test (97 tests across 6 suites)
+# Test (131 tests across 8 suites)
 cargo test --lib --tests
 
 # Lint (clippy pedantic enabled, 0 warnings expected)
@@ -21,11 +21,13 @@ cargo clippy --all-targets
 cargo fmt --all -- --check
 
 # Single test suite
+cargo test --test test_algo
+cargo test --test test_dna
 cargo test --test test_e2e
-cargo test --test test_roundtrip
+cargo test --test test_format
 cargo test --test test_parser
 cargo test --test test_reorder_map
-cargo test --test test_format
+cargo test --test test_roundtrip
 cargo test --test test_types
 ```
 
@@ -43,6 +45,7 @@ src/
 ├── reorder_map.rs       # Bidirectional read reorder map (ZigZag delta + varint encoding)
 ├── algo/
 │   ├── block_compressor.rs  # ABC algorithm (consensus + delta) + Zstd codec
+│   ├── dna.rs               # Shared DNA encoding tables + reverse complement
 │   ├── global_analyzer.rs   # Minimizer-based global read reordering
 │   ├── quality_compressor.rs # SCM order-1/2 arithmetic coding for quality scores
 │   └── pe_optimizer.rs      # Paired-end complementarity optimization
@@ -77,10 +80,10 @@ src/
 ## Testing Conventions
 
 - **Test data** — `tests/data/` contains `test_se.fastq` (20 reads) and `test_pe_R1/R2.fastq`
-- **Temp files** — tests create temp files in system temp dir, clean up after themselves
-- **Helper functions** — `compress_file()`, `decompress_file()`, `read_fastq_records()` in `test_e2e.rs`
+- **Temp files** — tests use `TempFile` RAII guard for automatic cleanup
+- **Helper functions** — `compress_file()`, `decompress_file()`, `read_fastq_records()`, `assert_roundtrip_match()` in `test_e2e.rs`
 - **Round-trip pattern** — compress → decompress → compare record-by-record (id, sequence, quality)
-- **All tests must pass** before any commit: `cargo test --lib --tests`
+- **All 131 tests must pass** before any commit: `cargo test --lib --tests`
 
 ## Common Patterns
 

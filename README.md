@@ -159,6 +159,7 @@ fqc verify -i reads.fqc --verbose
 src/
 ├── algo/                   # Compression algorithms
 │   ├── block_compressor.rs # ABC + Zstd block compression/decompression
+│   ├── dna.rs              # Shared DNA encoding tables + reverse complement
 │   ├── global_analyzer.rs  # Minimizer-based read reordering
 │   ├── quality_compressor.rs # SCM arithmetic coding for quality scores
 │   └── pe_optimizer.rs     # Paired-end complementarity optimization
@@ -188,16 +189,18 @@ src/
 ## Testing
 
 ```bash
-# Run all 96 tests
+# Run all 131 tests
 cargo test
 
 # Run specific test suite
-cargo test --test test_e2e        # 14 end-to-end tests
-cargo test --test test_roundtrip  # 14 round-trip compression tests
-cargo test --test test_parser     # 19 parser tests
-cargo test --test test_reorder_map # 23 reorder map tests
-cargo test --test test_format     # 15 format tests
-cargo test --test test_types      # 11 type tests
+cargo test --test test_algo         # 19 algorithm tests (ID/quality compressor, PE optimizer)
+cargo test --test test_dna          # 15 DNA utility tests
+cargo test --test test_e2e          # 15 end-to-end tests
+cargo test --test test_format       # 15 format tests
+cargo test --test test_parser       # 19 parser tests
+cargo test --test test_reorder_map  # 23 reorder map tests
+cargo test --test test_roundtrip    # 14 round-trip compression tests
+cargo test --test test_types        # 11 type tests
 ```
 
 ## License

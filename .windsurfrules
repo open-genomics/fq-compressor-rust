@@ -1,101 +1,103 @@
-# Windsurf Rules — fqc (High-Performance FASTQ Compressor)
+# Windsurf Rules — fqc (Rust)
 
-## Project Identity
+> Rust 实现的高性能 FASTQ 压缩器。MSRV 1.75，ABC + Zstd 双策略。
 
-This is **fqc**, a Rust CLI tool and library for compressing genomic FASTQ files. It uses the ABC (Alignment-Based Compression) algorithm for short reads and Zstd for medium/long reads. MSRV is Rust 1.75.
-
-## Build & Verify Commands
+## 验证命令（提交前必须全部通过）
 
 ```bash
-cargo build                    # dev build — must compile cleanly
-cargo test --lib --tests       # 97 tests, 0 failures expected
-cargo clippy --all-targets     # 0 warnings (clippy pedantic enabled)
-cargo fmt --all -- --check     # format check
+cargo build                    # 编译检查
+cargo test --lib --tests       # 131 tests
+cargo clippy --all-targets     # 0 warnings (pedantic)
+cargo fmt --all -- --check     # 格式检查
 ```
 
-Always run `cargo test --lib --tests` and `cargo clippy --all-targets` before committing.
+## 项目布局
 
-## Project Layout
+```
+src/
+├── main.rs              # CLI (clap derive): compress/decompress/info/verify
+├── lib.rs               # 库导出
+├── error.rs             # FqcError (11 variants) → ExitCode (0-5)
+├── types.rs             # ReadRecord, QualityMode, IdMode, PeLayout, ReadLengthClass
+├── format.rs            # FQC 二进制格式: magic, GlobalHeader, BlockHeader, Footer
+├── fqc_reader.rs        # 块索引随机访问读取器
+├── fqc_writer.rs        # 归档写入器 (block index + finalize)
+├── reorder_map.rs       # 双向重排序映射 (ZigZag varint)
+├── algo/                # 压缩算法
+│   ├── block_compressor.rs   # ABC (consensus + delta) / Zstd
+│   ├── dna.rs                # 共享 DNA 编码表 + reverse complement
+│   ├── global_analyzer.rs    # Minimizer 重排序
+│   ├── quality_compressor.rs # SCM 算术编码
+│   └── pe_optimizer.rs       # Paired-end 优化
+├── commands/            # CLI 命令实现
+├── common/memory_budget.rs   # 系统内存检测 + ChunkingStrategy
+├── fastq/parser.rs      # FASTQ 解析, 验证, PE, chunk 读取
+├── io/
+│   ├── async_io.rs           # AsyncReader/AsyncWriter/BufferPool
+│   └── compressed_stream.rs  # Feature-gated gz/bz2/xz/zst
+└── pipeline/            # 3 阶段 Reader→Compressor→Writer (crossbeam)
+tests/                   # 8 套: e2e(15) roundtrip(14) algo(19) dna(15) parser(19) reorder_map(23) format(15) types(11)
+```
 
-- `src/main.rs` — CLI entry (clap derive): compress, decompress, info, verify commands
-- `src/lib.rs` — library re-exports
-- `src/error.rs` — `FqcError` (11 variants) + `ExitCode` mapping (0-5)
-- `src/types.rs` — `ReadRecord`, `QualityMode`, `IdMode`, `PeLayout`, `ReadLengthClass`
-- `src/format.rs` — FQC binary format structures (magic, headers, footer)
-- `src/fqc_reader.rs` — block-indexed archive reader with random access
-- `src/fqc_writer.rs` — archive writer with block index + finalize
-- `src/reorder_map.rs` — bidirectional read reorder map (ZigZag varint)
-- `src/algo/` — compression algorithms (ABC block_compressor, global_analyzer, quality_compressor, pe_optimizer)
-- `src/commands/` — CLI command implementations (compress, decompress, info, verify)
-- `src/common/memory_budget.rs` — system memory detection + ChunkingStrategy
-- `src/fastq/parser.rs` — FASTQ parser with validation, stats, PE, chunk reading
-- `src/io/async_io.rs` — AsyncReader/AsyncWriter/BufferPool
-- `src/io/compressed_stream.rs` — feature-gated gz/bz2/xz/zst transparent decompression
-- `src/pipeline/` — 3-stage Reader→Compressor→Writer pipelines (crossbeam channels)
-- `tests/` — 6 test suites: test_e2e (15), test_roundtrip (14), test_parser (19), test_reorder_map (23), test_format (15), test_types (11)
+## 编码规则
 
-## Coding Rules
+### 强制
+- **MSRV 1.75** — 不得使用 1.75 之后稳定的 API
+- **`unsafe_code = "deny"`** — 仅 `memory_budget.rs` Windows FFI 允许 `#[allow]`
+- **Clippy pedantic 0 warnings** — 领域特定 allow 配置在 `Cargo.toml [lints.clippy]`
+- **`log` crate** — `log::{info,warn,debug}!`; 禁止 `println!` 做状态输出
+- **`thiserror`** — 新错误加到 `FqcError`, 在 `exit_code()` 映射
+- **Feature-gated** — gz/bz2/xz 在 `compressed_stream.rs` 用 `#[cfg(feature)]`
 
-### Must Follow
-- **MSRV 1.75** — do not use APIs stabilized after Rust 1.75
-- **No unsafe** — `unsafe_code = "deny"` globally; only `#[allow(unsafe_code)]` on Windows FFI in `memory_budget.rs`
-- **Clippy pedantic** — 0 warnings; domain-specific allows configured in `Cargo.toml [lints.clippy]`
-- **Use `log` crate** — `log::info!`, `log::warn!`, `log::debug!`; never `println!` for status output
-- **Use `thiserror`** — new errors go in `FqcError` enum in `error.rs`, map in `exit_code()`
-- **Feature-gated compression** — gz/bz2/xz behind `#[cfg(feature)]` in `compressed_stream.rs`
-- **Test before commit** — all 97 tests must pass
+### 风格
+- 4 空格缩进, 120 列宽 (`rustfmt.toml`)
+- Import 顺序: std → 外部 → crate (`imports_granularity = "Crate"`)
+- 段落分隔: `// ====...====`
+- 不改注释/文档除非明确要求
 
-### Style
-- 4-space indent, max line width 120 (see `rustfmt.toml`)
-- Imports grouped: std → external → crate (see `rustfmt.toml` `imports_granularity`)
-- Section separators: `// ====...====` block comments for major sections
-- No comments/docs changes unless explicitly asked
+### 禁止
+- 改 FQC 二进制格式不升版本号
+- 删除或弱化已有测试
+- 平台特定路径 — 用 `std::path::Path`
+- 库代码用 `unwrap()` — 用 `?` + `FqcError`
+- 无理由添加依赖
 
-### Avoid
-- Changing FQC binary format without bumping version
-- Deleting or weakening existing tests
-- Platform-specific paths — use `std::path::Path`
-- `unwrap()` in library code — use `?` with `FqcError`
-- Adding dependencies without justification
+## 常用模式速查
 
-## Common Patterns
+### 加 CLI flag
+1. `src/commands/<cmd>.rs` options struct 加字段
+2. `src/main.rs` `Commands` enum 加 `#[arg]`
+3. `main.rs` match arm 接线
 
-### Add a CLI flag
-1. Add field to options struct in `src/commands/<cmd>.rs`
-2. Add `#[arg]` to `Commands` enum in `src/main.rs`
-3. Wire field in match arm in `main.rs`
+### 加错误变体
+1. `error.rs` `FqcError` 加 variant
+2. `exit_code()` 加映射
 
-### Add an error variant
-1. Add variant to `FqcError` in `src/error.rs`
-2. Add mapping in `FqcError::exit_code()`
+### 加压缩格式
+1. `compressed_stream.rs` 加 `CompressionFormat` variant + magic + 扩展名检测
+2. 加 reader (`#[cfg(feature)]`)
+3. `Cargo.toml` 加 optional dep + feature
 
-### Add a compression format
-1. Add `CompressionFormat` variant in `src/io/compressed_stream.rs`
-2. Add magic bytes + extension detection
-3. Add reader behind `#[cfg(feature)]`
-4. Add optional dep + feature in `Cargo.toml`
+### 加测试
+- 用 `test_e2e.rs` 的 `compress_file()` / `decompress_file()` / `read_fastq_records()` helper
+- 用 `TempFile` RAII guard 自动清理临时文件
+- round-trip 逐条 record 比对 (id, sequence, quality)
 
-### Add a test
-- Use helpers: `compress_file()`, `decompress_file()`, `read_fastq_records()` from `test_e2e.rs`
-- Create temp files, clean up after
-- Round-trip: compress → decompress → compare record-by-record (id, sequence, quality)
+## 依赖
 
-## Key Dependencies
-
-| Crate | Purpose |
-|-------|---------|
-| clap 4 (derive) | CLI parsing |
-| zstd 0.13 | Zstd compression (required) |
-| xxhash-rust 0.8 | xxHash64 checksums |
-| rayon 1.10 | Parallel block processing |
-| crossbeam-channel 0.5 | Pipeline stage communication |
-| thiserror 1 | Error derive |
-| byteorder 1 | Little-endian binary I/O |
-| flate2 (optional) | Gzip |
-| bzip2 (optional) | Bzip2 |
-| xz2 (optional) | XZ/LZMA |
+| Crate | 用途 |
+|-------|------|
+| clap 4 (derive) | CLI 解析 |
+| zstd 0.13 | Zstd 压缩 (必需) |
+| xxhash-rust 0.8 | xxHash64 校验 |
+| rayon 1.10 | 并行块处理 |
+| crossbeam-channel 0.5 | Pipeline 通信 |
+| thiserror 1 | 错误派生 |
+| byteorder 1 | 小端二进制 I/O |
+| log + env_logger | 日志 |
+| flate2 / bzip2 / xz2 | 可选压缩格式 |
+| tikv-jemallocator 0.6 | musl 静态构建内存分配器 |
 
 ## CI/CD
-
-- `ci.yml` — push/PR: check, test (3 OS), clippy, fmt, MSRV 1.75, cargo-deny
-- `release.yml` — `v*` tag: validate version, test, build 5 targets, GitHub Release + checksums
+- **ci.yml** — push/PR: check, test (3 OS), clippy, fmt, MSRV 1.75, cargo-deny
+- **release.yml** — `v*` tag: 版本验证 → 测试 → 5 目标构建 → GitHub Release + checksums

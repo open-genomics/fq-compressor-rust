@@ -23,5 +23,5 @@ All notable changes to this project will be documented in this file.
 
 ### Testing
 
-- 97 tests across 6 test suites
-- E2E round-trip, format, parser, reorder map, types tests
+- 131 tests across 8 test suites
+- E2E, round-trip, algorithm, DNA, format, parser, reorder map, types tests
