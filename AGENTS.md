@@ -130,6 +130,14 @@ tests/
 | `xz2` (optional) | XZ/LZMA support |
 | `tikv-jemallocator` (0.6) | Jemalloc allocator for musl static builds |
 
+## Docker 工具链选型
+
+| 组件 | 选型 | 理由 |
+|------|------|------|
+| **构建镜像** | `rust:1.75-bookworm` (Debian 12) | 官方 Rust 镜像，与 MSRV 1.75 对齐 |
+| **运行时镜像** | `debian:bookworm-slim` | 与构建镜像同系，共享基础层，体积最小 |
+| **不选 Ubuntu 24.04** | — | 无官方 `rust:` + Ubuntu 组合镜像；Debian glibc 2.36 二进制兼容性更广 |
+
 ## CI/CD
 
 - **ci.yml** — push/PR: check, test (3 OS), clippy, fmt, MSRV 1.75, cargo-deny
