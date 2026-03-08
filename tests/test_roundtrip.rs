@@ -3,6 +3,9 @@
 // =============================================================================
 
 use fqc::algo::block_compressor::*;
+use fqc::format::*;
+use fqc::fqc_reader::FqcReader;
+use fqc::fqc_writer::FqcWriter;
 use fqc::types::*;
 
 fn make_reads(n: usize, length: usize) -> Vec<ReadRecord> {
@@ -20,6 +23,29 @@ fn make_reads(n: usize, length: usize) -> Vec<ReadRecord> {
             qual,
         )
     }).collect()
+}
+
+fn decompress_block(compressor: &BlockCompressor, compressed: &CompressedBlockData) -> DecompressedBlockData {
+    compressor.decompress_raw(
+        0,
+        compressed.read_count,
+        compressed.uniform_read_length,
+        compressed.codec_seq,
+        compressed.codec_qual,
+        &compressed.id_stream,
+        &compressed.seq_stream,
+        &compressed.qual_stream,
+        &compressed.aux_stream,
+    ).unwrap()
+}
+
+fn assert_reads_match(original: &[ReadRecord], restored: &[ReadRecord]) {
+    assert_eq!(original.len(), restored.len(), "Read count mismatch");
+    for (i, (orig, dec)) in original.iter().zip(restored.iter()).enumerate() {
+        assert_eq!(orig.id, dec.id, "ID mismatch at read {i}");
+        assert_eq!(orig.sequence, dec.sequence, "Sequence mismatch at read {i}");
+        assert_eq!(orig.quality, dec.quality, "Quality mismatch at read {i}");
+    }
 }
 
 fn make_variable_length_reads(n: usize) -> Vec<ReadRecord> {
@@ -56,28 +82,12 @@ fn test_block_compress_decompress_short_reads() {
     let compressor = BlockCompressor::new(config);
 
     let compressed = compressor.compress(&reads, 0).unwrap();
-    assert!(compressed.read_count == 20);
+    assert_eq!(compressed.read_count, 20);
     assert!(compressed.total_compressed_size() > 0);
     assert_eq!(compressed.uniform_read_length, 150);
 
-    let decompressed = compressor.decompress_raw(
-        0,
-        compressed.read_count,
-        compressed.uniform_read_length,
-        compressed.codec_seq,
-        compressed.codec_qual,
-        &compressed.id_stream,
-        &compressed.seq_stream,
-        &compressed.qual_stream,
-        &compressed.aux_stream,
-    ).unwrap();
-
-    assert_eq!(decompressed.reads.len(), 20);
-    for (orig, dec) in reads.iter().zip(decompressed.reads.iter()) {
-        assert_eq!(orig.id, dec.id, "ID mismatch");
-        assert_eq!(orig.sequence, dec.sequence, "Sequence mismatch for read {}", orig.id);
-        assert_eq!(orig.quality, dec.quality, "Quality mismatch for read {}", orig.id);
-    }
+    let decompressed = decompress_block(&compressor, &compressed);
+    assert_reads_match(&reads, &decompressed.reads);
 }
 
 // =============================================================================
@@ -99,23 +109,8 @@ fn test_block_compress_decompress_medium_reads() {
     assert_eq!(compressed.read_count, 10);
     assert_eq!(compressed.uniform_read_length, 600);
 
-    let decompressed = compressor.decompress_raw(
-        1,
-        compressed.read_count,
-        compressed.uniform_read_length,
-        compressed.codec_seq,
-        compressed.codec_qual,
-        &compressed.id_stream,
-        &compressed.seq_stream,
-        &compressed.qual_stream,
-        &compressed.aux_stream,
-    ).unwrap();
-
-    for (orig, dec) in reads.iter().zip(decompressed.reads.iter()) {
-        assert_eq!(orig.sequence, dec.sequence);
-        assert_eq!(orig.quality, dec.quality);
-        assert_eq!(orig.id, dec.id);
-    }
+    let decompressed = decompress_block(&compressor, &compressed);
+    assert_reads_match(&reads, &decompressed.reads);
 }
 
 // =============================================================================
@@ -138,18 +133,7 @@ fn test_block_compress_decompress_variable_length() {
     assert_eq!(compressed.uniform_read_length, 0); // variable
     assert!(!compressed.aux_stream.is_empty()); // aux needed for lengths
 
-    let decompressed = compressor.decompress_raw(
-        2,
-        compressed.read_count,
-        compressed.uniform_read_length,
-        compressed.codec_seq,
-        compressed.codec_qual,
-        &compressed.id_stream,
-        &compressed.seq_stream,
-        &compressed.qual_stream,
-        &compressed.aux_stream,
-    ).unwrap();
-
+    let decompressed = decompress_block(&compressor, &compressed);
     for (orig, dec) in reads.iter().zip(decompressed.reads.iter()) {
         assert_eq!(orig.sequence.len(), dec.sequence.len(), "Length mismatch");
         assert_eq!(orig.sequence, dec.sequence);
@@ -175,22 +159,10 @@ fn test_block_compress_quality_discard() {
     let compressed = compressor.compress(&reads, 0).unwrap();
     assert!(compressed.qual_stream.is_empty());
 
-    let decompressed = compressor.decompress_raw(
-        0,
-        compressed.read_count,
-        compressed.uniform_read_length,
-        compressed.codec_seq,
-        compressed.codec_qual,
-        &compressed.id_stream,
-        &compressed.seq_stream,
-        &compressed.qual_stream,
-        &compressed.aux_stream,
-    ).unwrap();
-
+    let decompressed = decompress_block(&compressor, &compressed);
     for (orig, dec) in reads.iter().zip(decompressed.reads.iter()) {
         assert_eq!(orig.sequence, dec.sequence);
-        // Quality should be placeholder
-        assert!(dec.quality.chars().all(|c| c == '!'));
+        assert!(dec.quality.chars().all(|c| c == '!'), "Quality should be placeholder");
     }
 }
 
@@ -210,18 +182,7 @@ fn test_block_compress_id_discard() {
     let compressor = BlockCompressor::new(config);
 
     let compressed = compressor.compress(&reads, 0).unwrap();
-
-    let decompressed = compressor.decompress_raw(
-        0,
-        compressed.read_count,
-        compressed.uniform_read_length,
-        compressed.codec_seq,
-        compressed.codec_qual,
-        &compressed.id_stream,
-        &compressed.seq_stream,
-        &compressed.qual_stream,
-        &compressed.aux_stream,
-    ).unwrap();
+    let decompressed = decompress_block(&compressor, &compressed);
 
     // IDs should be sequential placeholders
     for (i, dec) in decompressed.reads.iter().enumerate() {
@@ -317,10 +278,6 @@ fn test_block_compress_decompress_empty() {
 
 #[test]
 fn test_full_archive_roundtrip() {
-    use fqc::format::*;
-    use fqc::fqc_writer::FqcWriter;
-    use fqc::fqc_reader::FqcReader;
-
     let dir = std::env::temp_dir().join("fqc_test_roundtrip");
     let _ = std::fs::create_dir_all(&dir);
     let fqc_path = dir.join("test.fqc");
@@ -376,12 +333,7 @@ fn test_full_archive_roundtrip() {
             &block_data.aux_data,
         ).unwrap();
 
-        assert_eq!(decompressed.reads.len(), 50);
-        for (orig, dec) in reads.iter().zip(decompressed.reads.iter()) {
-            assert_eq!(orig.id, dec.id);
-            assert_eq!(orig.sequence, dec.sequence);
-            assert_eq!(orig.quality, dec.quality);
-        }
+        assert_reads_match(&reads, &decompressed.reads);
     }
 
     // Cleanup
@@ -394,10 +346,6 @@ fn test_full_archive_roundtrip() {
 
 #[test]
 fn test_archive_with_reorder_map() {
-    use fqc::format::*;
-    use fqc::fqc_writer::FqcWriter;
-    use fqc::fqc_reader::FqcReader;
-
     let dir = std::env::temp_dir().join("fqc_test_reorder");
     let _ = std::fs::create_dir_all(&dir);
     let fqc_path = dir.join("test_reorder.fqc");

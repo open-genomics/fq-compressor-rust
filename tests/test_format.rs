@@ -64,7 +64,7 @@ fn test_global_header_roundtrip() {
                     true, PeLayout::Interleaved, ReadLengthClass::Short, false),
         1000,
         "test.fastq",
-        1700000000,
+        1_700_000_000,
     );
 
     let mut buf = Vec::new();
@@ -76,7 +76,7 @@ fn test_global_header_roundtrip() {
     assert_eq!(gh2.flags, gh.flags);
     assert_eq!(gh2.total_read_count, 1000);
     assert_eq!(gh2.original_filename, "test.fastq");
-    assert_eq!(gh2.timestamp, 1700000000);
+    assert_eq!(gh2.timestamp, 1_700_000_000);
     assert_eq!(gh2.checksum_type, ChecksumType::XxHash64 as u8);
     assert_eq!(gh2.reserved, 0);
 }
@@ -95,24 +95,26 @@ fn test_global_header_empty_filename() {
 
 #[test]
 fn test_block_header_roundtrip() {
-    let mut bh = BlockHeader::default();
-    bh.block_id = 42;
-    bh.uncompressed_count = 1000;
-    bh.uniform_read_length = 150;
-    bh.block_xxhash64 = 0xDEADBEEF;
-    bh.codec_ids = encode_codec(CodecFamily::DeltaZstd, 0);
-    bh.codec_seq = encode_codec(CodecFamily::AbcV1, 0);
-    bh.codec_qual = encode_codec(CodecFamily::ScmV1, 0);
-    bh.codec_aux = encode_codec(CodecFamily::DeltaVarint, 0);
-    bh.compressed_size = 5000;
-    bh.offset_ids = 0;
-    bh.size_ids = 1000;
-    bh.offset_seq = 1000;
-    bh.size_seq = 2000;
-    bh.offset_qual = 3000;
-    bh.size_qual = 1500;
-    bh.offset_aux = 4500;
-    bh.size_aux = 500;
+    let bh = BlockHeader {
+        block_id: 42,
+        uncompressed_count: 1000,
+        uniform_read_length: 150,
+        block_xxhash64: 0xDEAD_BEEF,
+        codec_ids: encode_codec(CodecFamily::DeltaZstd, 0),
+        codec_seq: encode_codec(CodecFamily::AbcV1, 0),
+        codec_qual: encode_codec(CodecFamily::ScmV1, 0),
+        codec_aux: encode_codec(CodecFamily::DeltaVarint, 0),
+        compressed_size: 5000,
+        offset_ids: 0,
+        size_ids: 1000,
+        offset_seq: 1000,
+        size_seq: 2000,
+        offset_qual: 3000,
+        size_qual: 1500,
+        offset_aux: 4500,
+        size_aux: 500,
+        ..Default::default()
+    };
 
     let mut buf = Vec::new();
     bh.write(&mut buf).unwrap();
@@ -124,7 +126,7 @@ fn test_block_header_roundtrip() {
     assert_eq!(bh2.block_id, 42);
     assert_eq!(bh2.uncompressed_count, 1000);
     assert_eq!(bh2.uniform_read_length, 150);
-    assert_eq!(bh2.block_xxhash64, 0xDEADBEEF);
+    assert_eq!(bh2.block_xxhash64, 0xDEAD_BEEF);
     assert_eq!(bh2.codec_ids, bh.codec_ids);
     assert_eq!(bh2.codec_seq, bh.codec_seq);
     assert_eq!(bh2.codec_qual, bh.codec_qual);
@@ -138,28 +140,35 @@ fn test_block_header_roundtrip() {
 
 #[test]
 fn test_block_header_uniform_length() {
-    let mut bh = BlockHeader::default();
-    bh.uniform_read_length = 150;
-    bh.size_aux = 0;
+    let bh = BlockHeader {
+        uniform_read_length: 150,
+        size_aux: 0,
+        ..Default::default()
+    };
     assert!(bh.has_uniform_length());
 
-    bh.uniform_read_length = 0;
-    assert!(!bh.has_uniform_length());
+    let bh2 = BlockHeader { uniform_read_length: 0, ..Default::default() };
+    assert!(!bh2.has_uniform_length());
 
-    bh.uniform_read_length = 150;
-    bh.size_aux = 100;
-    assert!(!bh.has_uniform_length());
+    let bh3 = BlockHeader { uniform_read_length: 150, size_aux: 100, ..Default::default() };
+    assert!(!bh3.has_uniform_length());
 }
 
 #[test]
 fn test_block_header_quality_discarded() {
-    let mut bh = BlockHeader::default();
-    bh.size_qual = 0;
-    bh.codec_qual = encode_codec(CodecFamily::Raw, 0);
+    let bh = BlockHeader {
+        size_qual: 0,
+        codec_qual: encode_codec(CodecFamily::Raw, 0),
+        ..Default::default()
+    };
     assert!(bh.is_quality_discarded());
 
-    bh.codec_qual = encode_codec(CodecFamily::ScmV1, 0);
-    assert!(!bh.is_quality_discarded());
+    let bh2 = BlockHeader {
+        size_qual: 0,
+        codec_qual: encode_codec(CodecFamily::ScmV1, 0),
+        ..Default::default()
+    };
+    assert!(!bh2.is_quality_discarded());
 }
 
 #[test]
@@ -216,7 +225,7 @@ fn test_block_index_roundtrip() {
 fn test_reorder_map_header_roundtrip() {
     let rmh = ReorderMapHeader {
         version: 1,
-        total_reads: 100000,
+        total_reads: 100_000,
         forward_map_size: 5000,
         reverse_map_size: 5000,
     };
@@ -228,14 +237,14 @@ fn test_reorder_map_header_roundtrip() {
     let mut cursor = Cursor::new(&buf);
     let rmh2 = ReorderMapHeader::read(&mut cursor).unwrap();
     assert_eq!(rmh2.version, 1);
-    assert_eq!(rmh2.total_reads, 100000);
+    assert_eq!(rmh2.total_reads, 100_000);
     assert_eq!(rmh2.forward_map_size, 5000);
     assert_eq!(rmh2.reverse_map_size, 5000);
 }
 
 #[test]
 fn test_file_footer_roundtrip() {
-    let footer = FileFooter::new(12345, 6789, 0xCAFEBABE);
+    let footer = FileFooter::new(12345, 6789, 0xCAFE_BABE);
     assert!(footer.is_valid());
     assert!(footer.has_reorder_map());
 
@@ -247,7 +256,7 @@ fn test_file_footer_roundtrip() {
     let footer2 = FileFooter::read(&mut cursor).unwrap();
     assert_eq!(footer2.index_offset, 12345);
     assert_eq!(footer2.reorder_map_offset, 6789);
-    assert_eq!(footer2.global_checksum, 0xCAFEBABE);
+    assert_eq!(footer2.global_checksum, 0xCAFE_BABE);
     assert!(footer2.is_valid());
 }
 

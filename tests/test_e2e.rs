@@ -25,10 +25,32 @@ fn test_data_dir() -> std::path::PathBuf {
     std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests").join("data")
 }
 
-fn temp_file(name: &str) -> String {
-    let dir = std::env::temp_dir().join("fqc_e2e_tests");
-    std::fs::create_dir_all(&dir).unwrap();
-    dir.join(name).to_string_lossy().to_string()
+/// RAII guard that removes the file on drop, ensuring test cleanup.
+struct TempFile(String);
+
+impl TempFile {
+    fn new(name: &str) -> Self {
+        let dir = std::env::temp_dir().join("fqc_e2e_tests");
+        std::fs::create_dir_all(&dir).unwrap();
+        Self(dir.join(name).to_string_lossy().to_string())
+    }
+    fn path(&self) -> &str { &self.0 }
+}
+
+impl Drop for TempFile {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+fn assert_roundtrip_match(original: &[ReadRecord], restored: &[ReadRecord]) {
+    assert_eq!(original.len(), restored.len(),
+        "Read count mismatch: {} vs {}", original.len(), restored.len());
+    for (i, (orig, rest)) in original.iter().zip(restored.iter()).enumerate() {
+        assert_eq!(orig.id, rest.id, "ID mismatch at read {i}");
+        assert_eq!(orig.sequence, rest.sequence, "Sequence mismatch at read {i}");
+        assert_eq!(orig.quality, rest.quality, "Quality mismatch at read {i}");
+    }
 }
 
 fn read_fastq_records(path: &str) -> Vec<ReadRecord> {
@@ -118,27 +140,15 @@ fn decompress_file(input_path: &str, output_path: &str) {
 #[test]
 fn test_e2e_se_lossless_roundtrip() {
     let input = test_data_dir().join("test_se.fastq").to_string_lossy().to_string();
-    let compressed = temp_file("e2e_se_lossless.fqc");
-    let decompressed = temp_file("e2e_se_lossless.fastq");
+    let compressed = TempFile::new("e2e_se_lossless.fqc");
+    let decompressed = TempFile::new("e2e_se_lossless.fastq");
 
-    compress_file(&input, &compressed, QualityMode::Lossless, IdMode::Exact, false);
-    decompress_file(&compressed, &decompressed);
+    compress_file(&input, compressed.path(), QualityMode::Lossless, IdMode::Exact, false);
+    decompress_file(compressed.path(), decompressed.path());
 
     let original = read_fastq_records(&input);
-    let restored = read_fastq_records(&decompressed);
-
-    assert_eq!(original.len(), restored.len(),
-        "Read count mismatch: {} vs {}", original.len(), restored.len());
-
-    for (i, (orig, rest)) in original.iter().zip(restored.iter()).enumerate() {
-        assert_eq!(orig.id, rest.id, "ID mismatch at read {}", i);
-        assert_eq!(orig.sequence, rest.sequence, "Sequence mismatch at read {}", i);
-        assert_eq!(orig.quality, rest.quality, "Quality mismatch at read {}", i);
-    }
-
-    // Cleanup
-    let _ = std::fs::remove_file(&compressed);
-    let _ = std::fs::remove_file(&decompressed);
+    let restored = read_fastq_records(decompressed.path());
+    assert_roundtrip_match(&original, &restored);
 }
 
 // =============================================================================
@@ -148,28 +158,23 @@ fn test_e2e_se_lossless_roundtrip() {
 #[test]
 fn test_e2e_se_quality_discard() {
     let input = test_data_dir().join("test_se.fastq").to_string_lossy().to_string();
-    let compressed = temp_file("e2e_se_qdiscard.fqc");
-    let decompressed = temp_file("e2e_se_qdiscard.fastq");
+    let compressed = TempFile::new("e2e_se_qdiscard.fqc");
+    let decompressed = TempFile::new("e2e_se_qdiscard.fastq");
 
-    compress_file(&input, &compressed, QualityMode::Discard, IdMode::Exact, false);
-    decompress_file(&compressed, &decompressed);
+    compress_file(&input, compressed.path(), QualityMode::Discard, IdMode::Exact, false);
+    decompress_file(compressed.path(), decompressed.path());
 
     let original = read_fastq_records(&input);
-    let restored = read_fastq_records(&decompressed);
+    let restored = read_fastq_records(decompressed.path());
 
     assert_eq!(original.len(), restored.len());
-
     for (i, (orig, rest)) in original.iter().zip(restored.iter()).enumerate() {
-        assert_eq!(orig.id, rest.id, "ID mismatch at read {}", i);
-        assert_eq!(orig.sequence, rest.sequence, "Sequence mismatch at read {}", i);
-        // Quality should be uniform placeholder when discarded
+        assert_eq!(orig.id, rest.id, "ID mismatch at read {i}");
+        assert_eq!(orig.sequence, rest.sequence, "Sequence mismatch at read {i}");
         let first_char = rest.quality.chars().next().unwrap_or('!');
         assert!(rest.quality.chars().all(|c| c == first_char),
-            "Quality should be uniform placeholder at read {}, got: {}", i, rest.quality);
+            "Quality should be uniform placeholder at read {i}");
     }
-
-    let _ = std::fs::remove_file(&compressed);
-    let _ = std::fs::remove_file(&decompressed);
 }
 
 // =============================================================================
@@ -179,26 +184,21 @@ fn test_e2e_se_quality_discard() {
 #[test]
 fn test_e2e_se_id_discard() {
     let input = test_data_dir().join("test_se.fastq").to_string_lossy().to_string();
-    let compressed = temp_file("e2e_se_iddiscard.fqc");
-    let decompressed = temp_file("e2e_se_iddiscard.fastq");
+    let compressed = TempFile::new("e2e_se_iddiscard.fqc");
+    let decompressed = TempFile::new("e2e_se_iddiscard.fastq");
 
-    compress_file(&input, &compressed, QualityMode::Lossless, IdMode::Discard, false);
-    decompress_file(&compressed, &decompressed);
+    compress_file(&input, compressed.path(), QualityMode::Lossless, IdMode::Discard, false);
+    decompress_file(compressed.path(), decompressed.path());
 
     let original = read_fastq_records(&input);
-    let restored = read_fastq_records(&decompressed);
+    let restored = read_fastq_records(decompressed.path());
 
     assert_eq!(original.len(), restored.len());
-
     for (i, (orig, rest)) in original.iter().zip(restored.iter()).enumerate() {
-        // IDs are discarded, should be synthetic
-        assert!(!rest.id.is_empty(), "ID should not be empty at read {}", i);
-        assert_eq!(orig.sequence, rest.sequence, "Sequence mismatch at read {}", i);
-        assert_eq!(orig.quality, rest.quality, "Quality mismatch at read {}", i);
+        assert!(!rest.id.is_empty(), "ID should not be empty at read {i}");
+        assert_eq!(orig.sequence, rest.sequence, "Sequence mismatch at read {i}");
+        assert_eq!(orig.quality, rest.quality, "Quality mismatch at read {i}");
     }
-
-    let _ = std::fs::remove_file(&compressed);
-    let _ = std::fs::remove_file(&decompressed);
 }
 
 // =============================================================================
@@ -208,19 +208,17 @@ fn test_e2e_se_id_discard() {
 #[test]
 fn test_e2e_archive_info() {
     let input = test_data_dir().join("test_se.fastq").to_string_lossy().to_string();
-    let compressed = temp_file("e2e_info.fqc");
+    let compressed = TempFile::new("e2e_info.fqc");
 
-    compress_file(&input, &compressed, QualityMode::Lossless, IdMode::Exact, false);
+    compress_file(&input, compressed.path(), QualityMode::Lossless, IdMode::Exact, false);
 
-    let reader = FqcReader::open(&compressed).unwrap();
+    let reader = FqcReader::open(compressed.path()).unwrap();
     assert_eq!(reader.total_read_count(), 20);
     assert!(reader.block_count() > 0);
 
     let f = reader.global_header.flags;
     assert_eq!(get_quality_mode(f), QualityMode::Lossless);
     assert_eq!(get_id_mode(f), IdMode::Exact);
-
-    let _ = std::fs::remove_file(&compressed);
 }
 
 // =============================================================================
@@ -379,8 +377,8 @@ fn test_e2e_pipeline_roundtrip() {
     use fqc::pipeline::compression::{CompressionPipeline, CompressionPipelineConfig};
 
     let input = test_data_dir().join("test_se.fastq").to_string_lossy().to_string();
-    let compressed = temp_file("e2e_pipeline.fqc");
-    let decompressed = temp_file("e2e_pipeline.fastq");
+    let compressed = TempFile::new("e2e_pipeline.fqc");
+    let decompressed = TempFile::new("e2e_pipeline.fastq");
 
     let config = CompressionPipelineConfig {
         num_threads: 2,
@@ -398,27 +396,17 @@ fn test_e2e_pipeline_roundtrip() {
     };
 
     let mut pipeline = CompressionPipeline::new(config);
-    pipeline.run(&input, &compressed, "test_se.fastq", None).unwrap();
+    pipeline.run(&input, compressed.path(), "test_se.fastq", None).unwrap();
 
     let stats = pipeline.stats();
     assert_eq!(stats.total_reads, 20);
     assert!(stats.total_blocks >= 1);
     assert!(stats.output_bytes > 0);
 
-    // Decompress and verify
-    decompress_file(&compressed, &decompressed);
+    decompress_file(compressed.path(), decompressed.path());
     let original = read_fastq_records(&input);
-    let restored = read_fastq_records(&decompressed);
-
-    assert_eq!(original.len(), restored.len());
-    for (i, (orig, rest)) in original.iter().zip(restored.iter()).enumerate() {
-        assert_eq!(orig.id, rest.id, "ID mismatch at read {}", i);
-        assert_eq!(orig.sequence, rest.sequence, "Seq mismatch at read {}", i);
-        assert_eq!(orig.quality, rest.quality, "Qual mismatch at read {}", i);
-    }
-
-    let _ = std::fs::remove_file(&compressed);
-    let _ = std::fs::remove_file(&decompressed);
+    let restored = read_fastq_records(decompressed.path());
+    assert_roundtrip_match(&original, &restored);
 }
 
 // =============================================================================
@@ -430,38 +418,26 @@ fn test_e2e_decompress_pipeline_roundtrip() {
     use fqc::pipeline::decompression::{DecompressionPipeline, DecompressionPipelineConfig};
 
     let input = test_data_dir().join("test_se.fastq").to_string_lossy().to_string();
-    let compressed = temp_file("e2e_dec_pipeline.fqc");
-    let decompressed = temp_file("e2e_dec_pipeline.fastq");
+    let compressed = TempFile::new("e2e_dec_pipeline.fqc");
+    let decompressed = TempFile::new("e2e_dec_pipeline.fastq");
 
-    // Compress normally first
-    compress_file(&input, &compressed, QualityMode::Lossless, IdMode::Exact, false);
+    compress_file(&input, compressed.path(), QualityMode::Lossless, IdMode::Exact, false);
 
-    // Decompress via pipeline
     let config = DecompressionPipelineConfig {
         num_threads: 2,
         skip_corrupted: false,
         ..Default::default()
     };
     let mut pipeline = DecompressionPipeline::new(config);
-    pipeline.run(&compressed, &decompressed, None).unwrap();
+    pipeline.run(compressed.path(), decompressed.path(), None).unwrap();
 
     let stats = pipeline.stats();
     assert_eq!(stats.total_reads, 20);
     assert!(stats.output_bytes > 0);
 
-    // Verify lossless round-trip
     let original = read_fastq_records(&input);
-    let restored = read_fastq_records(&decompressed);
-
-    assert_eq!(original.len(), restored.len());
-    for (i, (orig, rest)) in original.iter().zip(restored.iter()).enumerate() {
-        assert_eq!(orig.id, rest.id, "ID mismatch at read {}", i);
-        assert_eq!(orig.sequence, rest.sequence, "Seq mismatch at read {}", i);
-        assert_eq!(orig.quality, rest.quality, "Qual mismatch at read {}", i);
-    }
-
-    let _ = std::fs::remove_file(&compressed);
-    let _ = std::fs::remove_file(&decompressed);
+    let restored = read_fastq_records(decompressed.path());
+    assert_roundtrip_match(&original, &restored);
 }
 
 // =============================================================================
@@ -470,8 +446,8 @@ fn test_e2e_decompress_pipeline_roundtrip() {
 
 #[test]
 fn test_e2e_multiblock_roundtrip() {
-    let compressed = temp_file("e2e_multiblock.fqc");
-    let decompressed = temp_file("e2e_multiblock.fastq");
+    let compressed = TempFile::new("e2e_multiblock.fqc");
+    let decompressed = TempFile::new("e2e_multiblock.fastq");
 
     // Generate 200 reads (block_size for short is typically 50000, so use smaller block)
     let records: Vec<ReadRecord> = (0..200).map(|i| {
@@ -485,7 +461,7 @@ fn test_e2e_multiblock_roundtrip() {
     let flags = build_flags(false, true, QualityMode::Lossless, IdMode::Exact,
         false, PeLayout::Interleaved, ReadLengthClass::Short, false);
 
-    let mut writer = FqcWriter::create(&compressed).unwrap();
+    let mut writer = FqcWriter::create(compressed.path()).unwrap();
     let gh = GlobalHeader::new(flags, records.len() as u64, "gen.fastq", 0);
     writer.write_global_header(&gh).unwrap();
 
@@ -508,17 +484,7 @@ fn test_e2e_multiblock_roundtrip() {
 
     assert!(blocks >= 4, "Expected at least 4 blocks, got {}", blocks);
 
-    // Decompress
-    decompress_file(&compressed, &decompressed);
-    let restored = read_fastq_records(&decompressed);
-
-    assert_eq!(records.len(), restored.len());
-    for (i, (orig, rest)) in records.iter().zip(restored.iter()).enumerate() {
-        assert_eq!(orig.id, rest.id, "ID mismatch at read {}", i);
-        assert_eq!(orig.sequence, rest.sequence, "Seq mismatch at read {}", i);
-        assert_eq!(orig.quality, rest.quality, "Qual mismatch at read {}", i);
-    }
-
-    let _ = std::fs::remove_file(&compressed);
-    let _ = std::fs::remove_file(&decompressed);
+    decompress_file(compressed.path(), decompressed.path());
+    let restored = read_fastq_records(decompressed.path());
+    assert_roundtrip_match(&records, &restored);
 }
