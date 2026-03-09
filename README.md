@@ -1,6 +1,8 @@
 # fqc - High-Performance FASTQ Compressor
 
-[English](README.md) | [中文发布说明](RELEASE_zh.md) | [C++ 版本 (fq-compressor)](https://github.com/LessUp/fq-compressor)
+[![Docs](https://img.shields.io/badge/Docs-GitHub%20Pages-blue?logo=github)](https://lessup.github.io/fq-compressor-rust/)
+
+[English](README.md) | [简体中文](README.zh-CN.md) | [C++ 版本 (fq-compressor)](https://github.com/LessUp/fq-compressor)
 
 > **fq-compressor** 的 Rust 实现，两个版本共享相同的 `.fqc` 归档格式与 ABC/SCM 压缩算法。
 > Rust 版本以 Rayon + crossbeam 替代 Intel TBB，并引入异步 I/O。
