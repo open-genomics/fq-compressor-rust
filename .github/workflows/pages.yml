@@ -10,7 +10,7 @@ on:
       - 'docs/**'
       - 'package.json'
       - 'package-lock.json'
-      - '.github/workflows/docs-pages.yml'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
 permissions:
@@ -28,11 +28,16 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            docs
+            package.json
+            package-lock.json
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
 
       - name: Install documentation dependencies
