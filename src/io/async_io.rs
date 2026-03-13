@@ -226,10 +226,15 @@ struct WriteBuffer {
     data: Vec<u8>,
 }
 
+enum WriteMessage {
+    Data(WriteBuffer),
+    Flush(Sender<io::Result<()>>),
+}
+
 /// Asynchronous writer with background write-behind thread.
 /// Buffers data and writes it in a background thread.
 pub struct AsyncWriter {
-    sender: Option<Sender<WriteBuffer>>,
+    sender: Option<Sender<WriteMessage>>,
     handle: Option<thread::JoinHandle<io::Result<()>>>,
     buffer: Vec<u8>,
     buffer_size: usize,
@@ -241,14 +246,27 @@ impl AsyncWriter {
     /// - `queue_depth`: number of write buffers in flight
     /// - `buffer_size`: size threshold to trigger a flush to the background thread
     pub fn new<W: Write + Send + 'static>(mut writer: W, queue_depth: usize, buffer_size: usize) -> Self {
-        let (tx, rx): (Sender<WriteBuffer>, Receiver<WriteBuffer>) = bounded(queue_depth);
+        let (tx, rx): (Sender<WriteMessage>, Receiver<WriteMessage>) = bounded(queue_depth);
         let stats = Arc::new(AsyncIOStats::new());
         let bg_stats = stats.clone();
 
         let handle = thread::spawn(move || -> io::Result<()> {
-            for wb in rx.iter() {
-                writer.write_all(&wb.data)?;
-                bg_stats.add_transfer(wb.data.len() as u64);
+            for msg in rx.iter() {
+                match msg {
+                    WriteMessage::Data(wb) => {
+                        writer.write_all(&wb.data)?;
+                        bg_stats.add_transfer(wb.data.len() as u64);
+                    }
+                    WriteMessage::Flush(ack_tx) => match writer.flush() {
+                        Ok(()) => {
+                            let _ = ack_tx.send(Ok(()));
+                        }
+                        Err(err) => {
+                            let _ = ack_tx.send(Err(io::Error::new(err.kind(), err.to_string())));
+                            return Err(err);
+                        }
+                    },
+                }
             }
             writer.flush()?;
             Ok(())
@@ -271,18 +289,19 @@ impl AsyncWriter {
         if self.buffer.is_empty() {
             return Ok(());
         }
+
+        let tx = self
+            .sender
+            .as_ref()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "AsyncWriter: writer already finalized"))?;
+
         let data = std::mem::replace(&mut self.buffer, Vec::with_capacity(self.buffer_size));
-        if let Some(ref tx) = self.sender {
-            tx.send(WriteBuffer { data })
-                .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "AsyncWriter: background thread gone"))?;
-        }
+        tx.send(WriteMessage::Data(WriteBuffer { data }))
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "AsyncWriter: background thread gone"))?;
         Ok(())
     }
 
-    /// Finalize: flush remaining data and wait for the background thread to finish
-    pub fn finalize(mut self) -> io::Result<()> {
-        self.send_buffer()?;
-        // Drop sender to signal background thread to stop
+    fn shutdown(&mut self) -> io::Result<()> {
         self.sender.take();
         if let Some(handle) = self.handle.take() {
             handle
@@ -290,6 +309,12 @@ impl AsyncWriter {
                 .map_err(|_| io::Error::other("AsyncWriter: background thread panicked"))??;
         }
         Ok(())
+    }
+
+    /// Finalize: flush remaining data and wait for the background thread to finish
+    pub fn finalize(mut self) -> io::Result<()> {
+        self.send_buffer()?;
+        self.shutdown()
     }
 }
 
@@ -304,27 +329,40 @@ impl Write for AsyncWriter {
 
     fn flush(&mut self) -> io::Result<()> {
         self.send_buffer()?;
-        // Drop sender to signal background thread to finish
-        self.sender.take();
-        // Wait for background thread and propagate errors
-        if let Some(handle) = self.handle.take() {
-            handle
-                .join()
-                .map_err(|_| io::Error::other("AsyncWriter: background thread panicked"))??;
-        }
+
+        let tx = self
+            .sender
+            .as_ref()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::BrokenPipe, "AsyncWriter: writer already finalized"))?;
+
+        let (ack_tx, ack_rx) = bounded(1);
+        tx.send(WriteMessage::Flush(ack_tx))
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "AsyncWriter: background thread gone"))?;
+
+        ack_rx
+            .recv()
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "AsyncWriter: flush acknowledgement failed"))??;
+
         Ok(())
     }
 }
 
 impl Drop for AsyncWriter {
     fn drop(&mut self) {
+        if self.handle.is_none() {
+            return;
+        }
+
         if let Err(e) = self.send_buffer() {
             log::error!("AsyncWriter drop: failed to send buffer: {e}");
         }
+
         self.sender.take();
         if let Some(handle) = self.handle.take() {
-            if let Err(e) = handle.join() {
-                log::error!("AsyncWriter drop: background thread panicked: {e:?}");
+            match handle.join() {
+                Ok(Ok(())) => {}
+                Ok(Err(e)) => log::error!("AsyncWriter drop: background thread failed: {e}"),
+                Err(e) => log::error!("AsyncWriter drop: background thread panicked: {e:?}"),
             }
         }
     }
