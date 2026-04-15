@@ -1,6 +1,9 @@
 # fqc - High-Performance FASTQ Compressor
 
-[![Docs](https://img.shields.io/badge/Docs-GitHub%20Pages-blue?logo=github)](https://lessup.github.io/fq-compressor-rust/)
+[![CI](https://github.com/LessUp/fq-compressor-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/LessUp/fq-compressor-rust/actions/workflows/ci.yml)
+[![Docs](https://img.shields.io/badge/Docs-GitBook-blue?logo=github)](https://lessup.github.io/fq-compressor-rust/)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![MSRV](https://img.shields.io/badge/rust-1.75+-orange.svg)](https://www.rust-lang.org/)
 
 English | [简体中文](README.zh-CN.md) | [C++ Version (fq-compressor)](https://github.com/LessUp/fq-compressor)
 
@@ -9,7 +12,18 @@ English | [简体中文](README.zh-CN.md) | [C++ Version (fq-compressor)](https:
 
 A high-performance FASTQ compressor written in Rust, featuring the ABC (Alignment-Based Compression) algorithm for short reads and Zstd for medium/long reads.
 
-## Features
+## ✨ Features
+
+| Category | Features |
+|----------|----------|
+| **Compression** | ABC (consensus + delta) for short reads, Zstd for long reads |
+| **Quality** | SCM (Statistical Context Model) with arithmetic coding |
+| **Performance** | Parallel processing, 3-stage pipeline, async I/O |
+| **Flexibility** | Streaming mode, lossy/lossless quality, random access |
+| **Compatibility** | Paired-end support, compressed input (gz/bz2/xz/zst) |
+
+<details>
+<summary><b>📋 Full Feature List</b></summary>
 
 - **ABC Algorithm** — Consensus-based delta encoding for short reads (< 300bp), achieving high compression ratios
 - **Zstd Compression** — For medium/long reads with length-prefixed encoding
@@ -19,21 +33,44 @@ A high-performance FASTQ compressor written in Rust, featuring the ABC (Alignmen
 - **Parallel Processing** — Rayon-based parallel block compression/decompression
 - **Pipeline Mode** — 3-stage Reader→Compressor→Writer pipeline with backpressure (`--pipeline`)
 - **Async I/O** — Background prefetch and write-behind for improved throughput
-- **Streaming Mode** — Low-memory compression from stdin without global reordering
+- **Streaming Mode** — Low-memory compression from stdin without global reordering (`--streaming`)
 - **Lossless & Lossy** — Supports lossless, Illumina 8-bin, and discard quality modes
 - **Compressed Input** — Transparent decompression of `.gz`, `.bz2`, `.xz`, `.zst` FASTQ files
 - **Paired-End** — Interleaved and separate-file paired-end support
 - **Memory Budget** — Auto-detect system memory, dynamic chunking for large datasets
 
-## Installation
+</details>
+
+## 📊 Performance
+
+| Mode | Compression | Decompression | Ratio |
+|------|-------------|---------------|-------|
+| Default | ~10 MB/s | ~55 MB/s | 3.9x |
+| Pipeline | ~12 MB/s | ~60 MB/s | 3.9x |
+
+*Tested on Intel Core i7-9700 @ 3.00GHz (8 cores), 2.27M Illumina reads (511 MB uncompressed)*
+
+### Compression Strategies
+
+| Read Length | Sequence Codec | Quality Codec | Reordering |
+|-------------|----------------|---------------|------------|
+| Short (<300bp) | ABC (consensus + delta) | SCM Order-2 | ✅ Yes |
+| Medium (300bp-10kbp) | Zstd | SCM Order-2 | ❌ No |
+| Long (>10kbp) | Zstd | SCM Order-1 | ❌ No |
+
+## 📦 Installation
 
 ### From Source
 
 ```bash
+# Clone and build
+git clone https://github.com/LessUp/fq-compressor-rust.git
+cd fq-compressor-rust
 cargo build --release
-```
 
-The binary will be at `target/release/fqc` (or `fqc.exe` on Windows).
+# Binary location
+./target/release/fqc --help
+```
 
 ### Docker
 
@@ -46,10 +83,16 @@ docker build -t fqc .
 
 # Run (mount data directory)
 docker run --rm -v $(pwd):/data fqc compress -i /data/reads.fastq -o /data/reads.fqc
-docker run --rm -v $(pwd):/data fqc decompress -i /data/reads.fqc -o /data/reads.fastq
 ```
 
-## Usage
+### Pre-built Binaries
+
+Download from [GitHub Releases](https://github.com/LessUp/fq-compressor-rust/releases) for:
+- Linux (x64, ARM64) — glibc and musl (static)
+- macOS (Intel, Apple Silicon)
+- Windows x64
+
+## 🚀 Quick Start
 
 ### Compress
 
@@ -57,33 +100,33 @@ docker run --rm -v $(pwd):/data fqc decompress -i /data/reads.fqc -o /data/reads
 # Basic compression (auto-detects read length)
 fqc compress -i reads.fastq -o reads.fqc
 
-# Specify compression level (1-9)
+# With compression level (1-9)
 fqc compress -i reads.fastq -o reads.fqc -l 9
-
-# Compress from gzip input
-fqc compress -i reads.fastq.gz -o reads.fqc
 
 # Streaming mode (low memory, from stdin)
 cat reads.fastq | fqc compress --streaming -i - -o reads.fqc
 
-# Pipeline mode (3-stage parallel pipeline with backpressure)
+# Pipeline mode (3-stage parallel pipeline)
 fqc compress -i reads.fastq -o reads.fqc --pipeline
 
 # Paired-end (separate files)
-fqc compress -i reads_R1.fastq -2 reads_R2.fastq -o reads.fqc
+fqc compress -i reads_R1.fastq -2 reads_R2.fastq -o paired.fqc
 
 # Paired-end (interleaved single file)
-fqc compress -i interleaved.fastq -o reads.fqc --interleaved
-
-# Discard quality scores
-fqc compress -i reads.fastq -o reads.fqc --lossy-quality discard
-
-# Force medium/long read mode
-fqc compress -i long_reads.fastq -o reads.fqc --long-read-mode long
+fqc compress -i interleaved.fastq -o paired.fqc --interleaved
 
 # Compressed input (auto-detected)
 fqc compress -i reads.fastq.gz -o reads.fqc
 fqc compress -i reads.fastq.bz2 -o reads.fqc
+
+# Discard quality scores (smallest output)
+fqc compress -i reads.fastq -o reads.fqc --lossy-quality discard
+
+# Force long-read mode
+fqc compress -i long_reads.fastq -o reads.fqc --long-read-mode long
+
+# Overwrite existing file
+fqc compress -i reads.fastq -o reads.fqc -f
 ```
 
 ### Decompress
@@ -92,17 +135,31 @@ fqc compress -i reads.fastq.bz2 -o reads.fqc
 # Full decompression
 fqc decompress -i reads.fqc -o reads.fastq
 
-# Extract range of reads (1-based)
+# Extract range of reads (1-based, inclusive)
 fqc decompress -i reads.fqc -o subset.fastq --range 1:1000
+fqc decompress -i reads.fqc -o subset.fastq --range 100:    # from 100 to end
 
 # Output to stdout
 fqc decompress -i reads.fqc -o -
 
-# Headers only
+# Headers only (IDs)
 fqc decompress -i reads.fqc -o headers.txt --header-only
+
+# Restore original order (requires reorder map)
+fqc decompress -i reads.fqc -o reads.fastq --original-order
+
+# Split paired-end to separate files
+fqc decompress -i paired.fqc -o output.fastq --split-pe
+# Creates output_R1.fastq and output_R2.fastq
+
+# Pipeline mode decompression
+fqc decompress -i reads.fqc -o reads.fastq --pipeline
+
+# Skip corrupted blocks instead of failing
+fqc decompress -i reads.fqc -o reads.fastq --skip-corrupted
 ```
 
-### Info
+### Info & Verify
 
 ```bash
 # Human-readable summary
@@ -113,19 +170,21 @@ fqc info -i reads.fqc --json
 
 # Detailed block index
 fqc info -i reads.fqc --detailed
-```
 
-### Verify
+# Show codec information per block
+fqc info -i reads.fqc --show-codecs
 
-```bash
 # Verify archive integrity
 fqc verify -i reads.fqc
 
-# Verbose verification
+# Verbose verification (per-block progress)
 fqc verify -i reads.fqc --verbose
+
+# Quick verification (header + footer only)
+fqc verify -i reads.fqc --quick
 ```
 
-## FQC File Format
+## 📁 FQC File Format
 
 ```
 ┌─────────────────────┐
@@ -147,64 +206,87 @@ fqc verify -i reads.fqc --verbose
 └─────────────────────┘
 ```
 
-## Compression Strategies
+See [format-spec.md](docs/gitbook/en/format-spec.md) for complete specification.
 
-| Read Length | Sequence Codec | Quality Codec | Reordering |
-|-------------|---------------|---------------|------------|
-| Short (<300bp) | ABC (consensus + delta) | SCM Order-2 | Yes |
-| Medium (300bp-10kbp) | Zstd | SCM Order-2 | No |
-| Long (>10kbp) | Zstd | SCM Order-1 | No |
-
-## Architecture
+## 🏗️ Architecture
 
 ```
 src/
-├── algo/                   # Compression algorithms
-│   ├── block_compressor.rs # ABC + Zstd block compression/decompression
-│   ├── dna.rs              # Shared DNA encoding tables + reverse complement
-│   ├── global_analyzer.rs  # Minimizer-based read reordering
-│   ├── quality_compressor.rs # SCM arithmetic coding for quality scores
-│   └── pe_optimizer.rs     # Paired-end complementarity optimization
-├── commands/               # CLI command implementations
-│   ├── compress.rs         # Compress command (default + streaming + pipeline)
-│   ├── decompress.rs       # Decompress command (sequential + parallel + reorder)
-│   ├── info.rs             # Archive info display
-│   └── verify.rs           # Integrity verification
+├── main.rs              # CLI entry point (clap derive), command dispatch
+├── lib.rs               # Library root, re-exports all modules
+├── error.rs             # FqcError enum (11 variants) + ExitCode mapping (0-5)
+├── types.rs             # Core types: ReadRecord, QualityMode, IdMode, PeLayout
+├── format.rs            # FQC binary format: magic, GlobalHeader, BlockHeader, Footer
+├── fqc_reader.rs        # Archive reader with block index + random access
+├── fqc_writer.rs        # Archive writer with block index + finalize
+├── reorder_map.rs       # Bidirectional read reorder map (ZigZag delta + varint)
+├── algo/
+│   ├── block_compressor.rs  # ABC algorithm (consensus + delta) + Zstd codec
+│   ├── dna.rs               # Shared DNA encoding tables + reverse complement
+│   ├── global_analyzer.rs   # Minimizer-based global read reordering
+│   ├── quality_compressor.rs # SCM order-1/2 arithmetic coding for quality
+│   ├── id_compressor.rs     # ID tokenization + delta encoding
+│   └── pe_optimizer.rs      # Paired-end complementarity optimization
+├── commands/
+│   ├── compress.rs      # CompressCommand: default / streaming / pipeline modes
+│   ├── decompress.rs    # DecompressCommand: sequential / parallel / reorder
+│   ├── info.rs          # Archive info display (text / JSON / detailed)
+│   └── verify.rs        # Block-by-block integrity verification
 ├── common/
-│   └── memory_budget.rs    # System memory detection, dynamic chunking
+│   └── memory_budget.rs # System memory detection (Win/Linux/macOS)
 ├── fastq/
-│   └── parser.rs           # FASTQ parser (stats, validation, PE, chunk reading)
+│   └── parser.rs        # FASTQ parser with validation, stats, PE support
 ├── io/
-│   ├── async_io.rs         # AsyncReader/AsyncWriter with prefetch/write-behind
-│   └── compressed_stream.rs# Transparent gz/bz2/xz/zst decompression
-├── pipeline/
-│   ├── compression.rs      # 3-stage compression pipeline (crossbeam channels)
-│   └── decompression.rs    # 3-stage decompression pipeline
-├── error.rs                # FqcError enum + ExitCode mapping (0-5)
-├── format.rs               # FQC binary format structures
-├── fqc_reader.rs           # Archive reader with random access
-├── fqc_writer.rs           # Archive writer with block index
-├── reorder_map.rs          # Bidirectional read reorder map (ZigZag varint)
-└── types.rs                # Core types and constants
+│   ├── async_io.rs      # AsyncReader/AsyncWriter with buffer pool
+│   └── compressed_stream.rs # Transparent gz/bz2/xz/zst decompression
+└── pipeline/
+    ├── mod.rs           # PipelineControl, PipelineStats, ReadChunk
+    ├── compression.rs   # 3-stage Reader→Compressor→Writer (crossbeam)
+    └── decompression.rs # 3-stage Reader→Decompressor→Writer
 ```
 
-## Testing
+## 🧪 Testing
 
 ```bash
 # Run all 131 tests
-cargo test
+cargo test --lib --tests
 
 # Run specific test suite
-cargo test --test test_algo         # 19 algorithm tests (ID/quality compressor, PE optimizer)
+cargo test --test test_algo         # 19 algorithm tests
 cargo test --test test_dna          # 15 DNA utility tests
 cargo test --test test_e2e          # 15 end-to-end tests
-cargo test --test test_format       # 15 format tests
+cargo test --test test_format       # 15 binary format tests
 cargo test --test test_parser       # 19 parser tests
 cargo test --test test_reorder_map  # 23 reorder map tests
-cargo test --test test_roundtrip    # 14 round-trip compression tests
+cargo test --test test_roundtrip    # 14 round-trip tests
 cargo test --test test_types        # 11 type tests
+
+# Lint and format
+cargo clippy --all-targets          # Must pass with 0 warnings
+cargo fmt --all -- --check          # Must pass
 ```
 
-## License
+## 📚 Documentation
 
-See LICENSE file.
+- **GitBook**: [https://lessup.github.io/fq-compressor-rust/](https://lessup.github.io/fq-compressor-rust/)
+  - [English](docs/gitbook/en/README.md) | [中文](docs/gitbook/zh/README.md)
+- **CLI Reference**: [docs/gitbook/en/cli-reference.md](docs/gitbook/en/cli-reference.md)
+- **Architecture**: [docs/gitbook/en/architecture.md](docs/gitbook/en/architecture.md)
+- **Algorithm Details**: [docs/gitbook/en/algorithms.md](docs/gitbook/en/algorithms.md)
+
+## 🤝 Contributing
+
+Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
+
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+- [Development Guide](CONTRIBUTING.md#development-setup)
+- [Pull Request Process](CONTRIBUTING.md#pull-request-process)
+
+## 📄 License
+
+This project is licensed under the GNU General Public License v3.0 — see the [LICENSE](LICENSE) file for details.
+
+## 🔗 Related Projects
+
+- [fq-compressor](https://github.com/LessUp/fq-compressor) — Original C++ implementation
+- [Spring](https://github.com/shubhamchandak94/Spring) — Reference ABC algorithm paper

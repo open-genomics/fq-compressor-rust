@@ -1,13 +1,19 @@
 # AGENTS.md — AI Agent Guidelines for fqc
 
+> This document provides context and guidelines for AI assistants working on the fqc codebase.
+
 ## Identity
 
-This is **fqc**, a high-performance FASTQ compressor in Rust. It compresses genomic sequencing data (FASTQ format) using domain-specific algorithms for sequences, quality scores, and read identifiers.
+**fqc** is a high-performance FASTQ compressor in Rust. It compresses genomic sequencing data (FASTQ format) using domain-specific algorithms:
 
-## Build & Verify
+- **ABC Algorithm** — Consensus + delta encoding for short reads (< 300bp)
+- **Zstd** — General-purpose compression for medium/long reads
+- **SCM** — Statistical Context Model with arithmetic coding for quality scores
+
+## Quick Start
 
 ```bash
-# Always run before committing
+# Build and verify before any commit
 cargo build                    # must compile cleanly
 cargo test --lib --tests       # 131 tests, 0 failures expected
 cargo clippy --all-targets     # 0 warnings expected (pedantic enabled)
@@ -31,6 +37,7 @@ src/
 │   ├── dna.rs               # Shared DNA encoding tables + reverse complement
 │   ├── global_analyzer.rs    # Minimizer reordering
 │   ├── quality_compressor.rs # SCM arithmetic coding
+│   ├── id_compressor.rs      # ID tokenization + delta encoding
 │   └── pe_optimizer.rs       # Paired-end optimization
 ├── commands/         # CLI commands
 │   ├── compress.rs   # default / streaming / pipeline modes
@@ -63,55 +70,137 @@ tests/
 ## Coding Rules
 
 ### Must Follow
-- **MSRV 1.75** — do not use APIs stabilized after Rust 1.75
-- **No unsafe** — `unsafe_code = "deny"` in Cargo.toml; only `#[allow(unsafe_code)]` on Windows FFI (`memory_budget.rs`)
-- **Clippy pedantic clean** — `[lints.clippy] pedantic = "warn"` with tuned allows
-- **All 131 tests pass** — run `cargo test --lib --tests` before any change
-- **Use `log` crate** — `log::info!`, `log::warn!`, `log::debug!`; never `println!` for status
-- **Use `thiserror`** — add new error variants to `FqcError`, map in `exit_code()`
-- **Feature-gated compression** — gz/bz2/xz behind `#[cfg(feature)]` in `compressed_stream.rs`
 
-### Style
+| Rule | Description |
+|------|-------------|
+| **MSRV 1.75** | Do not use APIs stabilized after Rust 1.75 |
+| **No unsafe** | `unsafe_code = "deny"` in Cargo.toml; only `#[allow(unsafe_code)]` on Windows FFI (`memory_budget.rs`) |
+| **Clippy pedantic** | All code must pass with 0 warnings |
+| **Formatting** | Run `cargo fmt` before committing |
+| **All 131 tests** | Must pass before any commit: `cargo test --lib --tests` |
+| **Use `log` crate** | `log::info!`, `log::warn!`, `log::debug!`; never `println!` for status |
+| **Use `thiserror`** | Add new error variants to `FqcError`, map in `exit_code()` |
+| **Feature-gated deps** | gz/bz2/xz behind `#[cfg(feature)]` in `compressed_stream.rs` |
+
+### Code Style
+
 - 4-space indentation, max line width 120 (`rustfmt.toml`)
-- Imports grouped: std → external → crate (`imports_granularity = "Crate"`)
 - Section separators: `// ====...====` block comments for major sections
 - Test pattern: compress → decompress → compare record-by-record
 
-### Avoid
-- Changing the FQC binary format without bumping version
-- Deleting or weakening tests
-- Platform-specific paths — use `std::path::Path`
-- Adding dependencies without justification
-- `unwrap()` in library code — use `?` operator with `FqcError`
+### Error Handling Pattern
+
+```rust
+// Good: Use ? operator with FqcError
+pub fn my_function() -> Result<()> {
+    let data = std::fs::read(path)?;
+    // ...
+    Ok(())
+}
+
+// Bad: unwrap() in library code
+pub fn my_function() -> Result<()> {
+    let data = std::fs::read(path).unwrap(); // Don't do this
+}
+```
 
 ## Key Types
 
 | Type | Location | Purpose |
 |------|----------|---------|
-| `ReadRecord` | `types.rs` | Single FASTQ record (id, sequence, quality) |
+| `ReadRecord` | `types.rs` | Single FASTQ record (id, comment, sequence, quality) |
 | `FqcError` | `error.rs` | Error enum with 11 variants |
 | `ExitCode` | `error.rs` | CLI exit codes 0-5 |
 | `GlobalHeader` | `format.rs` | Archive header (flags, read count, filename) |
 | `BlockHeader` | `format.rs` | Per-block header (codec, counts, sizes) |
 | `CompressOptions` | `commands/compress.rs` | All compression parameters |
 | `DecompressOptions` | `commands/decompress.rs` | All decompression parameters |
+| `BlockCompressorConfig` | `algo/block_compressor.rs` | Compression algorithm config |
 | `CompressionPipelineConfig` | `pipeline/compression.rs` | Pipeline configuration |
 
 ## Common Tasks
 
-### Add a CLI flag
-1. Add field to `CompressOptions` or `DecompressOptions`
-2. Add `#[arg]` variant in `Commands` enum (`main.rs`)
-3. Wire in the match arm (`main.rs`)
+### Add a CLI Flag
 
-### Add an error variant
-1. Add to `FqcError` in `error.rs`
+1. Add field to `CompressOptions` or `DecompressOptions` in `src/commands/<cmd>.rs`
+2. Add `#[arg]` attribute in the `Commands` enum (`main.rs`)
+3. Wire the field in the match arm (`main.rs`)
+
+**Example:**
+
+```rust
+// Step 1: In src/commands/compress.rs
+pub struct CompressOptions {
+    // ...
+    pub my_new_flag: bool,
+}
+
+// Step 2: In src/main.rs
+#[derive(Subcommand)]
+enum Commands {
+    Compress {
+        // ...
+        #[arg(long)]
+        my_new_flag: bool,
+    },
+}
+
+// Step 3: In main.rs match arm
+Commands::Compress { my_new_flag, .. } => {
+    let opts = CompressOptions {
+        my_new_flag,
+        ..Default::default()
+    };
+    // ...
+}
+```
+
+### Add an Error Variant
+
+1. Add to `FqcError` in `src/error.rs`
 2. Map in `exit_code()` method
 
-### Add a test
-1. Use `compress_file()` / `decompress_file()` / `read_fastq_records()` helpers from `test_e2e.rs`
-2. Use `TempFile` RAII guard for automatic cleanup
-3. Assert record-by-record equality for round-trip tests
+```rust
+// Step 1
+#[derive(Debug, Error)]
+pub enum FqcError {
+    // ... existing variants
+    #[error("My new error: {0}")]
+    MyNewError(String),
+}
+
+// Step 2
+impl FqcError {
+    pub fn exit_code(&self) -> ExitCode {
+        match self {
+            // ... existing mappings
+            FqcError::MyNewError(_) => ExitCode::Usage,
+        }
+    }
+}
+```
+
+### Add a Test
+
+Use helper functions from `test_e2e.rs`:
+
+```rust
+use super::*;
+
+#[test]
+fn test_my_feature() -> Result<()> {
+    let input = "tests/data/test_se.fastq";
+    let output = TempFile::new(".fqc")?;
+    
+    compress_file(input, output.path(), Default::default())?;
+    
+    let records = decompress_file(output.path(), Default::default())?;
+    let original = read_fastq_records(input)?;
+    
+    assert_roundtrip_match(&original, &records)?;
+    Ok(())
+}
+```
 
 ## Dependencies
 
@@ -128,17 +217,32 @@ tests/
 | `flate2` (optional) | Gzip support |
 | `bzip2` (optional) | Bzip2 support |
 | `xz2` (optional) | XZ/LZMA support |
-| `tikv-jemallocator` (0.6) | Jemalloc allocator for musl static builds |
+| `tikv-jemallocator` (0.6) | Jemalloc for musl static builds |
 
-## Docker 工具链选型
+## Performance Tips
 
-| 组件 | 选型 | 理由 |
-|------|------|------|
-| **构建镜像** | `rust:1.75-bookworm` (Debian 12) | 官方 Rust 镜像，与 MSRV 1.75 对齐 |
-| **运行时镜像** | `debian:bookworm-slim` | 与构建镜像同系，共享基础层，体积最小 |
-| **不选 Ubuntu 24.04** | — | 无官方 `rust:` + Ubuntu 组合镜像；Debian glibc 2.36 二进制兼容性更广 |
+1. **Use pipeline mode** for large files: `--pipeline` flag enables 3-stage parallel processing
+2. **Adjust block size** based on read length: smaller blocks for long reads, larger for short
+3. **Use streaming mode** for stdin or memory-constrained environments: `--streaming`
+4. **Discard quality** if not needed: `--lossy-quality discard` gives smallest output
+
+## Docker Build Chain
+
+| Component | Choice | Reason |
+|-----------|--------|--------|
+| Build image | `rust:1.75-bookworm` (Debian 12) | Official Rust image, matches MSRV |
+| Runtime image | `debian:bookworm-slim` | Same family, shared base layers, minimal size |
 
 ## CI/CD
 
-- **ci.yml** — push/PR: check, test (3 OS), clippy, fmt, MSRV 1.75, cargo-deny
+- **ci.yml** — Push/PR: check, test (3 OS), clippy, fmt, MSRV 1.75, cargo-deny
 - **release.yml** — `v*` tag: validate version, test, build 5 targets, GitHub Release with checksums
+
+## Things to Avoid
+
+- `unsafe` code without `#[allow(unsafe_code)]` and justification
+- Deleting or weakening existing tests
+- Changing FQC binary format without bumping version
+- `println!` for status output — use `log::info!`/`log::warn!`/`log::debug!`
+- Hard-coded platform-specific paths — use `std::path::Path`
+- `unwrap()` in library code — use `?` with proper error handling

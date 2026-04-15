@@ -1,6 +1,7 @@
 // =============================================================================
 // fqc - High-performance FASTQ compressor with random access support
 // =============================================================================
+// Public API fields may not be used internally but are available to consumers
 #![allow(dead_code)]
 
 #[cfg(target_env = "musl")]

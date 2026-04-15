@@ -7,5 +7,7 @@ tab_spaces = 4
 use_field_init_shorthand = true
 use_try_shorthand = true
 newline_style = "Auto"
-imports_granularity = "Crate"
-group_imports = "StdExternalCrate"
+# Note: imports_granularity and group_imports require nightly Rust.
+# Uncomment the following lines if using nightly toolchain:
+# imports_granularity = "Crate"
+# group_imports = "StdExternalCrate"

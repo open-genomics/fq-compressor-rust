@@ -1,6 +1,7 @@
 // =============================================================================
 // fqc - Library crate for integration tests and reuse
 // =============================================================================
+// Public API fields may not be used internally but are available to consumers
 #![allow(dead_code)]
 
 pub mod algo;
