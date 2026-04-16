@@ -101,7 +101,6 @@ jobs:
         uses: actions/upload-pages-artifact@v3
         with:
           path: docs/.vitepress/dist
-          name: vitepress-dist
 
   # ===========================================================================
   # Deploy to GitHub Pages - MAIN BRANCH ONLY
