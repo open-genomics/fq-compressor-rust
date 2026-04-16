@@ -17,6 +17,34 @@ For release notes in Chinese, see [RELEASE_zh.md](RELEASE_zh.md).
 
 ---
 
+## [0.1.1] - 2026-04-16
+
+### Added
+
+- **SECURITY.md** — Security policy with vulnerability reporting guidelines
+- **GitBook Glossary** — `docs/gitbook/GLOSSARY.md` with terminology definitions
+- **GitBook plugins** — Added `anchors` and `search-pro` for better navigation
+- **PR Preview** — Documentation preview for pull requests in `pages.yml`
+- **Trivy scanning** — Docker image vulnerability scanning in `docker.yml`
+- **SHA512 checksums** — Added to release artifacts alongside SHA256
+- **CI Summary job** — Consolidated CI status reporting in `ci.yml`
+- **Documentation check** — Added `doc-check` job in `quality.yml`
+
+### Fixed
+
+- **Performance docs** — Corrected default compression level from 3 to 6 in en/zh performance.md
+- **Docker workflow** — Added `security-events` permission for Trivy scanning
+- **Pages workflow** — Fixed missing `configure-pages` step and added build validation
+
+### Changed
+
+- **GitBook config** — Enhanced `book.json` with sidebar links and PDF settings
+- **package.json** — Added `docs:clean` and `docs:check` scripts, Node.js engine requirement
+- **CI workflow** — Added job summaries and test log artifacts on failure
+- **Quality workflow** — Added documentation check and quality gate summary
+
+---
+
 ## [0.1.0] - 2026-03-07
 
 ### Highlights
@@ -136,4 +164,5 @@ Development and infrastructure changes that don't affect end users.
 
 | Version | Date | Type | Description |
 |---------|------|------|-------------|
+| 0.1.1 | 2026-04-16 | Patch | Documentation and workflow improvements |
 | 0.1.0 | 2026-03-07 | Major | Initial release |

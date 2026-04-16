@@ -4,6 +4,7 @@
 # =============================================================================
 # Builds and pushes Docker images to GitHub Container Registry.
 # Images are pushed on tag/branch push; PR builds are validated but not pushed.
+# Features: multi-platform builds, build caching, vulnerability scanning.
 # =============================================================================
 
 name: Docker
@@ -27,8 +28,12 @@ env:
 permissions:
   contents: read
   packages: write
+  security-events: write
 
 jobs:
+  # ===========================================================================
+  # Build and Push Docker Image
+  # ===========================================================================
   docker:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
@@ -68,3 +73,21 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
           platforms: linux/amd64
+
+      # ===========================================================================
+      # Security Scanning (optional, requires push)
+      # ===========================================================================
+      - name: Run Trivy vulnerability scanner
+        if: github.event_name != 'pull_request'
+        uses: aquasecurity/trivy-action@master
+        with:
+          image-ref: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:${{ steps.meta.outputs.version }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          severity: 'CRITICAL,HIGH'
+
+      - name: Upload Trivy scan results
+        if: github.event_name != 'pull_request'
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: 'trivy-results.sarif'

@@ -6,6 +6,42 @@
 
 ---
 
+## [Unreleased]
+
+### 新增
+
+- 暂无
+
+---
+
+## [0.1.1] - 2026-04-16
+
+### 新增
+
+- **SECURITY.md** — 安全策略，包含漏洞报告指南
+- **GitBook 术语表** — `docs/gitbook/GLOSSARY.md`，定义项目术语
+- **GitBook 插件** — 添加 `anchors` 和 `search-pro` 改善导航
+- **PR 预览** — Pull Request 文档预览功能，在 `pages.yml` 中实现
+- **Trivy 扫描** — Docker 镜像漏洞扫描，在 `docker.yml` 中实现
+- **SHA512 校验和** — 发布资源同时提供 SHA256 和 SHA512 校验
+- **CI 汇总作业** — `ci.yml` 中整合 CI 状态报告
+- **文档检查** — `quality.yml` 中添加 `doc-check` 作业
+
+### 修复
+
+- **性能文档** — 更正默认压缩级别从 3 到 6（en/zh performance.md）
+- **Docker workflow** — 添加 `security-events` 权限以支持 Trivy 扫描
+- **Pages workflow** — 修复缺失的 `configure-pages` 步骤，添加构建验证
+
+### 变更
+
+- **GitBook 配置** — 增强 `book.json`，添加侧边栏链接和 PDF 设置
+- **package.json** — 添加 `docs:clean` 和 `docs:check` 脚本，Node.js 引擎要求
+- **CI workflow** — 添加作业摘要和失败时的测试日志 artifacts
+- **Quality workflow** — 添加文档检查和质量门汇总
+
+---
+
 ## [0.1.0] - 2026-03-07
 
 **fqc 首次发布** — 高性能 FASTQ 压缩工具（Rust 实现）。
@@ -149,4 +185,5 @@ fqc verify -i reads.fqc
 
 | 版本 | 日期 | 类型 | 说明 |
 |------|------|------|------|
+| 0.1.1 | 2026-04-16 | Patch | 文档与 workflow 改进 |
 | 0.1.0 | 2026-03-07 | Major | 首次发布 |

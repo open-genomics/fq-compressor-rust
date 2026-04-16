@@ -4,6 +4,7 @@
 # =============================================================================
 # Runs on every PR and push to main/master branch.
 # Format checking and static analysis (clippy) are separated from CI builds.
+# Features: format check, clippy pedantic, documentation check.
 # =============================================================================
 
 name: Code Quality
@@ -23,6 +24,7 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
+  RUSTFLAGS: -Dwarnings
 
 jobs:
   # ===========================================================================
@@ -36,7 +38,16 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
-      - run: cargo fmt --all -- --check
+      - name: Check Rust formatting
+        run: cargo fmt --all -- --check
+
+      - name: Check TOML formatting
+        run: |
+          if command -v taplo &> /dev/null; then
+            taplo check
+          else
+            echo "taplo not installed, skipping TOML format check"
+          fi
 
   # ===========================================================================
   # Static Analysis Job (Clippy)
@@ -44,14 +55,33 @@ jobs:
   static-analysis:
     name: Static Analysis (Clippy)
     runs-on: ubuntu-latest
-    needs: format-check
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --all-targets -- -D warnings
+        with:
+          key: clippy
+      - name: Run Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+  # ===========================================================================
+  # Documentation Check Job
+  # ===========================================================================
+  doc-check:
+    name: Documentation Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: docs
+      - name: Check documentation
+        run: cargo doc --no-deps --document-private-items
+        env:
+          RUSTDOCFLAGS: -Dwarnings
 
   # ===========================================================================
   # Quality Gate Job
@@ -59,17 +89,33 @@ jobs:
   quality-gate:
     name: Quality Gate
     runs-on: ubuntu-latest
-    needs: [format-check, static-analysis]
+    needs: [format-check, static-analysis, doc-check]
     if: always()
     steps:
       - name: Check results
         run: |
+          echo "## Quality Gate Summary" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Format | ${{ needs.format-check.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Clippy | ${{ needs.static-analysis.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Documentation | ${{ needs.doc-check.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
+
           if [[ "${{ needs.format-check.result }}" != "success" ]]; then
-            echo "Format check failed"
+            echo ""
+            echo "❌ Format check failed - run 'cargo fmt --all' to fix"
             exit 1
           fi
           if [[ "${{ needs.static-analysis.result }}" != "success" ]]; then
-            echo "Static analysis failed"
+            echo ""
+            echo "❌ Static analysis (Clippy) failed"
             exit 1
           fi
-          echo "All quality checks passed!"
+          if [[ "${{ needs.doc-check.result }}" != "success" ]]; then
+            echo ""
+            echo "❌ Documentation check failed"
+            exit 1
+          fi
+          echo ""
+          echo "✅ All quality checks passed!"

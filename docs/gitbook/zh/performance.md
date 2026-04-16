@@ -62,7 +62,7 @@ fqc compress -i large.fastq -o large.fqc --memory-limit 4096
 
 ```bash
 fqc compress -i reads.fastq -o reads.fqc -l 1   # 快速
-fqc compress -i reads.fastq -o reads.fqc -l 3   # 默认
+fqc compress -i reads.fastq -o reads.fqc -l 6   # 默认
 fqc compress -i reads.fastq -o reads.fqc -l 9   # 最大压缩
 ```
 

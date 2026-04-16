@@ -6,16 +6,41 @@
   "gitbook": ">=3.0.0",
   "links": {
     "sidebar": {
-      "GitHub": "https://github.com/LessUp/fq-compressor-rust"
+      "GitHub Repository": "https://github.com/LessUp/fq-compressor-rust",
+      "C++ Version": "https://lessup.github.io/fq-compressor/",
+      "Report Issue": "https://github.com/LessUp/fq-compressor-rust/issues"
     }
   },
   "plugins": [
     "-sharing",
     "expandable-chapters",
-    "back-to-top-button"
+    "back-to-top-button",
+    "anchors",
+    "search-pro"
   ],
+  "pluginsConfig": {
+    "search-pro": {
+      "cutWordLib": "nodejieba",
+      "defineWord": {
+        "fqc": "fqc (fq-compressor-rust)",
+        "ABC": "Alignment-Based Compression",
+        "SCM": "Statistical Context Model"
+      }
+    }
+  },
   "structure": {
     "readme": "README.md",
-    "summary": "SUMMARY.md"
+    "summary": "SUMMARY.md",
+    "glossary": "GLOSSARY.md"
+  },
+  "pdf": {
+    "paperSize": "a4",
+    "fontSize": 12,
+    "margin": {
+      "top": 20,
+      "bottom": 20,
+      "left": 20,
+      "right": 20
+    }
   }
 }
