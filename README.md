@@ -1,16 +1,16 @@
 # fqc - High-Performance FASTQ Compressor
 
 [![CI](https://github.com/LessUp/fq-compressor-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/LessUp/fq-compressor-rust/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/Docs-GitBook-blue?logo=github)](https://lessup.github.io/fq-compressor-rust/)
+[![Release](https://img.shields.io/github/v/release/LessUp/fq-compressor-rust?include_prereleases)](https://github.com/LessUp/fq-compressor-rust/releases)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![MSRV](https://img.shields.io/badge/rust-1.75+-orange.svg)](https://www.rust-lang.org/)
+[![Docs](https://img.shields.io/badge/docs-GitBook-blue)](https://lessup.github.io/fq-compressor-rust/)
 
-English | [简体中文](README.zh-CN.md) | [C++ Version (fq-compressor)](https://github.com/LessUp/fq-compressor)
+[English](README.md) | [简体中文](README.zh-CN.md) | [C++ Version](https://github.com/LessUp/fq-compressor)
 
-> **fq-compressor** 的 Rust 实现，两个版本共享相同的 `.fqc` 归档格式与 ABC/SCM 压缩算法。
-> Rust 版本以 Rayon + crossbeam 替代 Intel TBB，并引入异步 I/O。
+> **fqc** is a high-performance FASTQ compressor written in Rust, featuring the **ABC** (Alignment-Based Compression) algorithm for short reads and **Zstd** for medium/long reads. It shares the `.fqc` archive format with the original [fq-compressor](https://github.com/LessUp/fq-compressor) C++ implementation.
 
-A high-performance FASTQ compressor written in Rust, featuring the ABC (Alignment-Based Compression) algorithm for short reads and Zstd for medium/long reads.
+---
 
 ## ✨ Features
 
@@ -23,7 +23,7 @@ A high-performance FASTQ compressor written in Rust, featuring the ABC (Alignmen
 | **Compatibility** | Paired-end support, compressed input (gz/bz2/xz/zst) |
 
 <details>
-<summary><b>📋 Full Feature List</b></summary>
+<summary><b>Full Feature List</b></summary>
 
 - **ABC Algorithm** — Consensus-based delta encoding for short reads (< 300bp), achieving high compression ratios
 - **Zstd Compression** — For medium/long reads with length-prefixed encoding
@@ -41,6 +41,8 @@ A high-performance FASTQ compressor written in Rust, featuring the ABC (Alignmen
 
 </details>
 
+---
+
 ## 📊 Performance
 
 | Mode | Compression | Decompression | Ratio |
@@ -54,9 +56,11 @@ A high-performance FASTQ compressor written in Rust, featuring the ABC (Alignmen
 
 | Read Length | Sequence Codec | Quality Codec | Reordering |
 |-------------|----------------|---------------|------------|
-| Short (<300bp) | ABC (consensus + delta) | SCM Order-2 | ✅ Yes |
-| Medium (300bp-10kbp) | Zstd | SCM Order-2 | ❌ No |
-| Long (>10kbp) | Zstd | SCM Order-1 | ❌ No |
+| Short (< 300bp) | ABC (consensus + delta) | SCM Order-2 | ✅ Yes |
+| Medium (300bp – 10kbp) | Zstd | SCM Order-2 | ❌ No |
+| Long (> 10kbp) | Zstd | SCM Order-1 | ❌ No |
+
+---
 
 ## 📦 Installation
 
@@ -91,6 +95,8 @@ Download from [GitHub Releases](https://github.com/LessUp/fq-compressor-rust/rel
 - Linux (x64, ARM64) — glibc and musl (static)
 - macOS (Intel, Apple Silicon)
 - Windows x64
+
+---
 
 ## 🚀 Quick Start
 
@@ -184,6 +190,8 @@ fqc verify -i reads.fqc --verbose
 fqc verify -i reads.fqc --quick
 ```
 
+---
+
 ## 📁 FQC File Format
 
 ```
@@ -206,7 +214,9 @@ fqc verify -i reads.fqc --quick
 └─────────────────────┘
 ```
 
-See [format-spec.md](docs/gitbook/en/format-spec.md) for complete specification.
+See [format-spec.md](docs/en/format-spec.md) for complete specification.
+
+---
 
 ## 🏗️ Architecture
 
@@ -220,30 +230,32 @@ src/
 ├── fqc_reader.rs        # Archive reader with block index + random access
 ├── fqc_writer.rs        # Archive writer with block index + finalize
 ├── reorder_map.rs       # Bidirectional read reorder map (ZigZag delta + varint)
-├── algo/
+├── algo/                # Compression algorithms
 │   ├── block_compressor.rs  # ABC algorithm (consensus + delta) + Zstd codec
 │   ├── dna.rs               # Shared DNA encoding tables + reverse complement
 │   ├── global_analyzer.rs   # Minimizer-based global read reordering
 │   ├── quality_compressor.rs # SCM order-1/2 arithmetic coding for quality
-│   ├── id_compressor.rs     # ID tokenization + delta encoding
-│   └── pe_optimizer.rs      # Paired-end complementarity optimization
-├── commands/
-│   ├── compress.rs      # CompressCommand: default / streaming / pipeline modes
-│   ├── decompress.rs    # DecompressCommand: sequential / parallel / reorder
-│   ├── info.rs          # Archive info display (text / JSON / detailed)
-│   └── verify.rs        # Block-by-block integrity verification
+│   ├── id_compressor.rs      # ID tokenization + delta encoding
+│   └── pe_optimizer.rs       # Paired-end complementarity optimization
+├── commands/            # CLI commands
+│   ├── compress.rs      # default / streaming / pipeline modes
+│   ├── decompress.rs    # sequential / parallel / reorder / pipeline
+│   ├── info.rs          # archive info
+│   └── verify.rs        # integrity check
 ├── common/
-│   └── memory_budget.rs # System memory detection (Win/Linux/macOS)
+│   └── memory_budget.rs # System memory detection, chunking
 ├── fastq/
-│   └── parser.rs        # FASTQ parser with validation, stats, PE support
+│   └── parser.rs        # FASTQ parser, validation, PE, stats
 ├── io/
-│   ├── async_io.rs      # AsyncReader/AsyncWriter with buffer pool
-│   └── compressed_stream.rs # Transparent gz/bz2/xz/zst decompression
+│   ├── async_io.rs           # Async read/write with buffer pool
+│   └── compressed_stream.rs  # Feature-gated gz/bz2/xz/zst
 └── pipeline/
-    ├── mod.rs           # PipelineControl, PipelineStats, ReadChunk
-    ├── compression.rs   # 3-stage Reader→Compressor→Writer (crossbeam)
-    └── decompression.rs # 3-stage Reader→Decompressor→Writer
+    ├── mod.rs            # Shared types (PipelineControl, PipelineStats)
+    ├── compression.rs    # 3-stage compression pipeline
+    └── decompression.rs  # 3-stage decompression pipeline
 ```
+
+---
 
 ## 🧪 Testing
 
@@ -259,20 +271,30 @@ cargo test --test test_format       # 15 binary format tests
 cargo test --test test_parser       # 19 parser tests
 cargo test --test test_reorder_map  # 23 reorder map tests
 cargo test --test test_roundtrip    # 14 round-trip tests
-cargo test --test test_types        # 11 type tests
+cargo test --test test_types        # 11 type/constant tests
 
 # Lint and format
 cargo clippy --all-targets          # Must pass with 0 warnings
 cargo fmt --all -- --check          # Must pass
 ```
 
+---
+
 ## 📚 Documentation
 
-- **GitBook**: [https://lessup.github.io/fq-compressor-rust/](https://lessup.github.io/fq-compressor-rust/)
-  - [English](docs/gitbook/en/README.md) | [中文](docs/gitbook/zh/README.md)
-- **CLI Reference**: [docs/gitbook/en/cli-reference.md](docs/gitbook/en/cli-reference.md)
-- **Architecture**: [docs/gitbook/en/architecture.md](docs/gitbook/en/architecture.md)
-- **Algorithm Details**: [docs/gitbook/en/algorithms.md](docs/gitbook/en/algorithms.md)
+| Document | Description |
+|----------|-------------|
+| [architecture.md](docs/en/architecture.md) | Project architecture and module structure |
+| [format-spec.md](docs/en/format-spec.md) | FQC binary format specification |
+| [algorithms.md](docs/en/algorithms.md) | ABC, SCM, and reordering algorithms |
+| [development.md](docs/en/development.md) | Development guide and contribution process |
+| [performance.md](docs/en/performance.md) | Performance tuning and profiling |
+
+### GitBook
+
+Full documentation: [https://lessup.github.io/fq-compressor-rust/](https://lessup.github.io/fq-compressor-rust/)
+
+---
 
 ## 🤝 Contributing
 
@@ -282,9 +304,17 @@ Contributions are welcome! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for gui
 - [Development Guide](CONTRIBUTING.md#development-setup)
 - [Pull Request Process](CONTRIBUTING.md#pull-request-process)
 
+### Security
+
+For security issues, please see [SECURITY.md](SECURITY.md) for responsible disclosure guidelines.
+
+---
+
 ## 📄 License
 
-This project is licensed under the GNU General Public License v3.0 — see the [LICENSE](LICENSE) file for details.
+This project is licensed under the [GNU General Public License v3.0](LICENSE).
+
+---
 
 ## 🔗 Related Projects
 

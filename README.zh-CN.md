@@ -1,16 +1,16 @@
 # fqc - 高性能 FASTQ 压缩器
 
 [![CI](https://github.com/LessUp/fq-compressor-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/LessUp/fq-compressor-rust/actions/workflows/ci.yml)
-[![Docs](https://img.shields.io/badge/Docs-GitBook-blue?logo=github)](https://lessup.github.io/fq-compressor-rust/)
+[![Release](https://img.shields.io/github/v/release/LessUp/fq-compressor-rust?include_prereleases)](https://github.com/LessUp/fq-compressor-rust/releases)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![MSRV](https://img.shields.io/badge/rust-1.75+-orange.svg)](https://www.rust-lang.org/)
+[![Docs](https://img.shields.io/badge/docs-GitBook-blue)](https://lessup.github.io/fq-compressor-rust/)
 
-[English](README.md) | 简体中文 | [C++ 版本 (fq-compressor)](https://github.com/LessUp/fq-compressor)
+[English](README.md) | 简体中文 | [C++ 版本](https://github.com/LessUp/fq-compressor)
 
-> **fq-compressor** 的 Rust 实现，两个版本共享相同的 `.fqc` 归档格式与 ABC/SCM 压缩算法。
-> Rust 版本以 Rayon + crossbeam 替代 Intel TBB，并引入异步 I/O。
+> **fqc** 是一个用 Rust 编写的高性能 FASTQ 压缩器，采用 **ABC**（基于对齐的压缩）算法处理短读段，**Zstd** 处理中长读段。它与原 [fq-compressor](https://github.com/LessUp/fq-compressor) C++ 实现共享 `.fqc` 归档格式。
 
-一个用 Rust 编写的高性能 FASTQ 压缩器，采用 ABC（Alignment-Based Compression）算法处理短读段，Zstd 处理中长读段。
+---
 
 ## ✨ 特性
 
@@ -23,7 +23,7 @@
 | **兼容性** | 配对端支持、压缩输入（gz/bz2/xz/zst）|
 
 <details>
-<summary><b>📋 完整特性列表</b></summary>
+<summary><b>完整特性列表</b></summary>
 
 - **ABC 算法** — 短读段（< 300bp）基于共识序列的增量编码，高压缩比
 - **Zstd 压缩** — 中/长读段使用长度前缀编码
@@ -31,7 +31,7 @@
 - **全局读段重排** — 基于 minimizer 的读段重排序，提升压缩比
 - **随机访问** — 块索引归档格式，支持高效部分解压
 - **并行处理** — 基于 Rayon 的并行块压缩/解压
-- **流水线模式** — 3 阶段 Reader→Compressor→Writer 流水线，支持背压（`--pipeline`）
+- **流水线模式** — 3 阶段读取器→压缩器→写入器流水线，支持背压（`--pipeline`）
 - **异步 I/O** — 后台预取与写入缓冲，提升吞吐
 - **流式模式** — 从标准输入低内存压缩，无需全局重排（`--streaming`）
 - **无损与有损** — 支持无损、Illumina 8-bin 分箱、丢弃质量分数三种模式
@@ -41,6 +41,8 @@
 
 </details>
 
+---
+
 ## 📊 性能
 
 | 模式 | 压缩速度 | 解压速度 | 压缩比 |
@@ -48,15 +50,17 @@
 | 默认 | ~10 MB/s | ~55 MB/s | 3.9x |
 | 流水线 | ~12 MB/s | ~60 MB/s | 3.9x |
 
-*测试环境：Intel Core i7-9700 @ 3.00GHz（8 核），2.27M 条 Illumina reads（511 MB 未压缩）*
+*测试环境：Intel Core i7-9700 @ 3.00GHz（8 核），2.27M Illumina reads（511 MB 未压缩）*
 
 ### 压缩策略
 
 | 读段长度 | 序列编码器 | 质量编码器 | 全局排序 |
 |----------|-----------|-----------|---------|
-| 短 (<300bp) | ABC（共识 + Delta） | SCM Order-2 | ✅ 是 |
-| 中 (300bp-10kbp) | Zstd | SCM Order-2 | ❌ 否 |
-| 长 (>10kbp) | Zstd | SCM Order-1 | ❌ 否 |
+| 短读段 (< 300bp) | ABC（共识 + 增量） | SCM 二阶模型 | ✅ 是 |
+| 中等读段 (300bp – 10kbp) | Zstd | SCM 二阶模型 | ❌ 否 |
+| 长读段 (> 10kbp) | Zstd | SCM 一阶模型 | ❌ 否 |
+
+---
 
 ## 📦 安装
 
@@ -91,6 +95,8 @@ docker run --rm -v $(pwd):/data fqc compress -i /data/reads.fastq -o /data/reads
 - Linux（x64、ARM64）— glibc 和 musl（静态链接）
 - macOS（Intel、Apple Silicon）
 - Windows x64
+
+---
 
 ## 🚀 快速开始
 
@@ -184,13 +190,15 @@ fqc verify -i reads.fqc --verbose
 fqc verify -i reads.fqc --quick
 ```
 
+---
+
 ## 📁 FQC 文件格式
 
 ```
 ┌─────────────────────┐
-│   Magic Header (9B) │  "\x89FQC\r\n\x1a\n" + 版本号
+│   魔数头部 (9 字节)  │  "\x89FQC\r\n\x1a\n" + 版本号
 ├─────────────────────┤
-│   Global Header     │  标志位、读段数、文件名、时间戳
+│   全局头部          │  标志位、读段数、文件名、时间戳
 ├─────────────────────┤
 │   Block 0           │  块头 + ID + 序列 + 质量 + 辅助数据
 ├─────────────────────┤
@@ -198,15 +206,17 @@ fqc verify -i reads.fqc --quick
 ├─────────────────────┤
 │   ...               │
 ├─────────────────────┤
-│   Reorder Map (可选)│  正向 + 反向映射（delta + varint 编码）
+│   重排映射 (可选)    │  正向 + 反向映射（delta + varint 编码）
 ├─────────────────────┤
-│   Block Index       │  随机访问偏移量
+│   块索引            │  随机访问偏移量
 ├─────────────────────┤
-│   File Footer (32B) │  索引偏移、校验和、魔数尾
+│   文件尾部 (32 字节) │  索引偏移、校验和、魔数尾
 └─────────────────────┘
 ```
 
-完整规范见 [format-spec.md](docs/gitbook/zh/format-spec.md)。
+完整规范见 [format-spec.md](docs/zh/format-spec.md)。
+
+---
 
 ## 🏗️ 项目结构
 
@@ -214,36 +224,38 @@ fqc verify -i reads.fqc --quick
 src/
 ├── main.rs              # CLI 入口（clap derive）、命令分发
 ├── lib.rs               # 库根，重导出所有模块
-├── error.rs             # FqcError 枚举（11 变体）+ ExitCode 映射（0-5）
+├── error.rs             # FqcError 枚举（11 变体）+ 退出码映射（0-5）
 ├── types.rs             # 核心类型：ReadRecord、QualityMode、IdMode、PeLayout
 ├── format.rs            # FQC 二进制格式：魔数、GlobalHeader、BlockHeader、Footer
 ├── fqc_reader.rs        # 归档读取器（块索引 + 随机访问）
 ├── fqc_writer.rs        # 归档写入器（块索引 + finalize）
 ├── reorder_map.rs       # 双向读段重排映射（ZigZag delta + varint）
-├── algo/
+├── algo/                # 压缩算法
 │   ├── block_compressor.rs  # ABC 算法（共识 + delta）+ Zstd 编解码
 │   ├── dna.rs               # DNA 编码表 + 反向互补
 │   ├── global_analyzer.rs   # 基于 Minimizer 的全局读段重排
-│   ├── quality_compressor.rs # SCM order-1/2 算术编码（质量值）
+│   ├── quality_compressor.rs # SCM 一阶/二阶算术编码（质量值）
 │   ├── id_compressor.rs     # ID 分词 + delta 编码
 │   └── pe_optimizer.rs      # 配对端互补优化
-├── commands/
-│   ├── compress.rs      # CompressCommand：默认/流式/流水线模式
-│   ├── decompress.rs    # DecompressCommand：顺序/并行/重排
-│   ├── info.rs          # 归档信息显示（文本/JSON/详细）
-│   └── verify.rs        # 逐块完整性验证
+├── commands/            # CLI 命令
+│   ├── compress.rs      # 默认/流式/流水线模式
+│   ├── decompress.rs    # 顺序/并行/重排/流水线
+│   ├── info.rs          # 归档信息
+│   └── verify.rs        # 完整性检查
 ├── common/
-│   └── memory_budget.rs # 系统内存检测（Win/Linux/macOS）
+│   └── memory_budget.rs # 系统内存检测、分块策略
 ├── fastq/
-│   └── parser.rs        # FASTQ 解析器（验证、统计、配对端）
+│   └── parser.rs        # FASTQ 解析器、验证、配对端、统计
 ├── io/
-│   ├── async_io.rs      # AsyncReader/AsyncWriter 缓冲池
-│   └── compressed_stream.rs # 透明 gz/bz2/xz/zst 解压
+│   ├── async_io.rs           # 异步读取/写入 + 缓冲池
+│   └── compressed_stream.rs  # 特性门控 gz/bz2/xz/zst
 └── pipeline/
-    ├── mod.rs           # PipelineControl、PipelineStats、ReadChunk
-    ├── compression.rs   # 3 阶段 Reader→Compressor→Writer（crossbeam）
-    └── decompression.rs # 3 阶段 Reader→Decompressor→Writer
+    ├── mod.rs            # 共享类型（PipelineControl、PipelineStats）
+    ├── compression.rs    # 3 阶段压缩流水线
+    └── decompression.rs  # 3 阶段解压流水线
 ```
+
+---
 
 ## 🧪 测试
 
@@ -259,20 +271,30 @@ cargo test --test test_format       # 15 个格式测试
 cargo test --test test_parser       # 19 个解析器测试
 cargo test --test test_reorder_map  # 23 个重排映射测试
 cargo test --test test_roundtrip    # 14 个往返测试
-cargo test --test test_types        # 11 个类型测试
+cargo test --test test_types        # 11 个类型/常量测试
 
 # 代码检查
 cargo clippy --all-targets          # 必须通过，0 警告
 cargo fmt --all -- --check          # 必须通过
 ```
 
+---
+
 ## 📚 文档
 
-- **GitBook**: [https://lessup.github.io/fq-compressor-rust/](https://lessup.github.io/fq-compressor-rust/)
-  - [English](docs/gitbook/en/README.md) | [中文](docs/gitbook/zh/README.md)
-- **命令行参考**: [docs/gitbook/zh/cli-reference.md](docs/gitbook/zh/cli-reference.md)
-- **架构设计**: [docs/gitbook/zh/architecture.md](docs/gitbook/zh/architecture.md)
-- **算法详解**: [docs/gitbook/zh/algorithms.md](docs/gitbook/zh/algorithms.md)
+| 文档 | 说明 |
+|------|------|
+| [architecture.md](docs/zh/architecture.md) | 项目架构与模块结构 |
+| [format-spec.md](docs/zh/format-spec.md) | FQC 二进制格式规范 |
+| [algorithms.md](docs/zh/algorithms.md) | ABC、SCM 和重排序算法 |
+| [development.md](docs/zh/development.md) | 开发指南与贡献流程 |
+| [performance.md](docs/zh/performance.md) | 性能调优与分析 |
+
+### GitBook
+
+完整文档: [https://lessup.github.io/fq-compressor-rust/](https://lessup.github.io/fq-compressor-rust/)
+
+---
 
 ## 🤝 贡献
 
@@ -282,9 +304,17 @@ cargo fmt --all -- --check          # 必须通过
 - [开发指南](CONTRIBUTING.md#development-setup)
 - [Pull Request 流程](CONTRIBUTING.md#pull-request-process)
 
+### 安全
+
+安全问题请查看 [SECURITY.md](SECURITY.md) 了解负责任披露指南。
+
+---
+
 ## 📄 许可证
 
-本项目采用 GNU General Public License v3.0 许可证 — 详情见 [LICENSE](LICENSE) 文件。
+本项目采用 [GNU General Public License v3.0](LICENSE) 许可证。
+
+---
 
 ## 🔗 相关项目
 
