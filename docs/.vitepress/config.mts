@@ -1,5 +1,5 @@
 import { defineConfig } from 'vitepress'
-import { zh } from './config'
+import { zh } from './config.zh'
 
 // https://vitepress.dev/reference/site-config
 export default defineConfig({

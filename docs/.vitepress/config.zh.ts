@@ -4,14 +4,14 @@ import { defineConfig, type DefaultTheme } from 'vitepress'
 export const zh = defineConfig({
   lang: 'zh-Hans',
   description: 'Rust 编写的高性能 FASTQ 压缩器，采用 ABC 算法',
-  
+
   themeConfig: {
     nav: [
       { text: '指南', link: '/zh/guide/what-is-fqc', activeMatch: '/zh/guide/' },
       { text: '架构', link: '/zh/architecture/', activeMatch: '/zh/architecture/' },
       { text: '算法', link: '/zh/algorithms/', activeMatch: '/zh/algorithms/' },
-      { 
-        text: '更新日志', 
+      {
+        text: '更新日志',
         items: [
           { text: 'v0.1.1', link: '/zh/changelog/v0.1.1' },
           { text: 'v0.1.0', link: '/zh/changelog/v0.1.0' },
@@ -74,6 +74,8 @@ export const zh = defineConfig({
   }
 })
 
+// Default export for VitePress
+export default zh
 function sidebarGuideZh(): DefaultTheme.SidebarItem[] {
   return [
     {
