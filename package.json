@@ -12,6 +12,7 @@
     "docs:check": "vitepress build docs && echo 'Documentation build successful'"
   },
   "devDependencies": {
+    "markdown-it-mathjax3": "^4.3.2",
     "vitepress": "^1.0.0-rc.42",
     "vue": "^3.4.15"
   },
