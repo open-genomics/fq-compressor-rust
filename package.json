@@ -2,20 +2,18 @@
   "name": "fq-compressor-rust-docs",
   "private": true,
   "version": "0.1.1",
-  "description": "Documentation tooling for fq-compressor-rust",
+  "description": "VitePress documentation for fq-compressor-rust",
+  "type": "module",
   "scripts": {
-    "docs:build": "honkit build docs/gitbook docs/.site",
-    "docs:serve": "honkit serve docs/gitbook",
-    "docs:pdf": "honkit pdf docs/gitbook docs/.site/fqc-rust.pdf",
-    "docs:clean": "rm -rf docs/.site",
-    "docs:check": "honkit build docs/gitbook docs/.site && echo 'Documentation build successful'"
+    "docs:dev": "vitepress dev docs --port 5173",
+    "docs:build": "vitepress build docs",
+    "docs:preview": "vitepress preview docs --port 4173",
+    "docs:clean": "rm -rf docs/.vitepress/dist",
+    "docs:check": "vitepress build docs && echo 'Documentation build successful'"
   },
   "devDependencies": {
-    "honkit": "^5.1.4",
-    "gitbook-plugin-expandable-chapters": "^0.2.0",
-    "gitbook-plugin-back-to-top-button": "^0.1.4",
-    "gitbook-plugin-anchors": "^0.7.1",
-    "gitbook-plugin-search-pro": "^2.0.2"
+    "vitepress": "^1.0.0-rc.42",
+    "vue": "^3.4.15"
   },
   "engines": {
     "node": ">=18.0.0"
