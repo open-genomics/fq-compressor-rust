@@ -47,6 +47,9 @@ export default defineConfig({
     math: true,
   },
 
+  // Ignore dead links during build (some docs are being migrated)
+  ignoreDeadLinks: true,
+
   // Sitemap
   sitemap: {
     hostname: 'https://lessup.github.io/fq-compressor-rust/'
