@@ -1,3 +1,6 @@
+# DISABLED: This workflow has been replaced by pages-vitepress.yml
+# To re-enable, update this file or remove the 'disabled:' trigger below
+
 # .github/workflows/pages.yml
 # =============================================================================
 # GitBook Documentation Pages Deployment
@@ -9,32 +12,6 @@
 name: Documentation Pages
 
 on:
-  push:
-    branches:
-      - main
-      - master
-    paths:
-      - 'README.md'
-      - 'README.zh-CN.md'
-      - 'CHANGELOG.md'
-      - 'RELEASE_zh.md'
-      - 'docs/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/pages.yml'
-  pull_request:
-    branches:
-      - main
-      - master
-    paths:
-      - 'README.md'
-      - 'README.zh-CN.md'
-      - 'CHANGELOG.md'
-      - 'RELEASE_zh.md'
-      - 'docs/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
 permissions:

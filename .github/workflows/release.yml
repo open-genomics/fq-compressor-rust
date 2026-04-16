@@ -75,6 +75,7 @@ jobs:
     name: Build (${{ matrix.target }})
     needs: test
     runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -131,11 +132,11 @@ jobs:
           STAGING="${{ env.BINARY_NAME }}-${{ github.ref_name }}-${{ matrix.target }}"
           mkdir -p "$STAGING"
           cp "target/${{ matrix.target }}/release/${{ env.BINARY_NAME }}" "$STAGING/"
-          cp README.md LICENSE* CHANGELOG.md "$STAGING/" 2>/dev/null || true
+          cp README.md CHANGELOG.md "$STAGING/" 2>/dev/null || true
+          [ -f LICENSE ] && cp LICENSE "$STAGING/" || true
           tar czf "$STAGING.tar.gz" "$STAGING"
           echo "ASSET=$STAGING.tar.gz" >> "$GITHUB_ENV"
-          # Output size for summary
-          echo "size=$(stat -c%s "$STAGING.tar.gz")" >> "$GITHUB_OUTPUT"
+          echo "size=$(du -h "$STAGING.tar.gz" | cut -f1)" >> "$GITHUB_OUTPUT"
 
       - name: Prepare archive (Windows)
         if: matrix.archive == 'zip'
@@ -203,10 +204,16 @@ jobs:
         run: |
           TAG="${{ github.ref_name }}"
           VERSION="${{ needs.validate.outputs.version }}"
-          PREV_TAG=$(git tag --sort=-v:refname | grep -A1 "^$TAG$" | tail -1)
+          # Get all tags sorted by version, find the one before current
+          ALL_TAGS=$(git tag --sort=-v:refname | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+' || true)
+          PREV_TAG=$(echo "$ALL_TAGS" | grep -A1 "^$TAG$" | tail -1)
+          # If no previous tag found or it's the same, use empty
+          if [ -z "$PREV_TAG" ] || [ "$PREV_TAG" = "$TAG" ]; then
+            PREV_TAG=""
+          fi
           {
             echo "body<<EOF"
-            if [ -z "$PREV_TAG" ] || [ "$PREV_TAG" = "$TAG" ]; then
+            if [ -z "$PREV_TAG" ]; then
               echo "## What's New / 更新内容"
               echo ""
               echo "Initial release of \`fqc\` — High-Performance FASTQ Compressor."

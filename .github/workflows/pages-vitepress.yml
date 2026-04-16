@@ -47,7 +47,6 @@ concurrency:
 
 env:
   NODE_VERSION: '20'
-  PNPM_VERSION: '8'
 
 jobs:
   # ===========================================================================
@@ -62,17 +61,11 @@ jobs:
         with:
           fetch-depth: 0
 
-      - name: Setup PNPM
-        uses: pnpm/action-setup@v2
-        with:
-          version: ${{ env.PNPM_VERSION }}
-          run_install: false
-
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'pnpm'
+          cache: 'npm'
 
       - name: Restore VitePress cache
         uses: actions/cache@v4
@@ -83,10 +76,10 @@ jobs:
             vitepress-cache-${{ runner.os }}-
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       - name: Build VitePress site
-        run: pnpm docs:build
+        run: npm run docs:build
         env:
           NODE_OPTIONS: '--max-old-space-size=4096'
 
