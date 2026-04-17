@@ -4,7 +4,7 @@
 [![Release](https://img.shields.io/github/v/release/LessUp/fq-compressor-rust?include_prereleases)](https://github.com/LessUp/fq-compressor-rust/releases)
 [![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
 [![MSRV](https://img.shields.io/badge/rust-1.75+-orange.svg)](https://www.rust-lang.org/)
-[![Docs](https://img.shields.io/badge/docs-GitBook-blue)](https://lessup.github.io/fq-compressor-rust/)
+[![Docs](https://img.shields.io/badge/docs-VitePress-blue)](https://lessup.github.io/fq-compressor-rust/)
 
 [English](README.md) | [简体中文](README.zh-CN.md) | [C++ Version](https://github.com/LessUp/fq-compressor)
 
@@ -214,7 +214,7 @@ fqc verify -i reads.fqc --quick
 └─────────────────────┘
 ```
 
-See [format-spec.md](docs/en/format-spec.md) for complete specification.
+See [specs/product/file-format.md](specs/product/file-format.md) for complete specification.
 
 ---
 
@@ -284,13 +284,23 @@ cargo fmt --all -- --check          # Must pass
 
 | Document | Description |
 |----------|-------------|
-| [architecture.md](docs/en/architecture.md) | Project architecture and module structure |
-| [format-spec.md](docs/en/format-spec.md) | FQC binary format specification |
-| [algorithms.md](docs/en/algorithms.md) | ABC, SCM, and reordering algorithms |
-| [development.md](docs/en/development.md) | Development guide and contribution process |
-| [performance.md](docs/en/performance.md) | Performance tuning and profiling |
+| [Architecture](docs/architecture/index.md) | Project architecture and module structure |
+| [Algorithms](docs/algorithms/index.md) | ABC, SCM, and reordering algorithms |
+| [Format Spec](specs/product/file-format.md) | FQC binary format specification |
+| [Development Guide](CONTRIBUTING.md) | Development guide and contribution process |
 
-### GitBook
+### Specifications (Spec-Driven Development)
+
+Formal specifications are in `/specs`:
+
+| Directory | Purpose |
+|-----------|---------|
+| [specs/product/](specs/product/) | Product feature definitions and acceptance criteria |
+| [specs/rfc/](specs/rfc/) | Technical design documents (RFCs) |
+| [specs/api/](specs/api/) | API interface definitions |
+| [specs/testing/](specs/testing/) | BDD test specifications |
+
+### Online Documentation
 
 Full documentation: [https://lessup.github.io/fq-compressor-rust/](https://lessup.github.io/fq-compressor-rust/)
 

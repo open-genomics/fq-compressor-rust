@@ -35,7 +35,7 @@ use std::io::{Read, Write};
 pub const MAGIC_BYTES: [u8; 8] = [0x89, b'F', b'Q', b'C', 0x0D, 0x0A, 0x1A, 0x0A];
 pub const MAGIC_END: [u8; 8] = [b'F', b'Q', b'C', b'_', b'E', b'O', b'F', 0x00];
 
-pub const FORMAT_VERSION_MAJOR: u8 = 1;
+pub const FORMAT_VERSION_MAJOR: u8 = 2;
 pub const FORMAT_VERSION_MINOR: u8 = 0;
 pub const CURRENT_VERSION: u8 = (FORMAT_VERSION_MAJOR << 4) | FORMAT_VERSION_MINOR;
 

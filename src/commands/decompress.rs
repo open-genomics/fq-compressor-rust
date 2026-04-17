@@ -510,6 +510,12 @@ impl DecompressCommand {
         for (original_id, &fwd) in forward_map.iter().enumerate().take(total_reads) {
             let archive_id = fwd as usize;
             if archive_id >= all_reads.len() {
+                log::warn!(
+                    "Invalid reorder map reference: original_id {} -> archive_id {} (max {})",
+                    original_id,
+                    archive_id,
+                    all_reads.len() - 1
+                );
                 continue;
             }
 

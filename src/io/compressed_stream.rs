@@ -92,10 +92,20 @@ pub fn detect_format_from_extension(path: &str) -> CompressionFormat {
 pub fn detect_compression_format(path: &str) -> CompressionFormat {
     if let Ok(mut f) = std::fs::File::open(path) {
         let mut magic = [0u8; 6];
-        if std::io::Read::read(&mut f, &mut magic).unwrap_or(0) >= 2 {
-            let fmt = detect_format_from_bytes(&magic);
-            if fmt != CompressionFormat::Plain {
-                return fmt;
+        match std::io::Read::read(&mut f, &mut magic) {
+            Ok(n) if n >= 2 => {
+                let fmt = detect_format_from_bytes(&magic);
+                if fmt != CompressionFormat::Plain {
+                    return fmt;
+                }
+            }
+            Ok(_) => {
+                // File too small for magic detection, fall back to extension
+                log::debug!("File too small for magic detection: {}", path);
+            }
+            Err(e) => {
+                // Read error, fall back to extension
+                log::debug!("Failed to read magic bytes from {}: {}", path, e);
             }
         }
     }

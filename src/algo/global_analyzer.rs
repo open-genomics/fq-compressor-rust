@@ -15,7 +15,7 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct Minimizer {
     pub hash: u64,
-    pub position: u16,
+    pub position: u32,
     pub is_rc: bool,
 }
 
@@ -65,7 +65,7 @@ pub fn extract_minimizers(seq: &[u8], k: usize, w: usize) -> Vec<Minimizer> {
             let is_rc = min_hash != fwd_hash;
             minimizers.push(Minimizer {
                 hash: min_hash,
-                position: min_pos as u16,
+                position: min_pos as u32,
                 is_rc,
             });
             prev_min_pos = min_pos;
@@ -253,7 +253,7 @@ impl GlobalAnalyzer {
         used[0] = true;
 
         while ordered.len() < total_reads {
-            let last_read = *ordered.last().unwrap() as usize;
+            let last_read = *ordered.last().expect("ordered is never empty - initialized with 0") as usize;
             let last_seq = sequences[last_read].as_bytes();
 
             let last_mins = extract_minimizers(last_seq, self.config.minimizer_k, self.config.minimizer_w);

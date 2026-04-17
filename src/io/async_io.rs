@@ -79,14 +79,21 @@ impl BufferPool {
 
     /// Acquire a buffer from the pool, or allocate a new one if empty
     pub fn acquire(&self) -> Vec<u8> {
-        let mut pool = self.pool.lock().unwrap();
+        let mut pool = self.pool.lock().unwrap_or_else(|e| {
+            // If mutex is poisoned (another thread panicked while holding it),
+            // recover the data anyway - the pool state is still valid
+            e.into_inner()
+        });
         pool.pop().unwrap_or_else(|| vec![0u8; self.buffer_size])
     }
 
     /// Return a buffer to the pool
     pub fn release(&self, mut buf: Vec<u8>) {
         buf.clear();
-        let mut pool = self.pool.lock().unwrap();
+        let mut pool = self.pool.lock().unwrap_or_else(|e| {
+            // Recover from poisoned mutex
+            e.into_inner()
+        });
         pool.push(buf);
     }
 

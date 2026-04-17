@@ -1,5 +1,16 @@
 // =============================================================================
-// fqc-rust - Block Compressor (ABC Algorithm + Zstd)
+// ABC Format Version (for backward compatibility)
+// =============================================================================
+
+/// ABC format version 1: uses u16 for lengths (max 65535)
+const ABC_FORMAT_V1: u8 = 0x01;
+/// ABC format version 2: uses u32 for lengths (supports long reads)
+const ABC_FORMAT_V2: u8 = 0x02;
+/// Current ABC format version
+const ABC_CURRENT_VERSION: u8 = ABC_FORMAT_V2;
+
+// =============================================================================
+// Block Compressor (ABC Algorithm + Zstd)
 // =============================================================================
 
 use crate::algo::dna::{reverse_complement, BASE_TO_INDEX, INDEX_TO_BASE};
@@ -128,6 +139,7 @@ fn find_best_alignment(
 
 struct ConsensusSequence {
     sequence: Vec<u8>,
+    /// Base counts for A, C, G, T (index 0-3). N is not counted separately.
     base_counts: Vec<[u16; 4]>,
     contributing_reads: u32,
 }
@@ -137,7 +149,10 @@ impl ConsensusSequence {
         let mut base_counts = vec![[0u16; 4]; read.len()];
         for (i, &b) in read.iter().enumerate() {
             let idx = BASE_TO_INDEX[b as usize] as usize;
-            base_counts[i][idx] = 1;
+            // Only count valid bases (A=0, C=1, G=2, T=3). N=4 is ignored.
+            if idx < 4 {
+                base_counts[i][idx] = 1;
+            }
         }
         Self {
             sequence: read.to_vec(),
@@ -165,7 +180,10 @@ impl ConsensusSequence {
             let b = aligned[align_start + k];
             if pos < self.base_counts.len() {
                 let idx = BASE_TO_INDEX[b as usize] as usize;
-                self.base_counts[pos][idx] = self.base_counts[pos][idx].saturating_add(1);
+                // Only count valid bases (A=0, C=1, G=2, T=3). N=4 is ignored.
+                if idx < 4 {
+                    self.base_counts[pos][idx] = self.base_counts[pos][idx].saturating_add(1);
+                }
             }
         }
 
@@ -174,14 +192,20 @@ impl ConsensusSequence {
     }
 
     fn recompute_consensus(&mut self) {
-        self.sequence.resize(self.base_counts.len(), b'A');
+        self.sequence.resize(self.base_counts.len(), b'N');
         for (i, counts) in self.base_counts.iter().enumerate() {
+            let total: u16 = counts.iter().sum();
+            if total == 0 {
+                // No valid bases at this position, keep 'N'
+                continue;
+            }
             let max_idx = counts
                 .iter()
                 .enumerate()
                 .max_by_key(|(_, &c)| c)
                 .map(|(idx, _)| idx)
                 .unwrap_or(0);
+            // INDEX_TO_BASE[0..4] = [A, C, G, T]
             self.sequence[i] = INDEX_TO_BASE[max_idx];
         }
     }
@@ -193,10 +217,10 @@ impl ConsensusSequence {
 
 struct DeltaEncodedRead {
     original_order: u32,
-    position_offset: i16,
+    position_offset: i32,
     is_rc: bool,
-    read_length: u16,
-    mismatch_positions: Vec<u16>,
+    read_length: u32,
+    mismatch_positions: Vec<u32>,
     mismatch_chars: Vec<u8>,
 }
 
@@ -213,25 +237,25 @@ fn compute_delta(read: &[u8], consensus: &[u8], shift: i32, is_rc: bool) -> Delt
     for i in 0..aligned.len() {
         if i < read_start {
             // Positions before the consensus overlap: store as raw base
-            mismatch_positions.push(i as u16);
+            mismatch_positions.push(i as u32);
             mismatch_chars.push(aligned[i]);
             continue;
         }
         let cons_pos = cons_start + (i - read_start);
         if cons_pos >= consensus.len() {
-            mismatch_positions.push(i as u16);
+            mismatch_positions.push(i as u32);
             mismatch_chars.push(aligned[i]);
         } else if (aligned[i] | 32) != (consensus[cons_pos] | 32) {
-            mismatch_positions.push(i as u16);
+            mismatch_positions.push(i as u32);
             mismatch_chars.push(encode_noise(consensus[cons_pos], aligned[i]));
         }
     }
 
     DeltaEncodedRead {
         original_order: 0,
-        position_offset: shift as i16,
+        position_offset: shift,
         is_rc,
-        read_length: read.len() as u16,
+        read_length: read.len() as u32,
         mismatch_positions,
         mismatch_chars,
     }
@@ -239,7 +263,7 @@ fn compute_delta(read: &[u8], consensus: &[u8], shift: i32, is_rc: bool) -> Delt
 
 #[allow(clippy::needless_range_loop)]
 fn reconstruct_from_delta(delta: &DeltaEncodedRead, consensus: &[u8]) -> Vec<u8> {
-    let shift = delta.position_offset as i32;
+    let shift = delta.position_offset;
     let cons_start = if shift >= 0 { shift as usize } else { 0 };
     let read_start = if shift < 0 { (-shift) as usize } else { 0 };
 
@@ -530,12 +554,15 @@ fn compress_sequences_abc(
 
     let mut buf: Vec<u8> = Vec::with_capacity(reads.len() * 20);
 
+    // Write ABC format version
+    buf.push(ABC_CURRENT_VERSION);
+
     // Write number of contigs
     buf.write_u32::<LittleEndian>(contigs.len() as u32)?;
 
     for contig in &contigs {
-        // Write consensus
-        buf.write_u16::<LittleEndian>(contig.consensus.sequence.len() as u16)?;
+        // Write consensus (u32 for length to support long reads)
+        buf.write_u32::<LittleEndian>(contig.consensus.sequence.len() as u32)?;
         buf.extend_from_slice(&contig.consensus.sequence);
 
         // Write deltas
@@ -543,12 +570,12 @@ fn compress_sequences_abc(
 
         for delta in &contig.deltas {
             buf.write_u32::<LittleEndian>(delta.original_order)?;
-            buf.write_i16::<LittleEndian>(delta.position_offset)?;
+            buf.write_i32::<LittleEndian>(delta.position_offset)?;
             buf.push(u8::from(delta.is_rc));
-            buf.write_u16::<LittleEndian>(delta.read_length)?;
-            buf.write_u16::<LittleEndian>(delta.mismatch_positions.len() as u16)?;
+            buf.write_u32::<LittleEndian>(delta.read_length)?;
+            buf.write_u32::<LittleEndian>(delta.mismatch_positions.len() as u32)?;
             for &pos in &delta.mismatch_positions {
-                buf.write_u16::<LittleEndian>(pos)?;
+                buf.write_u32::<LittleEndian>(pos)?;
             }
             buf.extend_from_slice(&delta.mismatch_chars);
         }
@@ -635,15 +662,40 @@ fn decompress_sequences_abc(data: &[u8], read_count: u32) -> Result<Vec<String>>
     let mut sequences = vec![String::new(); read_count as usize];
     let mut cur = Cursor::new(&buf);
 
-    let num_contigs = cur
-        .read_u32::<LittleEndian>()
-        .map_err(|e| FqcError::Format(format!("Truncated ABC data: {e}")))?;
+    // Read ABC format version
+    let mut version_byte = [0u8; 1];
+    cur.read_exact(&mut version_byte)
+        .map_err(|e| FqcError::Format(format!("Truncated ABC version: {e}")))?;
+    let version = version_byte[0];
+
+    // If version byte looks like part of a u32 (old format without version), rewind
+    // Old format: first byte is part of num_contigs (little-endian u32), typically 0x01-0x10
+    // New format: first byte is version (0x02), then num_contigs
+    let (abc_version, num_contigs) = if version == ABC_FORMAT_V2 {
+        // New format with version prefix
+        let n = cur
+            .read_u32::<LittleEndian>()
+            .map_err(|e| FqcError::Format(format!("Truncated ABC data: {e}")))?;
+        (ABC_FORMAT_V2, n)
+    } else {
+        // Old format: version byte is actually the first byte of num_contigs
+        // Reconstruct num_contigs: version is the low byte
+        let rest = cur
+            .read_u32::<LittleEndian>()
+            .map_err(|e| FqcError::Format(format!("Truncated ABC data: {e}")))?;
+        let num_contigs = (rest << 8) | (version as u32);
+        (ABC_FORMAT_V1, num_contigs)
+    };
 
     for _ in 0..num_contigs {
-        let cons_len = cur
-            .read_u16::<LittleEndian>()
-            .map_err(|e| FqcError::Format(format!("Truncated ABC consensus: {e}")))?;
-        let mut consensus = vec![0u8; cons_len as usize];
+        let cons_len = if abc_version >= ABC_FORMAT_V2 {
+            cur.read_u32::<LittleEndian>()
+                .map_err(|e| FqcError::Format(format!("Truncated ABC consensus: {e}")))? as usize
+        } else {
+            cur.read_u16::<LittleEndian>()
+                .map_err(|e| FqcError::Format(format!("Truncated ABC consensus: {e}")))? as usize
+        };
+        let mut consensus = vec![0u8; cons_len];
         cur.read_exact(&mut consensus)
             .map_err(|e| FqcError::Format(format!("Truncated ABC consensus bytes: {e}")))?;
 
@@ -655,26 +707,55 @@ fn decompress_sequences_abc(data: &[u8], read_count: u32) -> Result<Vec<String>>
             let original_order = cur
                 .read_u32::<LittleEndian>()
                 .map_err(|e| FqcError::Format(format!("Truncated ABC original_order: {e}")))?;
-            let position_offset = cur
-                .read_i16::<LittleEndian>()
-                .map_err(|e| FqcError::Format(format!("Truncated ABC position_offset: {e}")))?;
+
+            let position_offset = if abc_version >= ABC_FORMAT_V2 {
+                cur.read_i32::<LittleEndian>()
+                    .map_err(|e| FqcError::Format(format!("Truncated ABC position_offset: {e}")))?
+            } else {
+                cur.read_i16::<LittleEndian>()
+                    .map_err(|e| FqcError::Format(format!("Truncated ABC position_offset: {e}")))?
+                    as i32
+            };
+
             let mut flags = [0u8; 1];
             cur.read_exact(&mut flags)
                 .map_err(|e| FqcError::Format(format!("Truncated ABC flags: {e}")))?;
             let is_rc = (flags[0] & 1) != 0;
-            let read_length = cur
-                .read_u16::<LittleEndian>()
-                .map_err(|e| FqcError::Format(format!("Truncated ABC read_length: {e}")))?;
-            let num_mismatches = cur
-                .read_u16::<LittleEndian>()
-                .map_err(|e| FqcError::Format(format!("Truncated ABC num_mismatches: {e}")))?;
 
-            let mut mismatch_positions = vec![0u16; num_mismatches as usize];
-            for pos in &mut mismatch_positions {
-                *pos = cur
-                    .read_u16::<LittleEndian>()
-                    .map_err(|e| FqcError::Format(format!("Truncated ABC mismatch_pos: {e}")))?;
-            }
+            let read_length = if abc_version >= ABC_FORMAT_V2 {
+                cur.read_u32::<LittleEndian>()
+                    .map_err(|e| FqcError::Format(format!("Truncated ABC read_length: {e}")))?
+            } else {
+                cur.read_u16::<LittleEndian>()
+                    .map_err(|e| FqcError::Format(format!("Truncated ABC read_length: {e}")))? as u32
+            };
+
+            let num_mismatches = if abc_version >= ABC_FORMAT_V2 {
+                cur.read_u32::<LittleEndian>()
+                    .map_err(|e| FqcError::Format(format!("Truncated ABC num_mismatches: {e}")))?
+            } else {
+                cur.read_u16::<LittleEndian>()
+                    .map_err(|e| FqcError::Format(format!("Truncated ABC num_mismatches: {e}")))? as u32
+            };
+
+            let mismatch_positions = if abc_version >= ABC_FORMAT_V2 {
+                let mut pos = vec![0u32; num_mismatches as usize];
+                for p in &mut pos {
+                    *p = cur
+                        .read_u32::<LittleEndian>()
+                        .map_err(|e| FqcError::Format(format!("Truncated ABC mismatch_pos: {e}")))?;
+                }
+                pos
+            } else {
+                let mut pos = vec![0u32; num_mismatches as usize];
+                for p in &mut pos {
+                    *p = cur
+                        .read_u16::<LittleEndian>()
+                        .map_err(|e| FqcError::Format(format!("Truncated ABC mismatch_pos: {e}")))?
+                        as u32;
+                }
+                pos
+            };
 
             let mut mismatch_chars = vec![0u8; num_mismatches as usize];
             cur.read_exact(&mut mismatch_chars)

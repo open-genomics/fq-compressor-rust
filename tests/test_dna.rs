@@ -26,9 +26,56 @@ fn test_base_to_index_lower() {
 
 #[test]
 fn test_base_to_index_non_base() {
-    assert_eq!(BASE_TO_INDEX[b'N' as usize], 0);
+    // N/n now map to 4 (special marker for N)
+    assert_eq!(BASE_TO_INDEX[b'N' as usize], 4);
+    assert_eq!(BASE_TO_INDEX[b'n' as usize], 4);
+    // Unknown bases (like X) map to 0 (treated as A, but should be validated earlier)
     assert_eq!(BASE_TO_INDEX[b'X' as usize], 0);
     assert_eq!(BASE_TO_INDEX[0], 0);
+}
+
+#[test]
+fn test_is_valid_base() {
+    assert!(is_valid_base(b'A'));
+    assert!(is_valid_base(b'C'));
+    assert!(is_valid_base(b'G'));
+    assert!(is_valid_base(b'T'));
+    assert!(is_valid_base(b'N'));
+    assert!(is_valid_base(b'a'));
+    assert!(is_valid_base(b'c'));
+    assert!(is_valid_base(b'g'));
+    assert!(is_valid_base(b't'));
+    assert!(is_valid_base(b'n'));
+    assert!(!is_valid_base(b'X'));
+    assert!(!is_valid_base(b'?'));
+    assert!(!is_valid_base(0));
+}
+
+#[test]
+fn test_is_valid_base_strict() {
+    // Strict validation excludes N
+    assert!(is_valid_base_strict(b'A'));
+    assert!(is_valid_base_strict(b'C'));
+    assert!(is_valid_base_strict(b'G'));
+    assert!(is_valid_base_strict(b'T'));
+    assert!(!is_valid_base_strict(b'N'));
+    assert!(!is_valid_base_strict(b'X'));
+}
+
+#[test]
+fn test_count_invalid_bases() {
+    assert_eq!(count_invalid_bases(b"ACGT"), 0);
+    assert_eq!(count_invalid_bases(b"ACGN"), 0); // N is valid
+    assert_eq!(count_invalid_bases(b"ACGX"), 1);
+    assert_eq!(count_invalid_bases(b"ACGXYZ"), 3);
+}
+
+#[test]
+fn test_validate_sequence() {
+    assert!(validate_sequence(b"ACGTN").is_ok());
+    assert!(validate_sequence(b"ACGX").is_err());
+    let err = validate_sequence(b"ACGX");
+    assert_eq!(err, Err((3, b'X')));
 }
 
 // =============================================================================
@@ -41,6 +88,7 @@ fn test_index_to_base() {
     assert_eq!(INDEX_TO_BASE[1], b'C');
     assert_eq!(INDEX_TO_BASE[2], b'G');
     assert_eq!(INDEX_TO_BASE[3], b'T');
+    assert_eq!(INDEX_TO_BASE[4], b'N'); // N is now at index 4
 }
 
 // =============================================================================

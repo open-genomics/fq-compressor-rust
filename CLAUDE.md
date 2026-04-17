@@ -1,5 +1,51 @@
 # CLAUDE.md — Project Guide for Claude Code
 
+## Project Philosophy: Spec-Driven Development (SDD)
+
+This project strictly follows the **Spec-Driven Development (SDD)** paradigm. All code implementations must use the `/specs` directory as the single source of truth.
+
+### Directory Context
+
+| Directory | Purpose |
+|-----------|---------|
+| `/specs/product/` | Product feature definitions and acceptance criteria |
+| `/specs/rfc/` | Technical design documents and architecture decisions |
+| `/specs/api/` | API interface definitions (CLI and library APIs) |
+| `/specs/db/` | Database schema definitions (not used - fqc is file-based) |
+| `/specs/testing/` | BDD test case specifications and acceptance criteria |
+| `/docs/` | User guides, tutorials, and architecture documentation |
+
+### AI Agent Workflow Instructions
+
+When you (AI) are asked to develop a new feature, modify existing functionality, or fix a bug, **you MUST strictly follow this workflow without skipping any steps**:
+
+#### Step 1: Review Specs (审查与分析)
+
+- Before writing any code, first read the relevant documents in `/specs` (product specs, RFCs, API definitions).
+- If the user's instruction conflicts with existing specs, **stop immediately** and point out the conflict, asking the user whether to update the spec first.
+
+#### Step 2: Spec-First Update (规范优先)
+
+- If this is a new feature or requires changes to existing interfaces/structures, **you MUST propose changes to the relevant spec documents first** (e.g., RFCs, API specs).
+- Wait for user confirmation of spec changes before entering the coding phase.
+
+#### Step 3: Implementation (代码实现)
+
+- When writing code, **100% comply with spec definitions** (including variable naming, API paths, data types, status codes, etc.).
+- **Do not add features not defined in specs** (No Gold-Plating).
+
+#### Step 4: Test against Spec (测试验证)
+
+- Write unit and integration tests based on acceptance criteria in `/specs`.
+- Ensure test cases cover all boundary conditions described in specs.
+
+### Code Generation Rules
+
+- Any externally exposed API changes must sync with `/specs/api/` documents.
+- If uncertain about technical details, consult `/specs/rfc/` for architecture conventions; do not invent design patterns on your own.
+
+---
+
 ## Project Overview
 
 **fqc** is a high-performance FASTQ compressor written in Rust, featuring the ABC (Alignment-Based Compression) algorithm for short reads and Zstd for medium/long reads. It is a Rust port of the C++ fq-compressor project with feature parity.
@@ -48,6 +94,7 @@ src/
 │   ├── dna.rs               # Shared DNA encoding tables + reverse complement
 │   ├── global_analyzer.rs   # Minimizer-based global read reordering
 │   ├── quality_compressor.rs # SCM order-1/2 arithmetic coding for quality scores
+│   ├── id_compressor.rs     # ID tokenization + delta encoding
 │   └── pe_optimizer.rs      # Paired-end complementarity optimization
 ├── commands/
 │   ├── compress.rs      # CompressCommand: default / streaming / pipeline modes
@@ -88,15 +135,18 @@ src/
 ## Common Patterns
 
 ### Adding a new CLI flag
+
 1. Add field to options struct in `src/commands/<cmd>.rs`
 2. Add `#[arg]` to the `Commands` enum in `src/main.rs`
 3. Wire the field in the match arm in `main.rs`
 
 ### Adding a new error variant
+
 1. Add variant to `FqcError` in `src/error.rs`
 2. Add mapping in `FqcError::exit_code()`
 
 ### Adding a new compression format
+
 1. Add variant to `CompressionFormat` in `src/io/compressed_stream.rs`
 2. Add magic bytes detection in `detect_format_from_bytes()`
 3. Add extension in `detect_format_from_extension()`

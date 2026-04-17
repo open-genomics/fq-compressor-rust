@@ -19,7 +19,8 @@ fn test_version_compatibility() {
     // Same major, different minor
     assert!(is_version_compatible((FORMAT_VERSION_MAJOR << 4) | 0x0F));
     // Different major
-    assert!(!is_version_compatible(0x20)); // major=2
+    assert!(!is_version_compatible(0x30)); // major=3
+    assert!(!is_version_compatible(0x10)); // major=1 (old version)
     assert!(!is_version_compatible(0x00)); // major=0
 }
 
