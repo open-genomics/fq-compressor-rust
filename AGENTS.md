@@ -2,9 +2,58 @@
 
 > This document provides context and guidelines for AI assistants working on the fqc codebase.
 
+## Project Philosophy: Spec-Driven Development (SDD)
+
+This project strictly follows the **Spec-Driven Development (SDD)** paradigm. All code implementations must use the `/specs` directory as the single source of truth.
+
+### Directory Context
+
+| Directory | Purpose |
+|-----------|---------|
+| `/specs/product/` | Product feature definitions and acceptance criteria |
+| `/specs/rfc/` | Technical design documents and architecture decisions |
+| `/specs/api/` | API interface definitions (CLI and library APIs) |
+| `/specs/db/` | Database schema definitions (not used - fqc is file-based) |
+| `/specs/testing/` | BDD test case specifications and acceptance criteria |
+| `/docs/` | User guides, tutorials, and architecture documentation (VitePress) |
+| `/docs/zh/` | Chinese language documentation |
+| `/src/` | Implementation code |
+| `/tests/data/` | Test fixture files (FASTQ samples) |
+
+### AI Agent Workflow Instructions
+
+When you (AI) are asked to develop a new feature, modify existing functionality, or fix a bug, **you MUST strictly follow this workflow without skipping any steps**:
+
+#### Step 1: Review Specs
+
+- Before writing any code, first read the relevant documents in `/specs` (product specs, RFCs, API definitions).
+- If the user's instruction conflicts with existing specs, **stop immediately** and point out the conflict, asking the user whether to update the spec first.
+
+#### Step 2: Spec-First Update
+
+- If this is a new feature or requires changes to existing interfaces/structures, **you MUST propose changes to the relevant spec documents first** (e.g., RFCs, API specs).
+- Wait for user confirmation of spec changes before entering the coding phase.
+
+#### Step 3: Implementation
+
+- When writing code, **100% comply with spec definitions** (including variable naming, API paths, data types, status codes, etc.).
+- **Do not add features not defined in specs** (No Gold-Plating).
+
+#### Step 4: Test against Spec
+
+- Write unit and integration tests based on acceptance criteria in `/specs`.
+- Ensure test cases cover all boundary conditions described in specs.
+
+### Code Generation Rules
+
+- Any externally exposed API changes must sync with `/specs/api/` documents.
+- If uncertain about technical details, consult `/specs/rfc/` for architecture conventions; do not invent design patterns on your own.
+
+---
+
 ## Identity
 
-**fqc** is a high-performance FASTQ compressor in Rust. It compresses genomic sequencing data (FASTQ format) using domain-specific algorithms:
+**fqc** is a high-performance FASTQ compressor written in Rust. It compresses genomic sequencing data (FASTQ format) using domain-specific algorithms:
 
 - **ABC Algorithm** — Consensus + delta encoding for short reads (< 300bp)
 - **Zstd** — General-purpose compression for medium/long reads
@@ -24,41 +73,80 @@ cargo fmt --all -- --check     # must pass
 
 ```
 src/
-├── main.rs           # CLI (clap derive): compress, decompress, info, verify
-├── lib.rs            # Library re-exports
-├── error.rs          # FqcError (11 variants) → ExitCode (0-5)
-├── types.rs          # ReadRecord, QualityMode, IdMode, PeLayout, ReadLengthClass
-├── format.rs         # Binary format: magic, GlobalHeader, BlockHeader, Footer
-├── fqc_reader.rs     # Block-indexed archive reader
-├── fqc_writer.rs     # Archive writer with finalize
-├── reorder_map.rs    # ZigZag delta + varint encoded bidirectional map
-├── algo/             # Compression algorithms
+├── main.rs              # CLI entry point (clap derive), command dispatch
+├── lib.rs               # Library root, re-exports all modules
+├── error.rs             # FqcError (11 variants) → ExitCode (0-5)
+├── types.rs             # Core types: ReadRecord, QualityMode, IdMode, PeLayout, ReadLengthClass
+├── format.rs            # FQC binary format: magic, GlobalHeader, BlockHeader, Footer
+├── fqc_reader.rs        # Block-indexed archive reader
+├── fqc_writer.rs        # Archive writer with finalize
+├── reorder_map.rs       # ZigZag delta + varint encoded bidirectional map
+├── algo/                # Compression algorithms
 │   ├── block_compressor.rs   # ABC (consensus + delta) / Zstd
 │   ├── dna.rs               # Shared DNA encoding tables + reverse complement
-│   ├── global_analyzer.rs    # Minimizer reordering
+│   ├── global_analyzer.rs   # Minimizer reordering
 │   ├── quality_compressor.rs # SCM arithmetic coding
-│   ├── id_compressor.rs      # ID tokenization + delta encoding
-│   └── pe_optimizer.rs       # Paired-end optimization
-├── commands/         # CLI commands
-│   ├── compress.rs   # default / streaming / pipeline modes
-│   ├── decompress.rs # sequential / parallel / reorder / pipeline
-│   ├── info.rs       # archive info
-│   └── verify.rs     # integrity check
+│   ├── id_compressor.rs     # ID tokenization + delta encoding
+│   └── pe_optimizer.rs      # Paired-end optimization
+├── commands/            # CLI commands
+│   ├── compress.rs      # default / streaming / pipeline modes
+│   ├── decompress.rs    # sequential / parallel / reorder / pipeline
+│   ├── info.rs          # archive info
+│   └── verify.rs        # integrity check
 ├── common/
-│   └── memory_budget.rs  # System memory detection, chunking
+│   └── memory_budget.rs     # System memory detection, chunking
 ├── fastq/
-│   └── parser.rs     # FASTQ parser, validation, PE, stats
+│   └── parser.rs            # FASTQ parser, validation, PE, stats
 ├── io/
-│   ├── async_io.rs           # Async read/write with buffer pool
-│   └── compressed_stream.rs  # Feature-gated gz/bz2/xz/zst
+│   ├── async_io.rs          # Async read/write with buffer pool
+│   └── compressed_stream.rs # Feature-gated gz/bz2/xz/zst
 └── pipeline/
-    ├── mod.rs            # Shared types (PipelineControl, PipelineStats)
-    ├── compression.rs    # 3-stage compression pipeline
-    └── decompression.rs  # 3-stage decompression pipeline
+    ├── mod.rs               # Shared types (PipelineControl, PipelineStats)
+    ├── compression.rs       # 3-stage compression pipeline
+    └── decompression.rs     # 3-stage decompression pipeline
+
+specs/
+├── README.md            # Specs index and SDD philosophy
+├── product/             # Product feature definitions
+│   ├── core-compression.md
+│   ├── cli-commands.md
+│   └── file-format.md
+├── rfc/                 # Technical design documents
+│   ├── 0001-core-architecture.md
+│   ├── 0002-compression-algorithms.md
+│   └── 0003-pipeline-architecture.md
+├── api/                 # API interface definitions
+├── db/                  # Database schemas (not used)
+└── testing/             # BDD test specifications
+
+docs/
+├── .vitepress/          # VitePress configuration
+├── guide/               # User guide (English)
+├── architecture/        # Architecture docs
+├── algorithms/          # Algorithm documentation
+├── changelog/           # Release notes (English)
+│   ├── index.md
+│   └── releases/
+│       ├── v0.1.0.md
+│       ├── v0.1.1.md
+│       └── zh/          # Chinese release notes
+├── zh/                  # Chinese documentation
+│   ├── README.md
+│   ├── guide/
+│   ├── architecture/
+│   ├── algorithms/
+│   └── changelog/
+└── index.md             # VitePress landing page
 
 tests/
-├── test_algo.rs         # 19 algorithm tests (ID/quality compressor, PE optimizer)
-├── test_dna.rs          # 15 DNA utility tests (encoding tables, reverse complement)
+├── data/                # Test fixture files
+│   ├── README.md
+│   ├── test_se.fastq
+│   ├── test_R1.fastq
+│   ├── test_R2.fastq
+│   └── test_interleaved.fastq
+├── test_algo.rs         # 19 algorithm tests
+├── test_dna.rs          # 15 DNA utility tests
 ├── test_e2e.rs          # 15 end-to-end tests
 ├── test_format.rs       # 15 binary format tests
 ├── test_parser.rs       # 19 FASTQ parser tests
@@ -131,7 +219,7 @@ pub fn my_function() -> Result<()> {
 ```rust
 // Step 1: In src/commands/compress.rs
 pub struct CompressOptions {
-    // ...
+    // ...existing fields
     pub my_new_flag: bool,
 }
 
@@ -139,7 +227,7 @@ pub struct CompressOptions {
 #[derive(Subcommand)]
 enum Commands {
     Compress {
-        // ...
+        // ...existing args
         #[arg(long)]
         my_new_flag: bool,
     },
@@ -191,12 +279,12 @@ use super::*;
 fn test_my_feature() -> Result<()> {
     let input = "tests/data/test_se.fastq";
     let output = TempFile::new(".fqc")?;
-    
+
     compress_file(input, output.path(), Default::default())?;
-    
+
     let records = decompress_file(output.path(), Default::default())?;
     let original = read_fastq_records(input)?;
-    
+
     assert_roundtrip_match(&original, &records)?;
     Ok(())
 }

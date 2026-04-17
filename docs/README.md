@@ -1,51 +1,72 @@
-# fqc Technical Documentation
+# Documentation
 
-This directory contains technical documentation for fqc (fq-compressor-rust).
+This directory contains developer and user documentation for fqc.
 
-## 📚 Available Languages
+## Structure
 
-| 语言 / Language | 目录 | 状态 |
-|-----------------|------|------|
-| 中文 (Chinese) | [zh/](zh/) | ✅ 完整 |
-| English | [en/](en/) | ✅ Complete |
+```
+docs/
+├── guide/              # User guides and tutorials
+│   ├── what-is-fqc.md  # Introduction to fqc
+│   ├── installation.md # Installation instructions
+│   ├── quick-start.md  # Quick start guide
+│   └── cli/            # CLI command documentation
+│       └── compress.md # Compression command details
+├── architecture/       # High-level architecture documentation
+│   └── index.md        # Architecture overview
+├── algorithms/         # Algorithm documentation
+│   └── index.md        # Algorithm overview
+├── changelog/          # Version changelogs
+│   └── index.md        # Changelog index
+├── public/             # Public assets (favicons, logos)
+│   ├── logo.svg
+│   └── favicon.svg
+└── .vitepress/         # VitePress site configuration
+    ├── config.mts      # Main configuration
+    └── theme/          # Theme customization
+```
 
-## 📖 Documentation Index
+## Building Documentation
 
-### Architecture & Design
-- **EN**: [en/architecture.md](en/architecture.md)
-- **中文**: [zh/architecture.md](zh/architecture.md)
+```bash
+# Install dependencies
+npm install
 
-### Format Specification
-- **EN**: [en/format-spec.md](en/format-spec.md)
-- **中文**: [zh/format-spec.md](zh/format-spec.md)
+# Development server
+npm run docs:dev
 
-### Compression Algorithms
-- **EN**: [en/algorithms.md](en/algorithms.md)
-- **中文**: [zh/algorithms.md](zh/algorithms.md)
+# Build for production
+npm run docs:build
 
-### Development Guide
-- **EN**: [en/development.md](en/development.md)
-- **中文**: [zh/development.md](zh/development.md)
+# Preview production build
+npm run docs:preview
+```
 
-### Performance Tuning
-- **EN**: [en/performance.md](en/performance.md)
-- **中文**: [zh/performance.md](zh/performance.md)
+## Documentation Standards
 
-## 🔗 Related Files
+- Use Markdown with VitePress extensions
+- English documentation in root directories
+- Chinese documentation in `zh/` subdirectories (if needed)
+- Include code examples where applicable
+- Link to specs in `/specs` directory for technical details
 
-- [README.md](../README.md) — Project overview and usage
-- [CHANGELOG.md](../CHANGELOG.md) — Version history
-- [Cargo.toml](../Cargo.toml) — Dependencies and build configuration
-- [CONTRIBUTING.md](../CONTRIBUTING.md) — Contribution guidelines
+## Relationship with Specs
 
----
+- **`/specs`** - Formal specifications (what the system should do)
+- **`/docs`** - User/developer guides (how to use and understand the system)
 
-## Quick Navigation
+When documenting features, link to the corresponding spec:
 
-| Topic | English | 中文 |
-|-------|---------|------|
-| Project architecture | [en/architecture.md](en/architecture.md) | [zh/architecture.md](zh/architecture.md) |
-| Binary format spec | [en/format-spec.md](en/format-spec.md) | [zh/format-spec.md](zh/format-spec.md) |
-| ABC/SCM algorithms | [en/algorithms.md](en/algorithms.md) | [zh/algorithms.md](zh/algorithms.md) |
-| Development setup | [en/development.md](en/development.md) | [zh/development.md](zh/development.md) |
-| Performance tuning | [en/performance.md](en/performance.md) | [zh/performance.md](zh/performance.md) |
+```markdown
+For technical details, see [File Format Specification](../specs/product/file-format.md).
+```
+
+## VitePress Configuration
+
+The site is configured for multi-language support (English and Chinese). See `docs/.vitepress/config.mts` for navigation and sidebar configuration.
+
+## Related
+
+- **Specs**: See `/specs` directory for formal specifications
+- **README**: See `../README.md` for project overview
+- **Contributing**: See `../CONTRIBUTING.md` for contribution guidelines
