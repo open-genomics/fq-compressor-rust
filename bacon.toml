@@ -28,6 +28,10 @@ need_stdout = true
 command = ["cargo", "doc", "--no-deps", "--color", "always"]
 need_stdout = false
 
+[jobs.validate]
+command = ["bash", "scripts/validate.sh", "full"]
+need_stdout = true
+
 [jobs.run]
 command = ["cargo", "run", "--color", "always", "--"]
 need_stdout = true

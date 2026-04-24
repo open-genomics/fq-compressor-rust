@@ -577,7 +577,7 @@ impl DecompressCommand {
         };
 
         let mut pipeline = DecompressionPipeline::new(pipeline_config);
-        pipeline.run(&self.opts.input_path, &self.opts.output_path, None)?;
+        pipeline.run(&self.opts.input_path, &self.opts.output_path)?;
 
         let stats = pipeline.stats();
         self.stats.total_reads = stats.total_reads;

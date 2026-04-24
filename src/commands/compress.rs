@@ -797,10 +797,9 @@ impl CompressCommand {
                 &self.opts.output_path,
                 input_filename,
                 self.opts.pe_layout,
-                None,
             )?;
         } else {
-            pipeline.run(&self.opts.input_path, &self.opts.output_path, input_filename, None)?;
+            pipeline.run(&self.opts.input_path, &self.opts.output_path, input_filename)?;
         }
 
         let stats = pipeline.stats();

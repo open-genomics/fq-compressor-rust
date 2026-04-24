@@ -19,7 +19,7 @@ use crate::format::{build_flags, GlobalHeader};
 use crate::fqc_writer::FqcWriter;
 use crate::types::*;
 
-use super::{PipelineControl, PipelineStats, ProgressCallback, ReadChunk, DEFAULT_MAX_IN_FLIGHT_BLOCKS};
+use super::{PipelineControl, PipelineStats, ReadChunk, DEFAULT_MAX_IN_FLIGHT_BLOCKS};
 
 // =============================================================================
 // CompressionPipelineConfig
@@ -139,13 +139,7 @@ impl CompressionPipeline {
     }
 
     /// Run compression on a single-end input file
-    pub fn run(
-        &mut self,
-        input_path: &str,
-        output_path: &str,
-        original_filename: &str,
-        _progress_callback: Option<ProgressCallback>,
-    ) -> Result<()> {
+    pub fn run(&mut self, input_path: &str, output_path: &str, original_filename: &str) -> Result<()> {
         self.config.validate()?;
         let start = Instant::now();
         let threads = self.config.effective_threads();
@@ -387,7 +381,6 @@ impl CompressionPipeline {
         output_path: &str,
         original_filename: &str,
         pe_layout: PeLayout,
-        _progress_callback: Option<ProgressCallback>,
     ) -> Result<()> {
         self.config.validate()?;
         let start = Instant::now();

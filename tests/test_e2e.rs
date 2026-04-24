@@ -247,7 +247,7 @@ fn test_e2e_archive_info() {
 #[test]
 fn test_e2e_parser_stats() {
     let input = test_data_dir().join("test_se.fastq").to_string_lossy().to_string();
-    let file = std::fs::File::open(&input).unwrap();
+    let file = std::fs::File::open(input).unwrap();
     let reader = BufReader::new(file);
     let opts = ParserOptions {
         collect_stats: true,
@@ -415,7 +415,7 @@ fn test_e2e_pipeline_roundtrip() {
     };
 
     let mut pipeline = CompressionPipeline::new(config);
-    pipeline.run(&input, compressed.path(), "test_se.fastq", None).unwrap();
+    pipeline.run(&input, compressed.path(), "test_se.fastq").unwrap();
 
     let stats = pipeline.stats();
     assert_eq!(stats.total_reads, 20);
@@ -448,7 +448,7 @@ fn test_e2e_decompress_pipeline_roundtrip() {
         ..Default::default()
     };
     let mut pipeline = DecompressionPipeline::new(config);
-    pipeline.run(compressed.path(), decompressed.path(), None).unwrap();
+    pipeline.run(compressed.path(), decompressed.path()).unwrap();
 
     let stats = pipeline.stats();
     assert_eq!(stats.total_reads, 20);

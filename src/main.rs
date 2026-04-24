@@ -39,7 +39,7 @@ use types::*;
 #[derive(Parser, Debug)]
 #[command(
     name = "fqc",
-    version = "0.1.0",
+    version = env!("CARGO_PKG_VERSION"),
     about = "High-performance FASTQ compressor with random access support",
     long_about = None,
 )]
@@ -86,7 +86,12 @@ enum Commands {
         output: String,
 
         /// Compression level (1-9)
-        #[arg(short = 'l', long, default_value_t = 6, value_parser = clap::value_parser!(u8).range(1..=9))]
+        #[arg(
+            short = 'l',
+            long,
+            default_value_t = DEFAULT_COMPRESSION_LEVEL,
+            value_parser = clap::value_parser!(u8).range(1..=9)
+        )]
         level: u8,
 
         /// Enable global read reordering (improves compression for short reads)
@@ -279,7 +284,7 @@ fn main() {
                 streaming_mode: streaming,
                 quality_mode: parse_quality_mode(&lossy_quality),
                 threads: cli.threads,
-                memory_limit_mb: if cli.memory_limit == 0 { 8192 } else { cli.memory_limit },
+                memory_limit_mb: cli.memory_limit,
                 force_overwrite: force,
                 show_progress,
                 pe_layout: parse_pe_layout(&pe_layout),

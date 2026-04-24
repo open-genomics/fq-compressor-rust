@@ -20,21 +20,21 @@ name = "fqc"
 path = "src/lib.rs"
 
 [dependencies]
-clap = { version = "4", features = ["derive"] }
-zstd = "0.13"
-xxhash-rust = { version = "0.8", features = ["xxh64"] }
-rayon = "1.10"
-thiserror = "1"
-byteorder = "1"
-log = "0.4"
-env_logger = "0.11"
-flate2 = { version = "1", optional = true }
-bzip2 = { version = "0.4", optional = true }
-xz2 = { version = "0.1", optional = true }
-crossbeam-channel = "0.5"
+clap = { version = "=4.5.60", features = ["derive"] }
+zstd = "=0.13.3"
+xxhash-rust = { version = "=0.8.15", features = ["xxh64"] }
+rayon = "=1.10.0"
+thiserror = "=1.0.69"
+byteorder = "=1.5.0"
+log = "=0.4.29"
+env_logger = "=0.11.9"
+flate2 = { version = "=1.1.9", optional = true }
+bzip2 = { version = "=0.4.4", optional = true }
+xz2 = { version = "=0.1.7", optional = true }
+crossbeam-channel = "=0.5.15"
 
 [target.'cfg(target_env = "musl")'.dependencies]
-tikv-jemallocator = "0.6"
+tikv-jemallocator = "=0.6.1"
 
 [features]
 default = ["gz", "bz2", "xz"]

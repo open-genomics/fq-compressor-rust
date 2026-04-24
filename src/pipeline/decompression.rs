@@ -18,7 +18,7 @@ use crate::format::{flags, get_id_mode, get_pe_layout, get_quality_mode, get_rea
 use crate::fqc_reader::{BlockData, FqcReader};
 use crate::io::async_io::AsyncWriter;
 
-use super::{PipelineControl, PipelineStats, ProgressCallback, DEFAULT_MAX_IN_FLIGHT_BLOCKS};
+use super::{PipelineControl, PipelineStats, DEFAULT_MAX_IN_FLIGHT_BLOCKS};
 
 // =============================================================================
 // DecompressionPipelineConfig
@@ -116,12 +116,7 @@ impl DecompressionPipeline {
 
     /// Run decompression pipeline
     #[allow(clippy::too_many_lines)]
-    pub fn run(
-        &mut self,
-        input_path: &str,
-        output_path: &str,
-        _progress_callback: Option<ProgressCallback>,
-    ) -> Result<()> {
+    pub fn run(&mut self, input_path: &str, output_path: &str) -> Result<()> {
         let start = Instant::now();
         let threads = self.config.effective_threads();
 
