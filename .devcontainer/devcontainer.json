@@ -1,120 +1,48 @@
 {
-    // =========================================================================
-    // fqc (fq-compressor-rust) Dev Container Configuration
-    // =========================================================================
-    // Rust MSRV: 1.75 | Edition: 2021
-    //
-    // Usage:
-    //   1. Open VS Code / Windsurf / Cursor
-    //   2. "Dev Containers: Reopen in Container"
-    //   3. Build:  cargo build
-    //   4. Test:   cargo test --lib --tests
-    // =========================================================================
-    "name": "fqc - Rust Development",
+    "name": "fqc closure workspace",
     "build": {
         "dockerfile": "Dockerfile"
     },
-
-    // =========================================================================
-    // DevContainer Features
-    // =========================================================================
     "features": {
         "ghcr.io/devcontainers/features/git:1": {},
-        "ghcr.io/devcontainers/features/github-cli:1": {}
+        "ghcr.io/devcontainers/features/github-cli:1": {},
+        "ghcr.io/devcontainers/features/node:1": {
+            "version": "20"
+        }
     },
-
-    // =========================================================================
-    // Volume Mounts - 持久化缓存 + 宿主机配置
-    // =========================================================================
     "mounts": [
-        // Cargo registry 缓存（避免每次重建容器重新下载）
         "source=fqc-cargo-cache,target=/usr/local/cargo/registry,type=volume",
-        // target 目录缓存（加速增量编译）
         "source=fqc-target-cache,target=${containerWorkspaceFolder}/target,type=volume"
-        // SSH 密钥（取消注释以启用，需确保宿主机有 ~/.ssh 目录）
-        // "type=bind,source=${localEnv:HOME}/.ssh,target=/home/vscode/.ssh,readonly"
     ],
-
-    // =========================================================================
-    // Environment Variables
-    // =========================================================================
     "containerEnv": {
         "CARGO_TERM_COLOR": "always",
-        "RUST_LOG": "info",
         "RUST_BACKTRACE": "1"
     },
-    "remoteEnv": {
-        "EDITOR": "code --wait",
-        "VISUAL": "code --wait"
-    },
-
-    // =========================================================================
-    // Lifecycle Commands
-    // =========================================================================
     "postCreateCommand": "bash ${containerWorkspaceFolder}/.devcontainer/scripts/container-setup.sh create",
     "postStartCommand": "bash ${containerWorkspaceFolder}/.devcontainer/scripts/container-setup.sh start",
-
     "remoteUser": "vscode",
-
-    // =========================================================================
-    // VS Code Customizations
-    // =========================================================================
     "customizations": {
         "vscode": {
             "settings": {
-                // ---- Rust Analyzer ----
+                "editor.formatOnSave": true,
                 "rust-analyzer.check.command": "clippy",
                 "rust-analyzer.check.allTargets": true,
                 "rust-analyzer.cargo.allFeatures": true,
-                "rust-analyzer.inlayHints.parameterHints.enable": false,
-                "rust-analyzer.inlayHints.chainingHints.enable": false,
-
-                // ---- Terminal ----
-                "terminal.integrated.defaultProfile.linux": "bash",
-
-                // ---- Editor ----
-                "editor.formatOnSave": true,
-                "editor.defaultFormatter": "rust-lang.rust-analyzer",
                 "[rust]": {
                     "editor.defaultFormatter": "rust-lang.rust-analyzer"
                 },
                 "[toml]": {
                     "editor.defaultFormatter": "tamasfe.even-better-toml"
-                },
-
-                // ---- Files ----
-                "files.trimTrailingWhitespace": true,
-                "files.insertFinalNewline": true,
-                "files.associations": {
-                    "*.toml": "toml"
-                },
-
-                // ---- Search Excludes ----
-                "search.exclude": {
-                    "**/target": true,
-                    "**/.git": true
                 }
             },
             "extensions": [
-                // Rust 开发
+                "github.copilot",
+                "github.copilot-chat",
                 "rust-lang.rust-analyzer",
                 "tamasfe.even-better-toml",
-                "serayuzgur.crates",
                 "vadimcn.vscode-lldb",
-                "fill-labs.dependi",
-
-                // 代码质量
-                "usernamehw.errorlens",
-                "EditorConfig.EditorConfig",
-                "streetsidesoftware.code-spell-checker",
-
-                // Git
-                "eamodio.gitlens",
-                "mhutchie.git-graph",
-
-                // 实用工具
-                "yzhang.markdown-all-in-one",
-                "redhat.vscode-yaml"
+                "redhat.vscode-yaml",
+                "editorconfig.editorconfig"
             ]
         }
     }

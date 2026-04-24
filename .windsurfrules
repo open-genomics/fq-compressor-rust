@@ -1,103 +1,22 @@
-# Windsurf Rules — fqc (Rust)
+# Windsurf / OpenCode notes for fqc
 
-> Rust 实现的高性能 FASTQ 压缩器。MSRV 1.75，ABC + Zstd 双策略。
+- Read `AGENTS.md` first.
+- Use `openspec/specs/` as the living source of truth.
+- This repository is in stabilization mode: reduce drift, simplify workflows, and keep changes tightly scoped.
 
-## 验证命令（提交前必须全部通过）
+## Required checks
 
 ```bash
-cargo build                    # 编译检查
-cargo test --lib --tests       # 131 tests
-cargo clippy --all-targets     # 0 warnings (pedantic)
-cargo fmt --all -- --check     # 格式检查
+cargo fmt --all -- --check
+cargo clippy --all-targets -- -D warnings
+cargo test --lib --tests
+cargo doc --no-deps
+npm run docs:build
 ```
 
-## 项目布局
+## Workflow
 
-```
-src/
-├── main.rs              # CLI (clap derive): compress/decompress/info/verify
-├── lib.rs               # 库导出
-├── error.rs             # FqcError (11 variants) → ExitCode (0-5)
-├── types.rs             # ReadRecord, QualityMode, IdMode, PeLayout, ReadLengthClass
-├── format.rs            # FQC 二进制格式: magic, GlobalHeader, BlockHeader, Footer
-├── fqc_reader.rs        # 块索引随机访问读取器
-├── fqc_writer.rs        # 归档写入器 (block index + finalize)
-├── reorder_map.rs       # 双向重排序映射 (ZigZag varint)
-├── algo/                # 压缩算法
-│   ├── block_compressor.rs   # ABC (consensus + delta) / Zstd
-│   ├── dna.rs                # 共享 DNA 编码表 + reverse complement
-│   ├── global_analyzer.rs    # Minimizer 重排序
-│   ├── quality_compressor.rs # SCM 算术编码
-│   └── pe_optimizer.rs       # Paired-end 优化
-├── commands/            # CLI 命令实现
-├── common/memory_budget.rs   # 系统内存检测 + ChunkingStrategy
-├── fastq/parser.rs      # FASTQ 解析, 验证, PE, chunk 读取
-├── io/
-│   ├── async_io.rs           # AsyncReader/AsyncWriter/BufferPool
-│   └── compressed_stream.rs  # Feature-gated gz/bz2/xz/zst
-└── pipeline/            # 3 阶段 Reader→Compressor→Writer (crossbeam)
-tests/                   # 8 套: e2e(15) roundtrip(14) algo(19) dna(15) parser(19) reorder_map(23) format(15) types(11)
-```
-
-## 编码规则
-
-### 强制
-- **MSRV 1.75** — 不得使用 1.75 之后稳定的 API
-- **`unsafe_code = "deny"`** — 仅 `memory_budget.rs` Windows FFI 允许 `#[allow]`
-- **Clippy pedantic 0 warnings** — 领域特定 allow 配置在 `Cargo.toml [lints.clippy]`
-- **`log` crate** — `log::{info,warn,debug}!`; 禁止 `println!` 做状态输出
-- **`thiserror`** — 新错误加到 `FqcError`, 在 `exit_code()` 映射
-- **Feature-gated** — gz/bz2/xz 在 `compressed_stream.rs` 用 `#[cfg(feature)]`
-
-### 风格
-- 4 空格缩进, 120 列宽 (`rustfmt.toml`)
-- Import 顺序: std → 外部 → crate (`imports_granularity = "Crate"`)
-- 段落分隔: `// ====...====`
-- 不改注释/文档除非明确要求
-
-### 禁止
-- 改 FQC 二进制格式不升版本号
-- 删除或弱化已有测试
-- 平台特定路径 — 用 `std::path::Path`
-- 库代码用 `unwrap()` — 用 `?` + `FqcError`
-- 无理由添加依赖
-
-## 常用模式速查
-
-### 加 CLI flag
-1. `src/commands/<cmd>.rs` options struct 加字段
-2. `src/main.rs` `Commands` enum 加 `#[arg]`
-3. `main.rs` match arm 接线
-
-### 加错误变体
-1. `error.rs` `FqcError` 加 variant
-2. `exit_code()` 加映射
-
-### 加压缩格式
-1. `compressed_stream.rs` 加 `CompressionFormat` variant + magic + 扩展名检测
-2. 加 reader (`#[cfg(feature)]`)
-3. `Cargo.toml` 加 optional dep + feature
-
-### 加测试
-- 用 `test_e2e.rs` 的 `compress_file()` / `decompress_file()` / `read_fastq_records()` helper
-- 用 `TempFile` RAII guard 自动清理临时文件
-- round-trip 逐条 record 比对 (id, sequence, quality)
-
-## 依赖
-
-| Crate | 用途 |
-|-------|------|
-| clap 4 (derive) | CLI 解析 |
-| zstd 0.13 | Zstd 压缩 (必需) |
-| xxhash-rust 0.8 | xxHash64 校验 |
-| rayon 1.10 | 并行块处理 |
-| crossbeam-channel 0.5 | Pipeline 通信 |
-| thiserror 1 | 错误派生 |
-| byteorder 1 | 小端二进制 I/O |
-| log + env_logger | 日志 |
-| flate2 / bzip2 / xz2 | 可选压缩格式 |
-| tikv-jemallocator 0.6 | musl 静态构建内存分配器 |
-
-## CI/CD
-- **ci.yml** — push/PR: check, test (3 OS), clippy, fmt, MSRV 1.75, cargo-deny
-- **release.yml** — `v*` tag: 版本验证 → 测试 → 5 目标构建 → GitHub Release + checksums
+1. Update or create the relevant OpenSpec change before behavior changes.
+2. Implement the full slice.
+3. Update README, docs, and OpenSpec together.
+4. Use review before merge. Avoid parallel speculative branches and avoid `/fleet` unless truly necessary.
