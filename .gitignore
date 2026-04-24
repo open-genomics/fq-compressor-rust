@@ -41,4 +41,6 @@ lcov.info
 
 # Documentation build (Honkit)
 docs/.site/
+docs/.vitepress/dist/
+docs/.vitepress/cache/
 node_modules/

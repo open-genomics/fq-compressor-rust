@@ -1,37 +1,12 @@
-# .github/workflows/pages-vitepress.yml
-# =============================================================================
-# VitePress Documentation Deployment - ULTRA PERFORMANCE EDITION
-# =============================================================================
-# Features: 
-# - PNPM for 2x faster installs
-# - Aggressive caching (node_modules + VitePress cache)
-# - Parallel builds for preview
-# - Lightning CSS minification
-# - HTTP/2 push optimization
-# =============================================================================
-
 name: VitePress Pages
 
 on:
   push:
-    branches:
-      - main
-      - master
+    branches: [main, master]
     paths:
       - 'docs/**'
       - 'package.json'
       - 'package-lock.json'
-      - 'pnpm-lock.yaml'
-      - '.github/workflows/pages-vitepress.yml'
-  pull_request:
-    branches:
-      - main
-      - master
-    paths:
-      - 'docs/**'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'pnpm-lock.yaml'
       - '.github/workflows/pages-vitepress.yml'
   workflow_dispatch:
 
@@ -39,74 +14,30 @@ permissions:
   contents: read
   pages: write
   id-token: write
-  pull-requests: write
 
 concurrency:
-  group: vitepress-${{ github.ref }}
+  group: pages-${{ github.ref }}
   cancel-in-progress: true
 
-env:
-  NODE_VERSION: '20'
-
 jobs:
-  # ===========================================================================
-  # Build Documentation - MAXIMUM PERFORMANCE
-  # ===========================================================================
   build:
-    name: Build VitePress
+    name: Build
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-
-      - name: Restore VitePress cache
-        uses: actions/cache@v4
-        with:
-          path: docs/.vitepress/cache
-          key: vitepress-cache-${{ runner.os }}-${{ hashFiles('docs/**/*.md', 'docs/.vitepress/**/*.ts') }}
-          restore-keys: |
-            vitepress-cache-${{ runner.os }}-
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Build VitePress site
-        run: npm run docs:build
-        env:
-          NODE_OPTIONS: '--max-old-space-size=4096'
-
-      - name: Validate build output
-        run: |
-          if [ ! -d "docs/.vitepress/dist" ]; then
-            echo "::error::Documentation build failed - output directory not found"
-            exit 1
-          fi
-          if [ ! -f "docs/.vitepress/dist/index.html" ]; then
-            echo "::error::Documentation build failed - index.html not found"
-            exit 1
-          fi
-          echo "Documentation build successful"
-          echo "Output size: $(du -sh docs/.vitepress/dist | cut -f1)"
-          echo "Total files: $(find docs/.vitepress/dist -type f | wc -l)"
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v3
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: npm run docs:build
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
         with:
           path: docs/.vitepress/dist
 
-  # ===========================================================================
-  # Deploy to GitHub Pages - MAIN BRANCH ONLY
-  # ===========================================================================
   deploy:
-    name: Deploy to Pages
+    name: Deploy
     runs-on: ubuntu-latest
     needs: build
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
@@ -114,100 +45,5 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Deploy to GitHub Pages
-        id: deployment
+      - id: deployment
         uses: actions/deploy-pages@v4
-
-  # ===========================================================================
-  # PR Preview - DEPLOY PREVIEW FOR PULL REQUESTS
-  # ===========================================================================
-  preview:
-    name: PR Preview
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.event_name == 'pull_request'
-    steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: vitepress-dist
-          path: site
-
-      - name: Deploy to PR preview
-        id: preview
-        uses: rossjrw/pr-preview-action@v1
-        with:
-          source-dir: site
-          preview-branch: gh-pages
-          umbrella-dir: pr-preview
-          action: auto
-
-      - name: Comment PR preview URL
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const pr_number = context.issue.number;
-            const preview_url = `${{ steps.preview.outputs.deployment-url }}`;
-            
-            const { data: comments } = await github.rest.issues.listComments({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: pr_number
-            });
-            
-            const bot_comment = comments.find(comment =>
-              comment.user.type === 'Bot' &&
-              comment.body.includes('VitePress Preview')
-            );
-            
-            const body = `##  VitePress Preview Built
-            
-            |  | Link |
-            |---|------|
-            | :rocket: Preview | [View Documentation](${preview_url}) |
-            | :page_facing_up: Commit | \`${{ github.sha }}\` |
-            
-            Preview will be updated on new commits.`;
-            
-            if (bot_comment) {
-              await github.rest.issues.updateComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                comment_id: bot_comment.id,
-                body: body
-              });
-            } else {
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pr_number,
-                body: body
-              });
-            }
-
-  # ===========================================================================
-  # Performance Metrics - TRACK BUILD PERFORMANCE
-  # ===========================================================================
-  metrics:
-    name: Performance Metrics
-    runs-on: ubuntu-latest
-    needs: build
-    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master')
-    steps:
-      - name: Download Pages artifact
-        uses: actions/download-artifact@v4
-        with:
-          path: site
-
-      - name: Analyze bundle size
-        run: |
-          echo "## Bundle Analysis" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### Total Size" >> $GITHUB_STEP_SUMMARY
-          echo "- Site: $(du -sh site | cut -f1)" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "### By Type" >> $GITHUB_STEP_SUMMARY
-          echo "- HTML: $(find site -name '*.html' -exec du -ch {} + 2>/dev/null | tail -1 | cut -f1)" >> $GITHUB_STEP_SUMMARY
-          echo "- JS: $(find site -name '*.js' -exec du -ch {} + 2>/dev/null | tail -1 | cut -f1)" >> $GITHUB_STEP_SUMMARY
-          echo "- CSS: $(find site -name '*.css' -exec du -ch {} + 2>/dev/null | tail -1 | cut -f1)" >> $GITHUB_STEP_SUMMARY
-          echo "- Assets: $(find site \( -name '*.png' -o -name '*.jpg' -o -name '*.svg' \) -exec du -ch {} + 2>/dev/null | tail -1 | cut -f1)" >> $GITHUB_STEP_SUMMARY

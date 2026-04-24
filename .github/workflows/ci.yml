@@ -1,12 +1,3 @@
-# .github/workflows/ci.yml
-# =============================================================================
-# fq-compressor-rust CI Pipeline
-# =============================================================================
-# This workflow validates build/test health across platforms.
-# Code quality checks (fmt, clippy) are handled by the separate quality.yml.
-# Features: cross-platform testing, MSRV verification, dependency audit.
-# =============================================================================
-
 name: CI
 
 on:
@@ -24,29 +15,33 @@ concurrency:
 
 env:
   CARGO_TERM_COLOR: always
-  RUSTFLAGS: -Dwarnings
 
 jobs:
-  # ===========================================================================
-  # Quick Check Job
-  # ===========================================================================
-  check:
-    name: Check
+  validate:
+    name: Validate
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.75.0
+        with:
+          components: rustfmt, clippy, rust-analyzer
       - uses: Swatinem/rust-cache@v2
         with:
-          key: check
-      - run: cargo check --all-targets
+          key: validate
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+      - run: npm ci
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --all-targets -- -D warnings
+      - run: cargo test --lib --tests
+      - run: cargo doc --no-deps
+      - run: npm run docs:build
 
-  # ===========================================================================
-  # Cross-Platform Test Job
-  # ===========================================================================
-  test:
+  cross-platform:
     name: Test (${{ matrix.os }})
-    needs: check
+    needs: validate
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -54,25 +49,12 @@ jobs:
         os: [ubuntu-latest, windows-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@1.75.0
       - uses: Swatinem/rust-cache@v2
         with:
           key: test-${{ matrix.os }}
-      - name: Run tests
-        run: cargo test --lib --tests --verbose
+      - run: cargo test --lib --tests
 
-      - name: Upload test artifacts on failure
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-logs-${{ matrix.os }}
-          path: |
-            target/debug/test-*
-          retention-days: 7
-
-  # ===========================================================================
-  # MSRV Verification Job
-  # ===========================================================================
   msrv:
     name: MSRV (1.75)
     runs-on: ubuntu-latest
@@ -84,9 +66,6 @@ jobs:
           key: msrv
       - run: cargo check --all-targets
 
-  # ===========================================================================
-  # Dependency Audit Job
-  # ===========================================================================
   deny:
     name: Dependency Audit
     runs-on: ubuntu-latest
@@ -95,34 +74,3 @@ jobs:
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check bans licenses sources
-
-  # ===========================================================================
-  # CI Summary Job
-  # ===========================================================================
-  summary:
-    name: CI Summary
-    runs-on: ubuntu-latest
-    needs: [check, test, msrv, deny]
-    if: always()
-    steps:
-      - name: Check CI Status
-        run: |
-          echo "## CI Summary" >> $GITHUB_STEP_SUMMARY
-          echo "" >> $GITHUB_STEP_SUMMARY
-          echo "| Job | Status |" >> $GITHUB_STEP_SUMMARY
-          echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
-          echo "| Check | ${{ needs.check.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Test (ubuntu) | ${{ needs.test.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| MSRV | ${{ needs.msrv.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-          echo "| Dependency Audit | ${{ needs.deny.result == 'success' && '✅' || '❌' }} |" >> $GITHUB_STEP_SUMMARY
-
-          if [[ "${{ needs.check.result }}" != "success" || \
-                "${{ needs.test.result }}" != "success" || \
-                "${{ needs.msrv.result }}" != "success" || \
-                "${{ needs.deny.result }}" != "success" ]]; then
-            echo ""
-            echo "❌ CI failed - check individual jobs for details"
-            exit 1
-          fi
-          echo ""
-          echo "✅ All CI checks passed!"
