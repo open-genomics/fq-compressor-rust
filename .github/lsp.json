@@ -1,0 +1,17 @@
+{
+  "lspServers": {
+    "rust": {
+      "command": "rust-analyzer",
+      "fileExtensions": {
+        ".rs": "rust"
+      }
+    },
+    "toml": {
+      "command": "taplo",
+      "args": ["lsp", "stdio"],
+      "fileExtensions": {
+        ".toml": "toml"
+      }
+    }
+  }
+}
