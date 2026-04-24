@@ -1,101 +1,42 @@
 # Installation
 
-## System Requirements
+## Release binaries
 
-- **Linux**: glibc 2.31+ or musl (x64, ARM64)
-- **macOS**: 10.15+ (Intel or Apple Silicon)
-- **Windows**: Windows 10/11 (x64)
-- **Rust**: 1.75+ (for building from source)
+Prebuilt binaries are published on the
+[GitHub Releases](https://github.com/LessUp/fq-compressor-rust/releases) page.
 
-## Pre-built Binaries
+Current release automation targets:
 
-### Download from GitHub Releases
+- Linux x86_64 (`gnu` and `musl`)
+- macOS Intel
+- macOS Apple Silicon
+- Windows x86_64
 
-```bash
-# Linux x64
-curl -LO https://github.com/LessUp/fq-compressor-rust/releases/latest/download/fqc-x86_64-unknown-linux-gnu.tar.gz
-tar -xzf fqc-x86_64-unknown-linux-gnu.tar.gz
-sudo mv fqc /usr/local/bin/
+## Build from source
 
-# macOS (Apple Silicon)
-curl -LO https://github.com/LessUp/fq-compressor-rust/releases/latest/download/fqc-aarch64-apple-darwin.tar.gz
-tar -xzf fqc-aarch64-apple-darwin.tar.gz
-sudo mv fqc /usr/local/bin/
-```
+Requirements:
 
-Available targets:
-- `x86_64-unknown-linux-gnu` - Linux x64 (glibc)
-- `x86_64-unknown-linux-musl` - Linux x64 (static)
-- `aarch64-unknown-linux-gnu` - Linux ARM64
-- `aarch64-unknown-linux-musl` - Linux ARM64 (static)
-- `x86_64-apple-darwin` - macOS Intel
-- `aarch64-apple-darwin` - macOS Apple Silicon
-- `x86_64-pc-windows-msvc` - Windows x64
-
-## Docker
-
-```bash
-# Pull from GitHub Container Registry
-docker pull ghcr.io/lessup/fq-compressor-rust:latest
-
-# Run
-docker run --rm -v $(pwd):/data ghcr.io/lessup/fq-compressor-rust:latest \
-  compress -i /data/reads.fastq -o /data/reads.fqc
-```
-
-## Build from Source
-
-### Install Rust
-
-```bash
-curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-source $HOME/.cargo/env
-```
-
-### Clone and Build
+- Rust **1.75.0**
+- Git
 
 ```bash
 git clone https://github.com/LessUp/fq-compressor-rust.git
 cd fq-compressor-rust
 cargo build --release
-
-# Binary will be at ./target/release/fqc
-./target/release/fqc --version
+./target/release/fqc --help
 ```
 
-### Build Options
+## Local install
 
 ```bash
-# Native CPU optimizations (AVX2, SSE4.2)
-RUSTFLAGS="-C target-cpu=native" cargo build --release
-
-# Minimal binary (no gzip/bzip2/xz support)
-cargo build --release --no-default-features
-
-# With debug symbols (for profiling)
-cargo build --profile release-with-debug
+cargo install --path .
 ```
 
-## Verify Installation
+## Container image
+
+The repository includes a `Dockerfile` for local or CI builds:
 
 ```bash
-fqc --version
-# fqc 0.1.1
-
-fqc --help
-# Shows all available commands
+docker build -t fqc .
+docker run --rm -v "$(pwd):/data" fqc --help
 ```
-
-## Shell Completions
-
-```bash
-# Bash
-fqc --help | grep -A 100 "COMMANDS:" > /dev/null  # Manual for now
-
-# Coming soon: native shell completion generation
-```
-
-## Next Steps
-
-- [Quick Start](./quick-start.md) - Compress your first file
-- [CLI Reference](./cli/compress.md) - Full command documentation

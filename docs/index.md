@@ -1,31 +1,32 @@
 ---
 layout: home
+
 hero:
-  name: 'fqc'
-  text: 'High-Performance FASTQ Compressor'
-  tagline: Compress genomic sequencing data with ABC algorithm and Zstd
+  name: fqc
+  text: "FASTQ compression in Rust"
+  tagline: "A focused `.fqc` compressor with compression, decompression, inspection, and verification in one CLI."
   image:
     src: /logo.svg
     alt: fqc logo
   actions:
     - theme: brand
-      text: Get Started
-      link: /guide/what-is-fqc
+      text: Quick Start
+      link: /guide/quick-start
     - theme: alt
       text: View on GitHub
       link: https://github.com/LessUp/fq-compressor-rust
 
 features:
   - icon: 🧬
-    title: ABC Algorithm
-    details: Consensus-based delta encoding optimized for short reads (< 300bp)
-  - icon: ⚡
-    title: High Performance
-    details: Parallel processing with 3-stage pipeline for maximum throughput
+    title: "FASTQ-aware compression"
+    details: "Short-read data uses an ABC-style path while medium and long reads use Zstd-backed compression."
   - icon: 📦
-    title: Flexible Modes
-    details: Streaming, batch, and pipeline modes with configurable quality settings
+    title: "Block-indexed archives"
+    details: "`.fqc` stores archive metadata per block so inspection and partial workflows stay practical."
   - icon: 🔍
-    title: Random Access
-    details: Block-indexed format enables efficient partial decompression
+    title: "Integrity tooling included"
+    details: "`fqc info` and `fqc verify` are first-class commands rather than afterthought scripts."
+  - icon: ⚙️
+    title: "Lean project surface"
+    details: "The repository is documented and automated around the current release line instead of speculative future scope."
 ---

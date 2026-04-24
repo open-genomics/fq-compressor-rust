@@ -1,54 +1,42 @@
 # Quick Start
 
-Get started with fqc in 5 minutes.
-
-## Compress Your First File
+## 1. Build the binary
 
 ```bash
-# Basic compression (auto-detects read length)
-fqc compress -i sample.fastq -o sample.fqc
-
-# Verify output
-fqc info -i sample.fqc
+cargo build --release
 ```
 
-## Common Use Cases
-
-### 1. Paired-End Data
+## 2. Compress a FASTQ file
 
 ```bash
-# Separate files
-fqc compress -i R1.fastq -2 R2.fastq -o paired.fqc
-
-# Interleaved
-fqc compress -i interleaved.fastq -o paired.fqc --interleaved
+./target/release/fqc compress -i reads.fastq -o reads.fqc
 ```
 
-### 2. Streaming from stdin
+Useful variations:
 
 ```bash
-# Low-memory mode for large files
-cat huge.fastq | fqc compress --streaming -i - -o output.fqc
+./target/release/fqc compress -i reads.fastq -o reads.fqc --pipeline
+./target/release/fqc compress -i reads.fastq -o reads.fqc --streaming
+./target/release/fqc compress -i reads_R1.fastq -2 reads_R2.fastq -o paired.fqc
 ```
 
-### 3. Pipeline Mode (Maximum Speed)
+## 3. Inspect and verify the result
 
 ```bash
-# 3-stage parallel processing
-fqc compress -i reads.fastq -o reads.fqc --pipeline
+./target/release/fqc info -i reads.fqc --detailed
+./target/release/fqc verify -i reads.fqc
 ```
 
-## Decompression
+## 4. Decompress
 
 ```bash
-# Extract all reads
-fqc decompress -i sample.fqc -o output.fastq
-
-# Extract range (1-based)
-fqc decompress -i sample.fqc -o subset.fastq --range 1:1000
+./target/release/fqc decompress -i reads.fqc -o restored.fastq
 ```
 
-## Next Steps
+Useful variations:
 
-- [CLI Reference](./cli/compress.md) - All command options
-- [Performance Tuning](./performance/tuning.md) - Optimize for your workload
+```bash
+./target/release/fqc decompress -i reads.fqc -o subset.fastq --range 1:1000
+./target/release/fqc decompress -i reads.fqc -o restored.fastq --original-order
+./target/release/fqc decompress -i paired.fqc -o paired.fastq --split-pe
+```
