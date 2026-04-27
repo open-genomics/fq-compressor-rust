@@ -8,7 +8,7 @@ Optimization work in `fqc` should be driven by measured evidence before any larg
 
 - add a small stable-compatible benchmark harness for parser and archive hot paths
 - generate benchmark inputs from existing test fixtures instead of adding large checked-in data
-- record the benchmark foundation in OpenSpec so the surface stays intentionally small
+- keep the benchmark slice scoped to parser and archive hot paths without expanding repository surface
 
 ## Non-goals
 
