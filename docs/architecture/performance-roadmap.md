@@ -11,15 +11,13 @@ This page is the maintained summary for `fqc` performance work. It captures the 
 ## Recommended direction
 
 1. Keep the next slices focused on memory predictability and measured hot paths rather than new codecs or broad rewrites.
-2. Use bounded worktree-based OpenSpec slices so parser, pipeline, and archive-writing work can be reviewed independently.
-3. Treat streaming and pipeline flows as the practical foundation for follow-up optimization, with reorder-heavy paths improved only after memory behavior is explicit.
+2. Treat streaming and pipeline flows as the practical foundation for follow-up optimization, with reorder-heavy paths improved only after memory behavior is explicit.
 
 ## Phase 1 scope
 
 This slice only establishes shared direction:
 
 - capture the maintained roadmap in public docs
-- define bounded developer workflow expectations for performance work
 - record the intended `--memory-limit 0` semantics for later implementation alignment
 
 No runtime performance behavior changes ship in phase 1.
