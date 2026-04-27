@@ -48,10 +48,13 @@ fqc verify -i reads.fqc --quick
 
 ## Documentation
 
+The maintained docs summary lives in the docs site and repo-backed docs pages below.
+
 - **Project site:** <https://lessup.github.io/fq-compressor-rust/>
 - **Quick start:** [docs/guide/quick-start.md](docs/guide/quick-start.md)
 - **CLI reference:** [docs/guide/cli.md](docs/guide/cli.md)
-- **Architecture:** [docs/architecture/index.md](docs/architecture/index.md)
+- **Architecture overview:** [docs/architecture/index.md](docs/architecture/index.md)
+- **Performance roadmap:** [docs/architecture/performance-roadmap.md](docs/architecture/performance-roadmap.md)
 - **Algorithms:** [docs/algorithms/index.md](docs/algorithms/index.md)
 
 ## Development

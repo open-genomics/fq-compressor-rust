@@ -39,7 +39,10 @@ export default defineConfig({
       '/architecture/': [
         {
           text: 'Architecture',
-          items: [{ text: 'Overview', link: '/architecture/' }]
+          items: [
+            { text: 'Overview', link: '/architecture/' },
+            { text: 'Performance Roadmap', link: '/architecture/performance-roadmap' }
+          ]
         }
       ],
       '/algorithms/': [
