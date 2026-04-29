@@ -29,3 +29,7 @@ This layout is why `fqc info`, `fqc verify`, and range-based decompression can o
 - **default mode**: full ingest with optional reordering
 - **streaming mode**: lower-memory flow with reordering disabled
 - **pipeline mode**: staged reader/compressor/writer execution
+
+## Performance roadmap
+
+For the maintained summary of current bottlenecks, the preferred optimization direction, and the active phase boundary, see [Performance roadmap](./performance-roadmap.md).
