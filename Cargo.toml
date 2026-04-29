@@ -111,3 +111,14 @@ needless_continue = "allow"
 collapsible_if = "allow"
 map_unwrap_or = "allow"
 while_let_loop = "allow"
+
+[[bench]]
+name = "parser_throughput"
+harness = false
+
+[[bench]]
+name = "archive_workflow"
+harness = false
+
+[dev-dependencies]
+criterion = "=0.3.6"
