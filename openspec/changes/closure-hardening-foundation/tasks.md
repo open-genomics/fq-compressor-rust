@@ -7,6 +7,6 @@
 - [x] Rebuild the VitePress site into a smaller, accurate documentation surface.
 - [x] Simplify GitHub Actions to CI, Pages, release, and Copilot setup.
 - [x] Standardize project-local hooks, LSP, editor, and devcontainer configuration.
-- [x] Fix verified behavior and configuration drift in code and docs.
+- [x] Reconcile the remaining CLI drift around automatic memory selection, block sizing, and documented compression options.
 - [x] Update GitHub repository About metadata to match the rebuilt site.
-- [x] Run the full validation set and finish repository cleanup.
+- [x] Run the full validation set, clean up repository leftovers, and verify the release path on real FASTQ inputs.

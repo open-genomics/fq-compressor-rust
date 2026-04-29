@@ -7,7 +7,11 @@
 
 use std::io::BufReader;
 
+use flate2::write::GzEncoder;
+use flate2::Compression;
 use fqc::algo::block_compressor::{BlockCompressor, BlockCompressorConfig};
+use fqc::commands::compress::{CompressCommand, CompressOptions};
+use fqc::commands::decompress::{DecompressCommand, DecompressOptions};
 use fqc::error::ExitCode;
 use fqc::fastq::parser::{FastqParser, ParserOptions};
 use fqc::format::*;
@@ -67,6 +71,34 @@ fn read_fastq_records(path: &str) -> Vec<ReadRecord> {
     let reader = BufReader::new(file);
     let mut parser = FastqParser::new(reader);
     parser.collect_all().unwrap()
+}
+
+fn write_fastq_records(path: &str, records: &[ReadRecord]) {
+    let mut out = std::io::BufWriter::new(std::fs::File::create(path).unwrap());
+    for record in records {
+        fqc::fastq::parser::write_record(&mut out, record).unwrap();
+    }
+}
+
+fn gzip_file(src: &str, dst: &str) {
+    let mut input = std::fs::File::open(src).unwrap();
+    let output = std::fs::File::create(dst).unwrap();
+    let mut encoder = GzEncoder::new(output, Compression::default());
+    std::io::copy(&mut input, &mut encoder).unwrap();
+    encoder.finish().unwrap();
+}
+
+fn synthetic_reads(lengths: &[usize], prefix: &str) -> Vec<ReadRecord> {
+    lengths
+        .iter()
+        .enumerate()
+        .map(|(i, &len)| {
+            let bases = b"ACGT";
+            let seq: String = (0..len).map(|j| bases[(i + j) % 4] as char).collect();
+            let qual = "I".repeat(len);
+            ReadRecord::new(format!("{}_{}", prefix, i), seq, qual)
+        })
+        .collect()
 }
 
 fn compress_file(
@@ -385,6 +417,165 @@ fn test_e2e_chunking_strategy() {
     assert!(strat2.requires_chunking());
     assert!(strat2.num_chunks > 1);
     assert!(strat2.reads_per_chunk < 500_000_000);
+}
+
+#[test]
+fn test_e2e_archive_mode_accepts_small_input_with_low_memory_limit() {
+    let input = test_data_dir().join("test_se.fastq").to_string_lossy().to_string();
+    let compressed = TempFile::new("e2e_lowmem_small_input.fqc");
+
+    let opts = CompressOptions {
+        input_path: input,
+        output_path: compressed.path().to_string(),
+        memory_limit_mb: 256,
+        show_progress: false,
+        ..CompressOptions::default()
+    };
+
+    let exit_code = CompressCommand::new(opts).execute();
+    assert_eq!(exit_code, 0);
+}
+
+#[test]
+fn test_e2e_compress_decompress_gzip_paired_end_roundtrip() {
+    let input_r1 = TempFile::new("e2e_small_gzip_R1.fastq.gz");
+    let input_r2 = TempFile::new("e2e_small_gzip_R2.fastq.gz");
+    let archive = TempFile::new("e2e_small_gzip_pe.fqc");
+    let output = TempFile::new("e2e_small_gzip.fastq");
+
+    let orig_r1 = test_data_dir().join("test_R1.fastq");
+    let orig_r2 = test_data_dir().join("test_R2.fastq");
+    gzip_file(orig_r1.to_str().unwrap(), input_r1.path());
+    gzip_file(orig_r2.to_str().unwrap(), input_r2.path());
+
+    let compress_exit = CompressCommand::new(CompressOptions {
+        input_path: input_r1.path().to_string(),
+        input2_path: Some(input_r2.path().to_string()),
+        output_path: archive.path().to_string(),
+        show_progress: false,
+        force_overwrite: true,
+        memory_limit_mb: 0,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(compress_exit, 0);
+
+    let reader = FqcReader::open(archive.path()).unwrap();
+    assert!(reader.total_read_count() > 0);
+    assert!((reader.global_header.flags & flags::IS_PAIRED) != 0);
+
+    let decompress_exit = DecompressCommand::new(DecompressOptions {
+        input_path: archive.path().to_string(),
+        output_path: output.path().to_string(),
+        split_pe: true,
+        force_overwrite: true,
+        show_progress: false,
+        ..DecompressOptions::default()
+    })
+    .execute();
+    assert_eq!(decompress_exit, 0);
+
+    let restored_r1 = format!("{}_R1.fastq", output.path().trim_end_matches(".fastq"));
+    let restored_r2 = format!("{}_R2.fastq", output.path().trim_end_matches(".fastq"));
+    assert!(std::path::Path::new(&restored_r1).exists());
+    assert!(std::path::Path::new(&restored_r2).exists());
+
+    let original_r1 = read_fastq_records(orig_r1.to_str().unwrap());
+    let original_r2 = read_fastq_records(orig_r2.to_str().unwrap());
+    let restored_r1_reads = read_fastq_records(&restored_r1);
+    let restored_r2_reads = read_fastq_records(&restored_r2);
+
+    assert_roundtrip_match(&original_r1, &restored_r1_reads);
+    assert_roundtrip_match(&original_r2, &restored_r2_reads);
+
+    let _ = std::fs::remove_file(restored_r1);
+    let _ = std::fs::remove_file(restored_r2);
+}
+
+#[test]
+fn test_e2e_scan_all_lengths_changes_length_classification() {
+    let mut lengths = vec![150; 4096];
+    lengths.push(12_000);
+    let sampled_input_reads = synthetic_reads(&lengths, "mixed");
+
+    let input = TempFile::new("e2e_scan_lengths.fastq");
+    write_fastq_records(input.path(), &sampled_input_reads);
+
+    let sampled_archive = TempFile::new("e2e_scan_lengths_sampled.fqc");
+    let full_scan_archive = TempFile::new("e2e_scan_lengths_full.fqc");
+
+    let sampled_exit = CompressCommand::new(CompressOptions {
+        input_path: input.path().to_string(),
+        output_path: sampled_archive.path().to_string(),
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(sampled_exit, 0);
+
+    let full_scan_exit = CompressCommand::new(CompressOptions {
+        input_path: input.path().to_string(),
+        output_path: full_scan_archive.path().to_string(),
+        scan_all_lengths: true,
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(full_scan_exit, 0);
+
+    let sampled_reader = FqcReader::open(sampled_archive.path()).unwrap();
+    let full_scan_reader = FqcReader::open(full_scan_archive.path()).unwrap();
+
+    assert_eq!(
+        get_read_length_class(sampled_reader.global_header.flags),
+        ReadLengthClass::Short
+    );
+    assert_eq!(
+        get_read_length_class(full_scan_reader.global_header.flags),
+        ReadLengthClass::Long
+    );
+}
+
+#[test]
+fn test_e2e_max_block_bases_limits_long_read_block_count() {
+    let lengths = vec![2_000; 10];
+    let records = synthetic_reads(&lengths, "longread");
+    let input = TempFile::new("e2e_long_block_bases.fastq");
+    write_fastq_records(input.path(), &records);
+
+    let default_archive = TempFile::new("e2e_long_default_blocks.fqc");
+    let capped_archive = TempFile::new("e2e_long_capped_blocks.fqc");
+
+    let default_exit = CompressCommand::new(CompressOptions {
+        input_path: input.path().to_string(),
+        output_path: default_archive.path().to_string(),
+        read_length_class: Some(ReadLengthClass::Long),
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(default_exit, 0);
+
+    let capped_exit = CompressCommand::new(CompressOptions {
+        input_path: input.path().to_string(),
+        output_path: capped_archive.path().to_string(),
+        read_length_class: Some(ReadLengthClass::Long),
+        max_block_bases: 4_000,
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(capped_exit, 0);
+
+    let default_reader = FqcReader::open(default_archive.path()).unwrap();
+    let capped_reader = FqcReader::open(capped_archive.path()).unwrap();
+
+    assert_eq!(default_reader.block_count(), 1);
+    assert_eq!(capped_reader.block_count(), 5);
 }
 
 // =============================================================================

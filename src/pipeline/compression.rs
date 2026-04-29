@@ -47,7 +47,7 @@ impl Default for CompressionPipelineConfig {
         Self {
             num_threads: 0,
             max_in_flight_blocks: DEFAULT_MAX_IN_FLIGHT_BLOCKS,
-            block_size: DEFAULT_BLOCK_SIZE_SHORT,
+            block_size: 0,
             read_length_class: ReadLengthClass::Short,
             quality_mode: QualityMode::Lossless,
             id_mode: IdMode::Exact,
@@ -56,7 +56,7 @@ impl Default for CompressionPipelineConfig {
             save_reorder_map: true,
             streaming_mode: false,
             pe_layout: PeLayout::Interleaved,
-            memory_limit_mb: 8192,
+            memory_limit_mb: 0,
         }
     }
 }

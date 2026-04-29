@@ -200,7 +200,7 @@ impl GlobalAnalyzer {
         }
 
         // Compute block boundaries
-        let effective_block_size = recommended_block_size(result.length_class);
+        let effective_block_size = self.config.reads_per_block.max(1);
         result.block_boundaries = self.compute_block_boundaries(total_reads, effective_block_size);
         result.num_blocks = result.block_boundaries.len();
 

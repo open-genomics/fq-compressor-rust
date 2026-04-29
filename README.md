@@ -15,6 +15,16 @@ It combines a short-read ABC-style path, Zstd-backed medium/long-read compressio
 - **Single binary CLI** with `compress`, `decompress`, `info`, and `verify`
 - **Memory-safe Rust implementation** with a pinned MSRV of **1.75.0**
 
+## Installation
+
+Download release binaries from the
+[GitHub Releases](https://github.com/LessUp/fq-compressor-rust/releases) page, or build locally:
+
+```bash
+cargo build --release
+cargo install --path .
+```
+
 ## Quick start
 
 ```bash
@@ -32,8 +42,10 @@ cargo build --release
 
 ```bash
 fqc compress -i reads.fastq -o reads.fqc
+fqc compress -i reads.fastq -o reads.fqc --memory-limit 0
 fqc compress -i reads.fastq -o reads.fqc --pipeline
 fqc compress -i reads.fastq -o reads.fqc --streaming
+fqc compress -i reads.fastq -o reads.fqc --streaming --memory-limit 1024
 fqc compress -i reads_R1.fastq -2 reads_R2.fastq -o paired.fqc
 
 fqc decompress -i reads.fqc -o reads.fastq
@@ -53,6 +65,8 @@ fqc verify -i reads.fqc --quick
 - **CLI reference:** [docs/guide/cli.md](docs/guide/cli.md)
 - **Architecture:** [docs/architecture/index.md](docs/architecture/index.md)
 - **Algorithms:** [docs/algorithms/index.md](docs/algorithms/index.md)
+
+`--memory-limit 0` keeps the default automatic memory selection behavior. For strict low-memory runs, prefer `--streaming`; archive mode still performs a full ingest for global analysis.
 
 ## Development
 

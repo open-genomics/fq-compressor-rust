@@ -3,6 +3,10 @@
 For downloadable artifacts, checksums, and release metadata, use the
 [GitHub Releases page](https://github.com/LessUp/fq-compressor-rust/releases).
 
+## Unreleased
+
+- Repository normalization around OpenSpec, leaner workflows, and the rebuilt documentation site
+
 ## v0.1.1
 
 - Documentation and CI refresh for the `0.1.x` release line

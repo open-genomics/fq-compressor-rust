@@ -4,14 +4,18 @@
 
 use crate::algo::block_compressor::{BlockCompressor, BlockCompressorConfig, CompressedBlockData};
 use crate::algo::global_analyzer::{GlobalAnalyzer, GlobalAnalyzerConfig};
+use crate::common::memory_budget::{auto_memory_budget, ChunkingStrategy, MemoryEstimator};
 use crate::error::{FqcError, Result};
 use crate::fastq::parser::{open_fastq, open_fastq_paired, open_fastq_stdin};
 use crate::format::{build_flags, GlobalHeader};
 use crate::fqc_writer::FqcWriter;
 use crate::pipeline::compression::{CompressionPipeline, CompressionPipelineConfig};
+use crate::pipeline::DEFAULT_MAX_IN_FLIGHT_BLOCKS;
 use crate::types::*;
 use rayon::prelude::*;
 use std::time::{SystemTime, UNIX_EPOCH};
+
+const DEFAULT_LENGTH_SAMPLE_READS: usize = 4_096;
 
 // =============================================================================
 // CompressOptions
@@ -53,12 +57,12 @@ impl Default for CompressOptions {
             quality_mode: QualityMode::Lossless,
             id_mode: IdMode::Exact,
             threads: 0,
-            memory_limit_mb: 8192,
+            memory_limit_mb: 0,
             force_overwrite: false,
             show_progress: true,
             read_length_class: None,
             auto_detect_length: true,
-            block_size: DEFAULT_BLOCK_SIZE_SHORT,
+            block_size: 0,
             pe_layout: PeLayout::Interleaved,
             interleaved: false,
             max_block_bases: 0,
@@ -66,6 +70,14 @@ impl Default for CompressOptions {
             use_pipeline: false,
         }
     }
+}
+
+#[derive(Debug, Clone, Copy)]
+struct LengthStats {
+    sample_size: usize,
+    avg_length: usize,
+    median_length: usize,
+    max_length: usize,
 }
 
 // =============================================================================
@@ -172,20 +184,26 @@ impl CompressCommand {
         log::info!("Loaded {} reads ({} bases)", records.len(), total_bases);
 
         // Detect read length class if auto
-        let effective_length_class = if let Some(lc) = self.opts.read_length_class {
-            lc
-        } else {
-            self.detect_length_class(&records)
-        };
+        let length_stats = self.length_stats_from_records(&records);
+        let effective_length_class = self.effective_length_class(&length_stats);
 
         // Adjust parameters based on length class
-        let block_size = self.effective_block_size(effective_length_class);
+        let block_size = self.effective_block_size(effective_length_class, &length_stats);
         let enable_reorder = self.opts.enable_reorder
             && !self.opts.streaming_mode
             && !is_paired
             && effective_length_class == ReadLengthClass::Short;
 
+        self.enforce_archive_mode_memory_limit(records.len(), block_size, &length_stats)?;
+
         log::info!("Read length class: {}", effective_length_class.as_str());
+        log::info!(
+            "Length detection: sample={} avg={}bp median={}bp max={}bp",
+            length_stats.sample_size,
+            length_stats.avg_length,
+            length_stats.median_length,
+            length_stats.max_length
+        );
         log::info!("Block size: {}", block_size);
         log::info!("Reordering: {}", enable_reorder);
 
@@ -347,8 +365,24 @@ impl CompressCommand {
             )));
         }
 
-        let effective_length_class = self.opts.read_length_class.unwrap_or(ReadLengthClass::Medium);
-        let block_size = self.effective_block_size(effective_length_class);
+        let length_stats = self.inspect_input_lengths()?.unwrap_or(LengthStats {
+            sample_size: 0,
+            avg_length: MEDIUM_READ_THRESHOLD,
+            median_length: MEDIUM_READ_THRESHOLD,
+            max_length: MEDIUM_READ_THRESHOLD,
+        });
+        let effective_length_class = self.effective_length_class(&length_stats);
+        let block_size = self.effective_block_size(effective_length_class, &length_stats);
+
+        log::info!(
+            "Streaming profile: sample={} avg={}bp median={}bp max={}bp, class={}, block_size={}",
+            length_stats.sample_size,
+            length_stats.avg_length,
+            length_stats.median_length,
+            length_stats.max_length,
+            effective_length_class.as_str(),
+            block_size
+        );
 
         if let Some(path2) = self.opts.input2_path.clone() {
             return self.run_streaming_paired(&path2, effective_length_class, block_size);
@@ -765,12 +799,27 @@ impl CompressCommand {
             )));
         }
 
-        let effective_length_class = self.opts.read_length_class.unwrap_or(ReadLengthClass::Short);
+        let length_stats = self.inspect_input_lengths()?.unwrap_or(LengthStats {
+            sample_size: 0,
+            avg_length: 150,
+            median_length: 150,
+            max_length: 150,
+        });
+        let effective_length_class = self.effective_length_class(&length_stats);
+        let block_size = self.effective_block_size(effective_length_class, &length_stats);
         let is_paired = self.opts.input2_path.is_some() || self.opts.interleaved;
+        let max_in_flight_blocks = self.effective_in_flight_blocks(block_size, &length_stats);
+
+        if self.opts.memory_limit_mb > 0 {
+            log::warn!(
+                "pipeline mode still performs a full ingest before compression; use --streaming for strict memory caps"
+            );
+        }
 
         let pipeline_config = CompressionPipelineConfig {
             num_threads: self.opts.threads,
-            block_size: self.opts.block_size,
+            max_in_flight_blocks,
+            block_size,
             read_length_class: effective_length_class,
             quality_mode: self.opts.quality_mode,
             id_mode: self.opts.id_mode,
@@ -780,8 +829,18 @@ impl CompressCommand {
             streaming_mode: false,
             pe_layout: self.opts.pe_layout,
             memory_limit_mb: self.opts.memory_limit_mb,
-            ..Default::default()
         };
+
+        log::info!(
+            "Pipeline profile: sample={} avg={}bp median={}bp max={}bp, class={}, block_size={}, in_flight_blocks={}",
+            length_stats.sample_size,
+            length_stats.avg_length,
+            length_stats.median_length,
+            length_stats.max_length,
+            effective_length_class.as_str(),
+            block_size,
+            max_in_flight_blocks
+        );
 
         let mut pipeline = CompressionPipeline::new(pipeline_config);
 
@@ -821,19 +880,165 @@ impl CompressCommand {
         Ok(())
     }
 
-    fn detect_length_class(&self, records: &[ReadRecord]) -> ReadLengthClass {
-        let max_len = records.iter().map(|r| r.sequence.len()).max().unwrap_or(0);
-        let mut lens: Vec<usize> = records.iter().map(|r| r.sequence.len()).collect();
-        lens.sort_unstable();
-        let median = lens.get(lens.len() / 2).copied().unwrap_or(0);
-        classify_read_length(median, max_len)
+    fn effective_length_class(&self, stats: &LengthStats) -> ReadLengthClass {
+        self.opts
+            .read_length_class
+            .unwrap_or_else(|| classify_read_length(stats.median_length, stats.max_length))
     }
 
-    fn effective_block_size(&self, class: ReadLengthClass) -> usize {
+    fn effective_block_size(&self, class: ReadLengthClass, stats: &LengthStats) -> usize {
         if self.opts.block_size > 0 {
             return self.opts.block_size;
         }
-        recommended_block_size(class)
+
+        let budget = auto_memory_budget(self.opts.memory_limit_mb);
+        let estimator = MemoryEstimator::new(budget);
+        let mut block_size = recommended_block_size(class).min(estimator.optimal_block_size(self.effective_threads()));
+
+        if self.opts.max_block_bases > 0 && class != ReadLengthClass::Short {
+            let per_read_bases = stats.max_length.max(1);
+            block_size = block_size.min((self.opts.max_block_bases / per_read_bases).max(1));
+        }
+
+        block_size.max(1)
+    }
+
+    fn effective_in_flight_blocks(&self, block_size: usize, stats: &LengthStats) -> usize {
+        let budget = auto_memory_budget(self.opts.memory_limit_mb);
+        let bytes_per_read = stats.avg_length.max(1).saturating_mul(3).saturating_add(80);
+        let chunk_bytes = block_size.saturating_mul(bytes_per_read);
+        if chunk_bytes == 0 {
+            return DEFAULT_MAX_IN_FLIGHT_BLOCKS;
+        }
+
+        budget
+            .block_buffer_bytes()
+            .saturating_div(chunk_bytes)
+            .clamp(1, DEFAULT_MAX_IN_FLIGHT_BLOCKS)
+    }
+
+    fn enforce_archive_mode_memory_limit(
+        &self,
+        total_reads: usize,
+        block_size: usize,
+        stats: &LengthStats,
+    ) -> Result<()> {
+        let strategy = ChunkingStrategy::compute(
+            total_reads,
+            stats.avg_length.max(1),
+            block_size,
+            self.effective_threads(),
+            self.opts.memory_limit_mb,
+        );
+
+        if self.opts.memory_limit_mb > 0 && strategy.requires_chunking() {
+            return Err(FqcError::InvalidArgument(format!(
+                "--memory-limit {} MB is too small for archive mode with global analysis ({}) ; use --streaming or increase the limit",
+                self.opts.memory_limit_mb,
+                strategy.summary()
+            )));
+        }
+
+        if strategy.requires_chunking() {
+            log::warn!(
+                "Archive mode may exceed the estimated automatic memory budget: {}. Use --streaming for strict memory bounds.",
+                strategy.summary()
+            );
+        }
+
+        Ok(())
+    }
+
+    fn length_stats_from_records(&self, records: &[ReadRecord]) -> LengthStats {
+        let lengths = self.sample_lengths(records.iter().map(|r| r.sequence.len()));
+        Self::build_length_stats(lengths)
+    }
+
+    fn inspect_input_lengths(&self) -> Result<Option<LengthStats>> {
+        if self.opts.input_path == "-" {
+            return Ok(None);
+        }
+
+        let sample_limit = self.length_sample_limit();
+        let mut lengths = Vec::new();
+
+        if let Some(ref path2) = self.opts.input2_path {
+            let mut reader = open_fastq_paired(&self.opts.input_path, path2)?;
+            while let Some((r1, r2)) = reader.next_pair()? {
+                lengths.push(r1.sequence.len());
+                lengths.push(r2.sequence.len());
+                if lengths.len() >= sample_limit {
+                    break;
+                }
+            }
+        } else {
+            let mut parser = open_fastq(&self.opts.input_path)?;
+            while let Some(record) = parser.next_record()? {
+                lengths.push(record.sequence.len());
+                if lengths.len() >= sample_limit {
+                    break;
+                }
+            }
+        }
+
+        if lengths.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(Self::build_length_stats(lengths)))
+        }
+    }
+
+    fn sample_lengths<I>(&self, lengths: I) -> Vec<usize>
+    where
+        I: IntoIterator<Item = usize>,
+    {
+        let all_lengths: Vec<usize> = lengths.into_iter().collect();
+        if self.opts.scan_all_lengths || all_lengths.len() <= DEFAULT_LENGTH_SAMPLE_READS {
+            return all_lengths;
+        }
+
+        let sample_size = DEFAULT_LENGTH_SAMPLE_READS.min(all_lengths.len());
+        (0..sample_size)
+            .map(|i| {
+                let idx = i * all_lengths.len() / sample_size;
+                all_lengths[idx]
+            })
+            .collect()
+    }
+
+    fn build_length_stats(mut lengths: Vec<usize>) -> LengthStats {
+        lengths.sort_unstable();
+        let sample_size = lengths.len();
+        let max_length = lengths.last().copied().unwrap_or(0);
+        let median_length = lengths.get(sample_size / 2).copied().unwrap_or(0);
+        let avg_length = if sample_size == 0 {
+            0
+        } else {
+            lengths.iter().sum::<usize>() / sample_size
+        };
+
+        LengthStats {
+            sample_size,
+            avg_length,
+            median_length,
+            max_length,
+        }
+    }
+
+    fn length_sample_limit(&self) -> usize {
+        if self.opts.scan_all_lengths {
+            usize::MAX
+        } else {
+            DEFAULT_LENGTH_SAMPLE_READS
+        }
+    }
+
+    fn effective_threads(&self) -> usize {
+        if self.opts.threads == 0 {
+            std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)
+        } else {
+            self.opts.threads
+        }
     }
 
     fn print_summary(&self) {

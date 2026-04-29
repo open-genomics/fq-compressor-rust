@@ -9,6 +9,9 @@ const ABC_FORMAT_V2: u8 = 0x02;
 /// Current ABC format version
 const ABC_CURRENT_VERSION: u8 = ABC_FORMAT_V2;
 
+/// Short-read ABC packing becomes quadratic in block size, so larger blocks fall back to Zstd.
+const SHORT_READ_ABC_MAX_READS: usize = 4_096;
+
 // =============================================================================
 // Block Compressor (ABC Algorithm + Zstd)
 // =============================================================================
@@ -362,6 +365,10 @@ impl BlockCompressorConfig {
         }
     }
 
+    pub fn use_short_read_abc(&self, read_count: usize) -> bool {
+        self.read_length_class == ReadLengthClass::Short && read_count <= SHORT_READ_ABC_MAX_READS
+    }
+
     pub fn get_quality_codec(&self) -> u8 {
         if self.quality_mode == QualityMode::Discard {
             return encode_codec(CodecFamily::Raw, 0);
@@ -449,8 +456,8 @@ impl BlockCompressor {
         }
 
         // Compress sequences
-        result.seq_stream = if self.config.read_length_class == ReadLengthClass::Short {
-            result.codec_seq = self.config.get_sequence_codec();
+        result.seq_stream = if self.config.use_short_read_abc(reads.len()) {
+            result.codec_seq = encode_codec(CodecFamily::AbcV1, 0);
             compress_sequences_abc(
                 reads,
                 self.config.zstd_level,
@@ -458,7 +465,7 @@ impl BlockCompressor {
                 self.config.consensus_hamming_threshold,
             )?
         } else {
-            result.codec_seq = self.config.get_sequence_codec();
+            result.codec_seq = encode_codec(CodecFamily::ZstdPlain, 0);
             compress_sequences_zstd(reads, self.config.zstd_level)?
         };
 

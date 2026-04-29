@@ -4,7 +4,7 @@
 
 ## Sequence path
 
-- **Short-read path**: an ABC-style consensus/delta representation is used when reads fit the short-read profile.
+- **Short-read path**: `fqc` prefers an ABC-style consensus/delta representation for smaller short-read blocks and falls back to Zstd-backed block storage when larger blocks would make that path too expensive.
 - **Medium and long reads**: sequence payloads are stored with a Zstd-backed path instead of the short-read consensus model.
 
 The current implementation classifies reads using observed lengths rather than a single CLI preset.

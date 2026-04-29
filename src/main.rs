@@ -56,7 +56,7 @@ struct Cli {
     #[arg(short = 'q', long)]
     quiet: bool,
 
-    /// Memory limit in MB (0 = no limit)
+    /// Memory limit in MB (0 = automatic memory selection)
     #[arg(long, default_value_t = 0)]
     memory_limit: usize,
 

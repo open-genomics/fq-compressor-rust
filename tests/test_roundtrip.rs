@@ -80,6 +80,24 @@ fn test_block_compress_decompress_short_reads() {
     assert_reads_match(&reads, &decompressed.reads);
 }
 
+#[test]
+fn test_block_compress_decompress_large_short_block_falls_back_to_zstd() {
+    let reads = make_reads(5_000, 150);
+    let config = BlockCompressorConfig {
+        read_length_class: ReadLengthClass::Short,
+        quality_mode: QualityMode::Lossless,
+        id_mode: IdMode::Exact,
+        ..Default::default()
+    };
+    let compressor = BlockCompressor::new(config);
+
+    let compressed = compressor.compress(&reads, 0).unwrap();
+    assert_eq!(decode_codec_family(compressed.codec_seq), CodecFamily::ZstdPlain);
+
+    let decompressed = decompress_block(&compressor, &compressed);
+    assert_reads_match(&reads, &decompressed.reads);
+}
+
 // =============================================================================
 // Block Compressor Round-Trip (Medium reads, Zstd)
 // =============================================================================

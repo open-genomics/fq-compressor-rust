@@ -14,7 +14,7 @@ Global options:
 | `-t, --threads` | thread count (`0` means auto) |
 | `-v, --verbose` | increase log verbosity |
 | `-q, --quiet` | suppress non-error output |
-| `--memory-limit` | memory budget in MB (`0` means auto-detect) |
+| `--memory-limit` | memory budget in MB (`0` means automatic memory selection) |
 | `--no-progress` | disable progress summaries |
 
 ## `compress`
@@ -32,11 +32,17 @@ fqc compress -i INPUT -o OUTPUT [OPTIONS]
 | `--lossy-quality` | `none`, `illumina8`, `qvz`, or `discard` |
 | `--long-read-mode` | `auto`, `short`, `medium`, or `long` |
 | `--interleaved` | treat input as interleaved paired-end FASTQ |
-| `--max-block-bases` | cap block size for longer reads |
-| `--scan-all-lengths` | inspect all reads for length detection |
-| `--pipeline` | use the staged compression pipeline |
+| `--max-block-bases` | cap per-block bases for medium and long reads |
+| `--scan-all-lengths` | inspect the full input instead of sampled reads for length detection |
+| `--pipeline` | use the staged compression pipeline; pair with `--streaming` if you need strict memory control |
 | `--pe-layout` | `interleaved` or `consecutive` metadata for paired-end archives |
 | `-f, --force` | overwrite output if it exists |
+
+Notes:
+
+- archive mode keeps the full read set in memory for global analysis and optional reordering
+- `--memory-limit 0` uses automatic memory selection based on available system memory
+- for explicit low-memory runs, prefer `--streaming`; archive mode rejects limits that are too small for full-ingest analysis
 
 ## `decompress`
 

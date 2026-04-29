@@ -1,36 +1,11 @@
-# Copilot instructions for fqc
+# Copilot Instructions For fqc
 
-This repository uses **OpenSpec**. Before changing code, read the relevant living specs in `openspec/specs/` and any active change in `openspec/changes/`.
+Read [`AGENTS.md`](../AGENTS.md) first. It is the canonical AI contributor guide for this repository.
 
-## Project mode
+Copilot-specific rules:
 
-- Optimize for **stabilization and high-signal cleanup**, not feature sprawl.
-- Prefer removing stale or redundant content over preserving it.
-- Keep docs, workflows, and automation proportional to a small Rust CLI project.
-
-## Required workflow
-
-1. Review the relevant spec in `openspec/specs/`.
-2. If behavior or structure must change, update or create an OpenSpec change under `openspec/changes/` first.
-3. Implement only what the spec or change requires.
-4. Update tests and user-facing docs when CLI behavior changes.
-
-## Validation commands
-
-Run the existing commands instead of inventing new tooling:
-
-```bash
-cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
-cargo test --lib --tests
-cargo doc --no-deps
-npm run docs:build
-```
-
-## Repository-specific guardrails
-
-- Rust toolchain is pinned to **1.75.0**.
-- Do not introduce `unsafe` code.
-- Use `log` for status logging; keep CLI output intentional and user-facing.
-- Keep GitHub Actions minimal. If a workflow has no clear maintenance value, remove it.
-- Prefer `/review` before merge and avoid long-lived parallel branches or broad speculative refactors.
+- Start every non-trivial change from `openspec/specs/` and the active folder in `openspec/changes/`.
+- Keep generated edits small enough to review; avoid broad speculative rewrites.
+- Run the validation commands listed in `AGENTS.md` before proposing merge-ready work.
+- Use repository-local tooling and GitHub integration; do not add MCP servers or plugins unless an OpenSpec change justifies them.
+- Keep Copilot cloud setup aligned with `.github/workflows/copilot-setup-steps.yml`.

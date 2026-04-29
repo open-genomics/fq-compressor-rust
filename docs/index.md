@@ -4,7 +4,7 @@ layout: home
 hero:
   name: fqc
   text: "FASTQ compression in Rust"
-  tagline: "A focused `.fqc` compressor with compression, decompression, inspection, and verification in one CLI."
+  tagline: "A block-indexed `.fqc` archive tool for compressing, restoring, inspecting, and verifying FASTQ data without turning project maintenance into a platform."
   image:
     src: /logo.svg
     alt: fqc logo
@@ -18,15 +18,27 @@ hero:
 
 features:
   - icon: 🧬
-    title: "FASTQ-aware compression"
-    details: "Short-read data uses an ABC-style path while medium and long reads use Zstd-backed compression."
+    title: "FASTQ-aware by design"
+    details: "Sequences, qualities, read IDs, and paired-end layout are encoded as separate archive concerns instead of being hidden inside a generic compressed stream."
   - icon: 📦
     title: "Block-indexed archives"
-    details: "`.fqc` stores archive metadata per block so inspection and partial workflows stay practical."
+    details: "The `.fqc` container keeps per-block metadata, a footer, and an index so `info`, `verify`, and range-oriented workflows have structure to work with."
   - icon: 🔍
-    title: "Integrity tooling included"
-    details: "`fqc info` and `fqc verify` are first-class commands rather than afterthought scripts."
+    title: "Operational commands included"
+    details: "The same binary ships `compress`, `decompress`, `info`, and `verify`; users do not need sidecar scripts to validate an archive."
   - icon: ⚙️
-    title: "Lean project surface"
-    details: "The repository is documented and automated around the current release line instead of speculative future scope."
+    title: "Explicit memory modes"
+    details: "Default archive mode optimizes globally, `--streaming` favors strict memory control, and `--memory-limit 0` means automatic memory selection."
 ---
+
+## Pick the right path
+
+| Need | Command shape |
+| --- | --- |
+| Standard single-end archive | `fqc compress -i reads.fastq -o reads.fqc` |
+| Low-memory compression | `fqc compress -i reads.fastq -o reads.fqc --streaming --memory-limit 1024` |
+| Paired-end input | `fqc compress -i reads_R1.fastq -2 reads_R2.fastq -o paired.fqc` |
+| Check an archive before use | `fqc verify -i reads.fqc` |
+| Inspect codecs and blocks | `fqc info -i reads.fqc --detailed --show-codecs` |
+
+Start with the [Quick Start](/guide/quick-start) if you want the shortest path from FASTQ to `.fqc`, or jump to the [CLI reference](/guide/cli) for flags and mode details.

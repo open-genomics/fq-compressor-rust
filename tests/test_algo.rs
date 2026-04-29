@@ -2,6 +2,7 @@
 // fqc-rust - Algorithm Module Tests (ID Compressor, Quality Compressor, PE Optimizer)
 // =============================================================================
 
+use fqc::algo::global_analyzer::{GlobalAnalyzer, GlobalAnalyzerConfig};
 use fqc::algo::id_compressor::{compress_ids, decompress_ids};
 use fqc::algo::pe_optimizer::*;
 use fqc::algo::quality_compressor::{QualityCompressor, QualityCompressorConfig};
@@ -322,4 +323,23 @@ fn test_pe_optimizer_encode_decode_roundtrip_no_comp() {
     assert_eq!(dec_r1.quality, r1.quality);
     assert_eq!(dec_r2.sequence, r2.sequence);
     assert_eq!(dec_r2.quality, r2.quality);
+}
+
+#[test]
+fn test_global_analyzer_respects_requested_block_size() {
+    let sequences: Vec<String> = (0..10).map(|_| "ACGTACGT".to_string()).collect();
+    let analyzer = GlobalAnalyzer::new(GlobalAnalyzerConfig {
+        reads_per_block: 3,
+        enable_reorder: false,
+        read_length_class: Some(ReadLengthClass::Short),
+        ..Default::default()
+    });
+
+    let result = analyzer.analyze(&sequences).unwrap();
+
+    assert_eq!(result.num_blocks, 4);
+    assert_eq!(result.block_boundaries[0].archive_id_start, 0);
+    assert_eq!(result.block_boundaries[0].archive_id_end, 3);
+    assert_eq!(result.block_boundaries[3].archive_id_start, 9);
+    assert_eq!(result.block_boundaries[3].archive_id_end, 10);
 }
