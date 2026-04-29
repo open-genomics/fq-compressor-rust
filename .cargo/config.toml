@@ -1,32 +1,13 @@
-# Cargo build configuration
-# https://doc.rust-lang.org/cargo/reference/config.html
-
-[target.x86_64-pc-windows-msvc]
-# Use lld linker for faster linking on Windows (if available)
-# Uncomment if lld-link is installed (ships with LLVM or recent Rust nightly)
-# rustflags = ["-C", "linker=lld-link"]
+[build]
+incremental = true
 
 [target.x86_64-unknown-linux-gnu]
-# Use mold linker on Linux for faster linking (if available)
-# Uncomment if mold is installed: sudo apt install mold
-# rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+linker = "gcc"
 
-[target.x86_64-apple-darwin]
-# Split debuginfo for faster linking on macOS
-rustflags = ["-C", "split-debuginfo=unpacked"]
+[profile.release]
+lto = "thin"
+codegen-units = 1
 
-[target.aarch64-apple-darwin]
-rustflags = ["-C", "split-debuginfo=unpacked"]
-
-[target.x86_64-unknown-linux-musl]
-# musl static build — zero external dependencies
-# Install: rustup target add x86_64-unknown-linux-musl
-# On Ubuntu: sudo apt install musl-tools
-rustflags = ["-C", "target-feature=+crt-static"]
-
-[target.aarch64-unknown-linux-musl]
-rustflags = ["-C", "target-feature=+crt-static"]
-
-# Optimize build for native CPU when building release locally
-# This is NOT set globally to keep CI builds portable
-# Use: RUSTFLAGS="-C target-cpu=native" cargo build --release
+[profile.bench]
+inherits = "release"
+debug = true
