@@ -119,7 +119,9 @@ The repository includes Criterion-based benchmarks:
 - **benches/parser_throughput.rs** - FASTQ parser performance
 - **benches/archive_workflow.rs** - Full compression/decompression pipeline
 
-To run benchmarks:
+### Running Benchmarks
+
+**Standard execution:**
 
 ```bash
 cargo bench
@@ -127,20 +129,42 @@ cargo bench
 
 Results are saved to `target/criterion/` with HTML reports.
 
+**Troubleshooting conda/glibc conflicts:**
+
+If you encounter linker errors related to `__tunable_is_initialized@GLIBC_PRIVATE`, this indicates a conflict between conda's GCC and system glibc. Use this workaround:
+
+```bash
+# Method 1: Temporarily exclude conda from PATH
+PATH="/usr/bin:/bin:/usr/local/bin:$HOME/.cargo/bin" cargo bench
+
+# Method 2: Use a clean environment
+env -i PATH="/usr/bin:/bin:/usr/local/bin:$HOME/.cargo/bin" HOME="$HOME" cargo bench
+```
+
+This is a known issue in environments where conda's toolchain (GCC 15.x) is incompatible with the system's glibc version.
+
 ---
 
-## Limitations
+## Known Issues
 
-### Current Environment Issue
+### Conda/glibc Linker Conflict
 
-Benchmark execution was blocked by a linker conflict between conda's GCC 15.1.0 and system glibc. This is an environmental issue, not a code problem.
-
-Workaround:
-```bash
-# Deactivate conda before running benchmarks
-conda deactivate
-cargo bench
+**Symptom:** Linker error when running `cargo bench`:
 ```
+undefined reference to `__tunable_is_initialized@GLIBC_PRIVATE'
+```
+
+**Cause:** Conda's GCC 15.x toolchain is incompatible with the system glibc version.
+
+**Solution:** Run benchmarks with conda excluded from PATH:
+```bash
+PATH="/usr/bin:/bin:/usr/local/bin:$HOME/.cargo/bin" cargo bench
+```
+
+This issue does not affect:
+- `cargo build --release` (release builds work correctly)
+- `cargo test` (tests work correctly)
+- Only benchmark compilation with Criterion's additional dependencies
 
 ### Test Data Size
 

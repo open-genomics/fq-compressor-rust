@@ -32,6 +32,20 @@ Or run:
 bash scripts/validate.sh full
 ```
 
+## Running benchmarks
+
+```bash
+cargo bench
+```
+
+**Note:** If you encounter a linker error with `__tunable_is_initialized@GLIBC_PRIVATE`, this is a conda/glibc conflict. Use:
+
+```bash
+PATH="/usr/bin:/bin:/usr/local/bin:$HOME/.cargo/bin" cargo bench
+```
+
+See `docs/benchmarks/performance-report.md` for details.
+
 ## Branching and review
 
 - Prefer short-lived branches.
