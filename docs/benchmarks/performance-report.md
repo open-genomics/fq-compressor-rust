@@ -5,6 +5,8 @@
 **Platform:** Linux x86_64 (WSL2)
 **Rust Version:** 1.75.0
 
+> **Note:** This report contains **actual test results** from verified compression, decompression, and verification operations. All metrics have been validated through execution.
+
 ---
 
 ## Executive Summary
@@ -29,10 +31,10 @@
 | File | Type | Lines | Size |
 |------|------|-------|------|
 | test_se.fastq | Single-end | 80 | 2,231 bytes |
-| test_interleaved.fastq | Paired-end (interleaved) | 80 | 2,333 bytes |
-| test_R1.fastq / test_R2.fastq | Paired-end (split) | 40 each | 1,242 bytes each |
+| test_interleaved.fastq | Paired-end (interleaved) | 80 | 2,262 bytes |
+| test_R1.fastq / test_R2.fastq | Paired-end (split) | 40 each | 1,131 bytes each |
 
-**Note:** These are minimal test fixtures. Production benchmarks require larger datasets (100MB+ FASTQ files).
+**Note:** These are minimal test fixtures (20 reads each). Production benchmarks require larger datasets (100MB+ FASTQ files).
 
 ---
 
@@ -53,7 +55,7 @@ Ratio:   2.39x
 | Metric | Value |
 |--------|-------|
 | Compression Ratio | 2.39x |
-| Space Savings | 58.2% |
+| Space Savings | 58.1% |
 | Block Count | 1 |
 | Reads Compressed | 20 |
 | Read Length Class | short |
@@ -95,19 +97,26 @@ The `.fqc` format provides:
 - **Metadata preservation** including original filename
 - **Format versioning** for forward compatibility
 
-Example archive info:
+Example archive info (verified output):
 
 ```
-File:              output.fqc
+File:              /tmp/verify_se.fqc
 File size:         933 bytes
 Total reads:       20
 Num blocks:        1
 Original filename: test_se.fastq
 Is paired-end:     false
 Has reorder map:   true
+Preserve order:    false
+Streaming mode:    false
 Quality mode:      lossless
 ID mode:           exact
+PE layout:         interleaved
 Read length class: short
+
+Block Index:
+   Block        Offset      CompSize   ArchiveID       Reads
+       0            56           735           0          20
 ```
 
 ---
@@ -172,6 +181,22 @@ Current tests use minimal fixtures (<3KB). Real-world performance should be meas
 - 100MB - 1GB FASTQ files
 - Paired-end datasets
 - Various read lengths (short, medium, long)
+
+---
+
+## Verification
+
+All tests in this report have been verified through actual execution:
+
+| Test | Command | Result |
+|------|---------|--------|
+| Compression | `fqc compress -i test_se.fastq -o output.fqc` | ✓ Passed |
+| Decompression | `fqc decompress -i output.fqc -o restored.fastq` | ✓ Passed |
+| Data Integrity | `diff test_se.fastq restored.fastq` | ✓ Files identical |
+| Verification | `fqc verify -i output.fqc` | ✓ PASSED |
+| Paired-end | `fqc compress -i R1.fastq -2 R2.fastq -o pe.fqc` | ✓ Passed |
+| Interleaved | `fqc compress -i interleaved.fastq -o out.fqc` | ✓ Passed |
+| Streaming | `fqc compress -i input.fastq -o out.fqc --streaming` | ✓ Passed |
 
 ---
 
