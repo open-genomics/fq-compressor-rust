@@ -2,7 +2,20 @@
 
 ## [Unreleased]
 
-- Repository normalization around OpenSpec, leaner workflows, and a rebuilt documentation site.
+## [0.1.2] - 2026-05-01
+
+### Added
+- Benchmark foundation for parser and archive workflows (criterion-based)
+- Performance foundation architecture documentation
+
+### Changed
+- Consolidated all development branches into master
+- Closed feature worktrees after completion
+
+### Repository
+- Single-branch architecture (master only)
+- All OpenSpec changes completed
+- Repository metadata updated for discoverability
 
 ## [0.1.1] - 2026-04-16
 
