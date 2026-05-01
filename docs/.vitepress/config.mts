@@ -21,7 +21,7 @@ export default defineConfig({
       { text: 'Quick Start', link: '/guide/quick-start' },
       { text: 'CLI', link: '/guide/cli' },
       { text: 'Architecture', link: '/architecture/' },
-      { text: 'Algorithms', link: '/algorithms/' },
+      { text: 'Benchmarks', link: '/benchmarks/performance-report' },
       { text: 'Release Notes', link: '/release-notes' },
       { text: 'GitHub', link: 'https://github.com/LessUp/fq-compressor-rust' }
     ],
@@ -49,6 +49,12 @@ export default defineConfig({
         {
           text: 'Algorithms',
           items: [{ text: 'Overview', link: '/algorithms/' }]
+        }
+      ],
+      '/benchmarks/': [
+        {
+          text: 'Benchmarks',
+          items: [{ text: 'Performance Report', link: '/benchmarks/performance-report' }]
         }
       ]
     },
