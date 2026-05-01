@@ -75,10 +75,7 @@ impl ParserStats {
 // Sequence / Quality Validation
 // =============================================================================
 
-/// Check if a byte is a valid DNA base
-fn is_valid_base(b: u8) -> bool {
-    matches!(b, b'A' | b'C' | b'G' | b'T' | b'N' | b'a' | b'c' | b'g' | b't' | b'n')
-}
+use crate::algo::dna::is_valid_base;
 
 /// Validate DNA sequence
 pub fn validate_sequence(seq: &str) -> std::result::Result<(), String> {

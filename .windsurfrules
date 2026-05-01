@@ -1,22 +1,5 @@
 # Windsurf / OpenCode notes for fqc
 
-- Read `AGENTS.md` first.
-- Use `openspec/specs/` as the living source of truth.
-- This repository is in stabilization mode: reduce drift, simplify workflows, and keep changes tightly scoped.
+Read `AGENTS.md` first — it is the canonical AI contributor guide.
 
-## Required checks
-
-```bash
-cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
-cargo test --lib --tests
-cargo doc --no-deps
-npm run docs:build
-```
-
-## Workflow
-
-1. Update or create the relevant OpenSpec change before behavior changes.
-2. Implement the full slice.
-3. Update README, docs, and OpenSpec together.
-4. Use review before merge. Avoid parallel speculative branches and avoid `/fleet` unless truly necessary.
+This repository is in stabilization mode: reduce drift, simplify workflows.
