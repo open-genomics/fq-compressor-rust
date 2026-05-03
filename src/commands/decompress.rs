@@ -3,10 +3,11 @@
 // =============================================================================
 
 use crate::algo::block_compressor::{BlockCompressor, BlockCompressorConfig, DecompressedBlockData};
+use crate::archive_traits::BlockData;
 use crate::error::{FqcError, Result};
 use crate::fastq::parser::write_record as write_fastq_record;
 use crate::format::{flags, get_id_mode, get_pe_layout, get_quality_mode, get_read_length_class};
-use crate::fqc_reader::{BlockData, FqcReader};
+use crate::fqc_reader::FqcReader;
 use crate::pipeline::decompression::{DecompressionPipeline, DecompressionPipelineConfig};
 use crate::types::*;
 use rayon::prelude::*;
@@ -366,18 +367,7 @@ impl DecompressCommand {
                 .into_par_iter()
                 .map(|(bid, bd)| {
                     let comp = BlockCompressor::new((*cfg).clone());
-                    let bh = &bd.header;
-                    match comp.decompress_raw(
-                        bh.block_id,
-                        bh.uncompressed_count,
-                        bh.uniform_read_length,
-                        bh.codec_seq,
-                        bh.codec_qual,
-                        &bd.ids_data,
-                        &bd.seq_data,
-                        &bd.qual_data,
-                        &bd.aux_data,
-                    ) {
+                    match comp.decompress_block(&bd) {
                         Ok(dec) => Ok((bid, dec)),
                         Err(e) => Err((bid, format!("{}", e))),
                     }
@@ -431,19 +421,8 @@ impl DecompressCommand {
         output: &mut OutputWriters,
     ) -> Result<()> {
         let block_data = reader.read_block(block_id)?;
-        let bh = &block_data.header;
 
-        let decompressed = compressor.decompress_raw(
-            bh.block_id,
-            bh.uncompressed_count,
-            bh.uniform_read_length,
-            bh.codec_seq,
-            bh.codec_qual,
-            &block_data.ids_data,
-            &block_data.seq_data,
-            &block_data.qual_data,
-            &block_data.aux_data,
-        )?;
+        let decompressed = compressor.decompress_block(&block_data)?;
 
         for read in &decompressed.reads {
             let read_idx = *global_read_idx;
@@ -476,19 +455,8 @@ impl DecompressCommand {
 
         for block_id in 0..block_count {
             let block_data = reader.read_block(block_id as u32)?;
-            let bh = &block_data.header;
 
-            match compressor.decompress_raw(
-                bh.block_id,
-                bh.uncompressed_count,
-                bh.uniform_read_length,
-                bh.codec_seq,
-                bh.codec_qual,
-                &block_data.ids_data,
-                &block_data.seq_data,
-                &block_data.qual_data,
-                &block_data.aux_data,
-            ) {
+            match compressor.decompress_block(&block_data) {
                 Ok(decompressed) => {
                     all_reads.extend(decompressed.reads);
                     self.stats.blocks_processed += 1;

@@ -72,12 +72,42 @@ impl Default for CompressOptions {
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-struct LengthStats {
-    sample_size: usize,
-    avg_length: usize,
-    median_length: usize,
-    max_length: usize,
+impl CompressOptions {
+    /// Create a BlockCompressorConfig from these options.
+    pub fn to_block_config(&self, read_length_class: ReadLengthClass) -> BlockCompressorConfig {
+        BlockCompressorConfig {
+            read_length_class,
+            compression_level: self.level,
+            quality_mode: self.quality_mode,
+            id_mode: self.id_mode,
+            zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(self.level),
+            ..Default::default()
+        }
+    }
+
+    /// Create a CompressionPipelineConfig from these options.
+    pub fn to_pipeline_config(
+        &self,
+        read_length_class: ReadLengthClass,
+        block_size: usize,
+        max_in_flight_blocks: usize,
+        is_paired: bool,
+    ) -> CompressionPipelineConfig {
+        CompressionPipelineConfig {
+            num_threads: self.threads,
+            max_in_flight_blocks,
+            block_size,
+            read_length_class,
+            quality_mode: self.quality_mode,
+            id_mode: self.id_mode,
+            compression_level: self.level,
+            enable_reorder: self.enable_reorder && !is_paired,
+            save_reorder_map: self.enable_reorder && !is_paired,
+            streaming_mode: false,
+            pe_layout: self.pe_layout,
+            memory_limit_mb: self.memory_limit_mb,
+        }
+    }
 }
 
 // =============================================================================
@@ -262,17 +292,7 @@ impl CompressCommand {
         writer.write_global_header(&global_header)?;
 
         // Block compressor config
-        let zstd_level = BlockCompressorConfig::zstd_level_for_compression_level(self.opts.level);
-        let block_config = BlockCompressorConfig {
-            read_length_class: effective_length_class,
-            compression_level: self.opts.level,
-            quality_mode: self.opts.quality_mode,
-            id_mode: self.opts.id_mode,
-            zstd_level,
-            ..Default::default()
-        };
-
-        let block_config = std::sync::Arc::new(block_config);
+        let block_config = std::sync::Arc::new(self.opts.to_block_config(effective_length_class));
 
         // Extract block read sets
         let block_read_sets: Vec<(u32, Vec<ReadRecord>)> = analysis
@@ -424,16 +444,7 @@ impl CompressCommand {
         let global_header = GlobalHeader::new(flags, 0, input_filename, timestamp);
         writer.write_global_header(&global_header)?;
 
-        let zstd_level = BlockCompressorConfig::zstd_level_for_compression_level(self.opts.level);
-        let block_config = BlockCompressorConfig {
-            read_length_class: effective_length_class,
-            compression_level: self.opts.level,
-            quality_mode: self.opts.quality_mode,
-            id_mode: self.opts.id_mode,
-            zstd_level,
-            ..Default::default()
-        };
-        let compressor = BlockCompressor::new(block_config);
+        let compressor = BlockCompressor::new(self.opts.to_block_config(effective_length_class));
 
         let mut block_id = 0u32;
         let mut archive_id_start = 0u64;
@@ -506,16 +517,7 @@ impl CompressCommand {
         let global_header = GlobalHeader::new(flags, 0, input_filename, timestamp);
         writer.write_global_header(&global_header)?;
 
-        let zstd_level = BlockCompressorConfig::zstd_level_for_compression_level(self.opts.level);
-        let block_config = BlockCompressorConfig {
-            read_length_class: effective_length_class,
-            compression_level: self.opts.level,
-            quality_mode: self.opts.quality_mode,
-            id_mode: self.opts.id_mode,
-            zstd_level,
-            ..Default::default()
-        };
-        let compressor = BlockCompressor::new(block_config);
+        let compressor = BlockCompressor::new(self.opts.to_block_config(effective_length_class));
 
         let mut block_id = 0u32;
         let mut archive_id_start = 0u64;
@@ -546,19 +548,10 @@ impl CompressCommand {
             r2_buf.push(r2);
 
             if r1_buf.len() >= target_pairs {
-                let mut block_buf = Vec::with_capacity(r1_buf.len() + r2_buf.len());
-                match self.opts.pe_layout {
-                    PeLayout::Interleaved => {
-                        for (a, b) in r1_buf.drain(..).zip(r2_buf.drain(..)) {
-                            block_buf.push(a);
-                            block_buf.push(b);
-                        }
-                    }
-                    PeLayout::Consecutive => {
-                        block_buf.append(&mut r1_buf);
-                        block_buf.append(&mut r2_buf);
-                    }
-                }
+                let block_buf = self
+                    .opts
+                    .pe_layout
+                    .arrange(std::mem::take(&mut r1_buf), std::mem::take(&mut r2_buf));
 
                 let compressed = compressor.compress(&block_buf, block_id)?;
                 writer.write_block_with_id(&compressed, archive_id_start)?;
@@ -571,29 +564,7 @@ impl CompressCommand {
 
         // Flush remaining
         if !r1_buf.is_empty() || !r2_buf.is_empty() {
-            let mut block_buf = Vec::with_capacity(r1_buf.len() + r2_buf.len());
-            match self.opts.pe_layout {
-                PeLayout::Interleaved => {
-                    let paired_count = r1_buf.len().min(r2_buf.len());
-                    for i in 0..paired_count {
-                        block_buf.push(r1_buf[i].clone());
-                        block_buf.push(r2_buf[i].clone());
-                    }
-                    // Any remaining unpaired reads (e.g. odd number of reads)
-                    for i in paired_count..r1_buf.len() {
-                        block_buf.push(r1_buf[i].clone());
-                    }
-                    for i in paired_count..r2_buf.len() {
-                        block_buf.push(r2_buf[i].clone());
-                    }
-                    r1_buf.clear();
-                    r2_buf.clear();
-                }
-                PeLayout::Consecutive => {
-                    block_buf.append(&mut r1_buf);
-                    block_buf.append(&mut r2_buf);
-                }
-            }
+            let block_buf = self.opts.pe_layout.arrange(r1_buf, r2_buf);
 
             if !block_buf.is_empty() {
                 let compressed = compressor.compress(&block_buf, block_id)?;
@@ -645,16 +616,7 @@ impl CompressCommand {
         let global_header = GlobalHeader::new(flags, 0, input_filename, timestamp);
         writer.write_global_header(&global_header)?;
 
-        let zstd_level = BlockCompressorConfig::zstd_level_for_compression_level(self.opts.level);
-        let block_config = BlockCompressorConfig {
-            read_length_class: effective_length_class,
-            compression_level: self.opts.level,
-            quality_mode: self.opts.quality_mode,
-            id_mode: self.opts.id_mode,
-            zstd_level,
-            ..Default::default()
-        };
-        let compressor = BlockCompressor::new(block_config);
+        let compressor = BlockCompressor::new(self.opts.to_block_config(effective_length_class));
 
         let mut block_id = 0u32;
         let mut archive_id_start = 0u64;
@@ -669,19 +631,10 @@ impl CompressCommand {
             r2_buf.push(r2);
 
             if r1_buf.len() >= target_pairs {
-                let mut block_buf = Vec::with_capacity(r1_buf.len() + r2_buf.len());
-                match self.opts.pe_layout {
-                    PeLayout::Interleaved => {
-                        for (r1, r2) in r1_buf.drain(..).zip(r2_buf.drain(..)) {
-                            block_buf.push(r1);
-                            block_buf.push(r2);
-                        }
-                    }
-                    PeLayout::Consecutive => {
-                        block_buf.append(&mut r1_buf);
-                        block_buf.append(&mut r2_buf);
-                    }
-                }
+                let block_buf = self
+                    .opts
+                    .pe_layout
+                    .arrange(std::mem::take(&mut r1_buf), std::mem::take(&mut r2_buf));
 
                 let compressed = compressor.compress(&block_buf, block_id)?;
                 writer.write_block_with_id(&compressed, archive_id_start)?;
@@ -693,28 +646,7 @@ impl CompressCommand {
         }
 
         if !r1_buf.is_empty() || !r2_buf.is_empty() {
-            let mut block_buf = Vec::with_capacity(r1_buf.len() + r2_buf.len());
-            match self.opts.pe_layout {
-                PeLayout::Interleaved => {
-                    let paired_count = r1_buf.len().min(r2_buf.len());
-                    for i in 0..paired_count {
-                        block_buf.push(r1_buf[i].clone());
-                        block_buf.push(r2_buf[i].clone());
-                    }
-                    for i in paired_count..r1_buf.len() {
-                        block_buf.push(r1_buf[i].clone());
-                    }
-                    for i in paired_count..r2_buf.len() {
-                        block_buf.push(r2_buf[i].clone());
-                    }
-                    r1_buf.clear();
-                    r2_buf.clear();
-                }
-                PeLayout::Consecutive => {
-                    block_buf.append(&mut r1_buf);
-                    block_buf.append(&mut r2_buf);
-                }
-            }
+            let block_buf = self.opts.pe_layout.arrange(r1_buf, r2_buf);
 
             if !block_buf.is_empty() {
                 let compressed = compressor.compress(&block_buf, block_id)?;
@@ -816,20 +748,9 @@ impl CompressCommand {
             );
         }
 
-        let pipeline_config = CompressionPipelineConfig {
-            num_threads: self.opts.threads,
-            max_in_flight_blocks,
-            block_size,
-            read_length_class: effective_length_class,
-            quality_mode: self.opts.quality_mode,
-            id_mode: self.opts.id_mode,
-            compression_level: self.opts.level,
-            enable_reorder: self.opts.enable_reorder && !is_paired,
-            save_reorder_map: self.opts.enable_reorder && !is_paired,
-            streaming_mode: false,
-            pe_layout: self.opts.pe_layout,
-            memory_limit_mb: self.opts.memory_limit_mb,
-        };
+        let pipeline_config =
+            self.opts
+                .to_pipeline_config(effective_length_class, block_size, max_in_flight_blocks, is_paired);
 
         log::info!(
             "Pipeline profile: sample={} avg={}bp median={}bp max={}bp, class={}, block_size={}, in_flight_blocks={}",
@@ -1006,23 +927,8 @@ impl CompressCommand {
             .collect()
     }
 
-    fn build_length_stats(mut lengths: Vec<usize>) -> LengthStats {
-        lengths.sort_unstable();
-        let sample_size = lengths.len();
-        let max_length = lengths.last().copied().unwrap_or(0);
-        let median_length = lengths.get(sample_size / 2).copied().unwrap_or(0);
-        let avg_length = if sample_size == 0 {
-            0
-        } else {
-            lengths.iter().sum::<usize>() / sample_size
-        };
-
-        LengthStats {
-            sample_size,
-            avg_length,
-            median_length,
-            max_length,
-        }
+    fn build_length_stats(lengths: Vec<usize>) -> LengthStats {
+        LengthStats::from_sorted_lengths(lengths)
     }
 
     fn length_sample_limit(&self) -> usize {

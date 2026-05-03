@@ -67,3 +67,17 @@ bash scripts/setup-hooks.sh
 - Avoid `/fleet` unless the task genuinely needs parallel sub-agents; it is usually unnecessary here.
 - Only use autopilot or allow-all modes **after** OpenSpec tasks are clear and bounded.
 - Prefer built-in GitHub integration and repo-local instructions over adding new MCP servers or plugins.
+
+## Agent skills
+
+### Issue tracker
+
+Issues live in GitHub Issues at [LessUp/fq-compressor-rust](https://github.com/LessUp/fq-compressor-rust/issues). Use `gh` CLI commands. See `docs/agents/issue-tracker.md`.
+
+### Triage labels
+
+Default label vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+
+### Domain docs
+
+Single-context layout. See `docs/agents/domain.md`.

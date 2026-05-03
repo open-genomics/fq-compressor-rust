@@ -174,16 +174,14 @@ impl GlobalAnalyzer {
         }
 
         // Compute length statistics
-        let max_length = sequences.iter().map(|s| s.len()).max().unwrap_or(0);
-        let mut lengths: Vec<usize> = sequences.iter().map(|s| s.len()).collect();
-        lengths.sort_unstable();
-        let median_length = lengths[lengths.len() / 2];
+        let lengths: Vec<usize> = sequences.iter().map(|s| s.len()).collect();
+        let stats = LengthStats::from_lengths(&lengths);
 
-        result.max_read_length = max_length;
+        result.max_read_length = stats.max_length;
         result.length_class = if let Some(lc) = self.config.read_length_class {
             lc
         } else {
-            classify_read_length(median_length, max_length)
+            classify_read_length(stats.median_length, stats.max_length)
         };
 
         let should_reorder = self.config.enable_reorder && result.length_class == ReadLengthClass::Short;

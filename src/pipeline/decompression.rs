@@ -12,10 +12,11 @@ use std::time::Instant;
 use crossbeam_channel::{bounded, Receiver, Sender};
 
 use crate::algo::block_compressor::{BlockCompressor, BlockCompressorConfig, DecompressedBlockData};
+use crate::archive_traits::BlockData;
 use crate::error::{FqcError, Result};
 use crate::fastq::parser::write_record;
 use crate::format::{flags, get_id_mode, get_pe_layout, get_quality_mode, get_read_length_class};
-use crate::fqc_reader::{BlockData, FqcReader};
+use crate::fqc_reader::FqcReader;
 use crate::io::async_io::AsyncWriter;
 
 use super::{PipelineControl, PipelineStats, DEFAULT_MAX_IN_FLIGHT_BLOCKS};
@@ -212,17 +213,7 @@ impl DecompressionPipeline {
                     }
 
                     let bh = &task.block_data.header;
-                    let decomp_result = compressor.decompress_raw(
-                        bh.block_id,
-                        bh.uncompressed_count,
-                        bh.uniform_read_length,
-                        bh.codec_seq,
-                        bh.codec_qual,
-                        &task.block_data.ids_data,
-                        &task.block_data.seq_data,
-                        &task.block_data.qual_data,
-                        &task.block_data.aux_data,
-                    );
+                    let decomp_result = compressor.decompress_block(&task.block_data);
 
                     ctrl.add_reads(bh.uncompressed_count as u64);
 

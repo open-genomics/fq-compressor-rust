@@ -30,6 +30,7 @@
 #![allow(dead_code)]
 
 pub mod algo;
+pub mod archive_traits;
 pub mod commands;
 pub mod common;
 pub mod error;
@@ -39,5 +40,4 @@ pub mod fqc_reader;
 pub mod fqc_writer;
 pub mod io;
 pub mod pipeline;
-pub mod reorder_map;
 pub mod types;

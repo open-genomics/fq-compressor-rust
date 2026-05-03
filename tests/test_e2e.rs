@@ -18,7 +18,6 @@ use fqc::format::*;
 use fqc::fqc_reader::FqcReader;
 use fqc::fqc_writer::FqcWriter;
 use fqc::io::compressed_stream::*;
-use fqc::reorder_map::*;
 use fqc::types::*;
 
 // =============================================================================
@@ -324,35 +323,6 @@ fn test_e2e_supported_formats() {
     assert!(formats.len() >= 2);
     for fmt in &formats {
         assert!(is_compression_supported(*fmt));
-    }
-}
-
-// =============================================================================
-// E2E: ReorderMap Round-Trip with Real Data
-// =============================================================================
-
-#[test]
-fn test_e2e_reorder_map_roundtrip() {
-    let n = 500;
-    // Create a pseudo-random permutation
-    let mut reverse: Vec<u64> = (0..n as u64).collect();
-    // Simple shuffle using a deterministic seed
-    for i in (1..n).rev() {
-        let j = (i * 7 + 3) % (i + 1);
-        reverse.swap(i, j);
-    }
-
-    let map = ReorderMapData::from_reverse_map(reverse);
-    assert!(map.is_valid());
-
-    let serialized = map.serialize().unwrap();
-    let restored = ReorderMapData::deserialize(&serialized).unwrap();
-    assert!(restored.is_valid());
-    assert_eq!(restored.total_reads(), n as u64);
-
-    for i in 0..n as u64 {
-        assert_eq!(map.get_archive_id(i), restored.get_archive_id(i));
-        assert_eq!(map.get_original_id(i), restored.get_original_id(i));
     }
 }
 

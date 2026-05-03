@@ -3,23 +3,35 @@
 // =============================================================================
 
 use crate::algo::block_compressor::delta_decode_ids;
+use crate::archive_traits::{ArchiveReader, BlockData};
 use crate::error::{FqcError, Result};
 use crate::format::*;
+use crate::types::{IdMode, PeLayout, QualityMode, ReadLengthClass};
 use byteorder::ReadBytesExt;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
 
 // =============================================================================
-// BlockData - raw decompressed streams for a block
+// ArchiveInfo
 // =============================================================================
 
-#[derive(Debug, Default)]
-pub struct BlockData {
-    pub header: BlockHeader,
-    pub ids_data: Vec<u8>,
-    pub seq_data: Vec<u8>,
-    pub qual_data: Vec<u8>,
-    pub aux_data: Vec<u8>,
+/// Structured information about an archive.
+#[derive(Debug, Clone)]
+pub struct ArchiveInfo {
+    pub file_path: String,
+    pub file_size: u64,
+    pub total_reads: u64,
+    pub num_blocks: usize,
+    pub original_filename: String,
+    pub timestamp: u64,
+    pub is_paired: bool,
+    pub has_reorder_map: bool,
+    pub preserve_order: bool,
+    pub streaming_mode: bool,
+    pub quality_mode: QualityMode,
+    pub id_mode: IdMode,
+    pub pe_layout: PeLayout,
+    pub read_length_class: ReadLengthClass,
 }
 
 // =============================================================================
@@ -91,6 +103,28 @@ impl FqcReader {
 
     pub fn total_read_count(&self) -> u64 {
         self.global_header.total_read_count
+    }
+
+    /// Get structured information about this archive.
+    pub fn info(&self) -> ArchiveInfo {
+        let flags = self.global_header.flags;
+
+        ArchiveInfo {
+            file_path: self.path.clone(),
+            file_size: self.file_size,
+            total_reads: self.global_header.total_read_count,
+            num_blocks: self.block_count(),
+            original_filename: self.global_header.original_filename.clone(),
+            timestamp: self.global_header.timestamp,
+            is_paired: (flags & flags::IS_PAIRED) != 0,
+            has_reorder_map: (flags & flags::HAS_REORDER_MAP) != 0,
+            preserve_order: (flags & flags::PRESERVE_ORDER) != 0,
+            streaming_mode: (flags & flags::STREAMING_MODE) != 0,
+            quality_mode: get_quality_mode(flags),
+            id_mode: get_id_mode(flags),
+            pe_layout: get_pe_layout(flags),
+            read_length_class: get_read_length_class(flags),
+        }
     }
 
     pub fn has_reorder_map(&self) -> bool {
@@ -194,5 +228,43 @@ impl FqcReader {
         self.reorder_reverse
             .as_ref()
             .and_then(|m| m.get(archive_id as usize).copied())
+    }
+}
+
+// =============================================================================
+// ArchiveReader Implementation
+// =============================================================================
+
+impl ArchiveReader for FqcReader {
+    fn global_header(&self) -> &GlobalHeader {
+        &self.global_header
+    }
+
+    fn block_count(&self) -> usize {
+        self.block_index.entries.len()
+    }
+
+    fn total_read_count(&self) -> u64 {
+        self.global_header.total_read_count
+    }
+
+    fn has_reorder_map(&self) -> bool {
+        self.footer.has_reorder_map()
+    }
+
+    fn load_reorder_map(&mut self) -> Result<()> {
+        self.load_reorder_map()
+    }
+
+    fn lookup_original_id(&self, archive_id: u64) -> Option<u64> {
+        self.lookup_original_id(archive_id)
+    }
+
+    fn read_block(&mut self, block_id: u32) -> Result<BlockData> {
+        self.read_block(block_id)
+    }
+
+    fn read_block_header(&mut self, block_id: u32) -> Result<BlockHeader> {
+        self.read_block_header(block_id)
     }
 }

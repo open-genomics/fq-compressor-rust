@@ -2,6 +2,7 @@
 // fqc-rust - Algorithm Module
 // =============================================================================
 
+pub mod abc;
 pub mod block_compressor;
 pub mod dna;
 pub mod global_analyzer;

@@ -9,6 +9,7 @@
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 mod algo;
+mod archive_traits;
 mod commands;
 mod common;
 mod error;
@@ -18,7 +19,6 @@ mod fqc_reader;
 mod fqc_writer;
 mod io;
 mod pipeline;
-mod reorder_map;
 mod types;
 
 use clap::{Parser, Subcommand};

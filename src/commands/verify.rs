@@ -187,17 +187,7 @@ impl VerifyCommand {
         let bh = &block_data.header;
 
         // Decompress the block first to verify data integrity
-        let decompressed = compressor.decompress_raw(
-            bh.block_id,
-            bh.uncompressed_count,
-            bh.uniform_read_length,
-            bh.codec_seq,
-            bh.codec_qual,
-            &block_data.ids_data,
-            &block_data.seq_data,
-            &block_data.qual_data,
-            &block_data.aux_data,
-        )?;
+        let decompressed = compressor.decompress_block(&block_data)?;
 
         // Verify checksum against decompressed reads
         if bh.block_xxhash64 != 0 {

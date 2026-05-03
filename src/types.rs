@@ -57,6 +57,64 @@ pub const ULTRA_LONG_READ_THRESHOLD: usize = 102_400;
 pub const DEFAULT_PLACEHOLDER_QUAL: char = '!';
 
 // =============================================================================
+// LengthStats
+// =============================================================================
+
+/// Statistics about read lengths in a sample.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct LengthStats {
+    pub sample_size: usize,
+    pub avg_length: usize,
+    pub median_length: usize,
+    pub max_length: usize,
+}
+
+impl LengthStats {
+    /// Compute length statistics from a slice of lengths.
+    pub fn from_lengths(lengths: &[usize]) -> Self {
+        if lengths.is_empty() {
+            return Self::default();
+        }
+
+        let mut sorted = lengths.to_vec();
+        sorted.sort_unstable();
+
+        let sample_size = sorted.len();
+        let max_length = *sorted.last().unwrap_or(&0);
+        let median_length = sorted[sample_size / 2];
+        let avg_length = sorted.iter().sum::<usize>() / sample_size;
+
+        Self {
+            sample_size,
+            avg_length,
+            median_length,
+            max_length,
+        }
+    }
+
+    /// Compute length statistics from an iterator, sorting in-place.
+    pub fn from_sorted_lengths(mut lengths: Vec<usize>) -> Self {
+        if lengths.is_empty() {
+            return Self::default();
+        }
+
+        lengths.sort_unstable();
+
+        let sample_size = lengths.len();
+        let max_length = *lengths.last().unwrap_or(&0);
+        let median_length = lengths[sample_size / 2];
+        let avg_length = lengths.iter().sum::<usize>() / sample_size;
+
+        Self {
+            sample_size,
+            avg_length,
+            median_length,
+            max_length,
+        }
+    }
+}
+
+// =============================================================================
 // Quality Mode Enumeration
 // =============================================================================
 
@@ -203,6 +261,67 @@ impl PeLayout {
         match self {
             Self::Interleaved => "interleaved",
             Self::Consecutive => "consecutive",
+        }
+    }
+
+    /// Arrange paired-end reads according to this layout.
+    ///
+    /// - `Interleaved`: R1, R2, R1, R2, ...
+    /// - `Consecutive`: All R1s followed by all R2s
+    pub fn arrange(self, r1: Vec<ReadRecord>, r2: Vec<ReadRecord>) -> Vec<ReadRecord> {
+        match self {
+            Self::Interleaved => {
+                let mut result = Vec::with_capacity(r1.len() + r2.len());
+                let mut r1_iter = r1.into_iter();
+                let mut r2_iter = r2.into_iter();
+                loop {
+                    match (r1_iter.next(), r2_iter.next()) {
+                        (Some(a), Some(b)) => {
+                            result.push(a);
+                            result.push(b);
+                        }
+                        (Some(a), None) => result.push(a),
+                        (None, Some(b)) => result.push(b),
+                        (None, None) => break,
+                    }
+                }
+                result
+            }
+            Self::Consecutive => {
+                let mut result = r1;
+                result.extend(r2);
+                result
+            }
+        }
+    }
+
+    /// Split interleaved or consecutive reads into R1 and R2 pairs.
+    ///
+    /// - `Interleaved`: Expects R1, R2, R1, R2, ... order
+    /// - `Consecutive`: Expects all R1s followed by all R2s
+    ///
+    /// Returns `(r1, r2)` vectors.
+    pub fn split(self, reads: Vec<ReadRecord>) -> (Vec<ReadRecord>, Vec<ReadRecord>) {
+        match self {
+            Self::Interleaved => {
+                let mut r1 = Vec::with_capacity(reads.len() / 2);
+                let mut r2 = Vec::with_capacity(reads.len() / 2);
+                for (i, read) in reads.into_iter().enumerate() {
+                    if i % 2 == 0 {
+                        r1.push(read);
+                    } else {
+                        r2.push(read);
+                    }
+                }
+                (r1, r2)
+            }
+            Self::Consecutive => {
+                let mid = reads.len() / 2;
+                let mut iter = reads.into_iter();
+                let r1: Vec<_> = iter.by_ref().take(mid).collect();
+                let r2: Vec<_> = iter.collect();
+                (r1, r2)
+            }
         }
     }
 }
