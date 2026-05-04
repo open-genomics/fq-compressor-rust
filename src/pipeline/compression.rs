@@ -258,7 +258,7 @@ impl CompressionPipeline {
             let ctrl = control.clone();
 
             let handle = thread::spawn(move || -> Result<()> {
-                let compressor = BlockCompressor::new((*cfg).clone());
+                let mut compressor = BlockCompressor::new((*cfg).clone());
                 for chunk in rx.iter() {
                     if ctrl.is_cancelled() {
                         break;
@@ -444,7 +444,7 @@ impl CompressionPipeline {
             ..Default::default()
         };
 
-        let compressor = BlockCompressor::new(compressor_config);
+        let mut compressor = BlockCompressor::new(compressor_config);
         let mut writer = FqcWriter::create(output_path)?;
 
         let gh = GlobalHeader::new(

@@ -145,7 +145,7 @@ impl VerifyCommand {
             ..Default::default()
         };
 
-        let compressor = BlockCompressor::new(block_config);
+        let mut compressor = BlockCompressor::new(block_config);
         let block_count = reader.block_count();
         let mut all_ok = true;
 
@@ -156,7 +156,7 @@ impl VerifyCommand {
                 print!("Block {}/{}... ", block_id + 1, block_count);
             }
 
-            match self.verify_block(&mut reader, &compressor, block_id as u32) {
+            match self.verify_block(&mut reader, &mut compressor, block_id as u32) {
                 Ok(reads_in_block) => {
                     self.stats.blocks_ok += 1;
                     self.stats.reads_verified += reads_in_block;
@@ -182,7 +182,7 @@ impl VerifyCommand {
         Ok(all_ok)
     }
 
-    fn verify_block(&self, reader: &mut FqcReader, compressor: &BlockCompressor, block_id: u32) -> Result<u64> {
+    fn verify_block(&self, reader: &mut FqcReader, compressor: &mut BlockCompressor, block_id: u32) -> Result<u64> {
         let block_data = reader.read_block(block_id)?;
         let bh = &block_data.header;
 

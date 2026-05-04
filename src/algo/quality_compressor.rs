@@ -509,11 +509,20 @@ impl QualityCompressorTrait for QualityCompressor {
     fn decompress(
         &mut self,
         data: &[u8],
-        _read_count: u32,
-        _uniform_length: u32,
+        read_count: u32,
+        uniform_length: u32,
         lengths: &[u32],
     ) -> Result<Vec<String>> {
-        QualityCompressor::decompress(self, data, lengths)
+        // Use uniform_length if available, otherwise use individual lengths
+        let length_vec: Vec<u32> = if uniform_length > 0 {
+            vec![uniform_length; read_count as usize]
+        } else if !lengths.is_empty() {
+            lengths.to_vec()
+        } else {
+            return Ok(vec![String::new(); read_count as usize]);
+        };
+
+        QualityCompressor::decompress(self, data, &length_vec)
     }
 
     fn codec_id(&self) -> u8 {

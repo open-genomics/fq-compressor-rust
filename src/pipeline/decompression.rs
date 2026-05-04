@@ -205,7 +205,7 @@ impl DecompressionPipeline {
             let ctrl = control.clone();
 
             let handle = thread::spawn(move || -> Result<()> {
-                let compressor = BlockCompressor::new((*cfg).clone());
+                let mut compressor = BlockCompressor::new((*cfg).clone());
 
                 for task in rx.iter() {
                     if ctrl.is_cancelled() {

@@ -19,14 +19,13 @@ fn make_reads(n: usize, length: usize) -> Vec<ReadRecord> {
         .collect()
 }
 
-fn decompress_block(compressor: &BlockCompressor, compressed: &CompressedBlockData) -> DecompressedBlockData {
+fn decompress_block(compressor: &mut BlockCompressor, compressed: &CompressedBlockData) -> DecompressedBlockData {
     compressor
         .decompress_raw(
             0,
             compressed.read_count,
             compressed.uniform_read_length,
             compressed.codec_seq,
-            compressed.codec_qual,
             &compressed.id_stream,
             &compressed.seq_stream,
             &compressed.qual_stream,
@@ -69,14 +68,14 @@ fn test_block_compress_decompress_short_reads() {
         id_mode: IdMode::Exact,
         ..Default::default()
     };
-    let compressor = BlockCompressor::new(config);
+    let mut compressor = BlockCompressor::new(config);
 
     let compressed = compressor.compress(&reads, 0).unwrap();
     assert_eq!(compressed.read_count, 20);
     assert!(compressed.total_compressed_size() > 0);
     assert_eq!(compressed.uniform_read_length, 150);
 
-    let decompressed = decompress_block(&compressor, &compressed);
+    let decompressed = decompress_block(&mut compressor, &compressed);
     assert_reads_match(&reads, &decompressed.reads);
 }
 
@@ -89,12 +88,12 @@ fn test_block_compress_decompress_large_short_block_falls_back_to_zstd() {
         id_mode: IdMode::Exact,
         ..Default::default()
     };
-    let compressor = BlockCompressor::new(config);
+    let mut compressor = BlockCompressor::new(config);
 
     let compressed = compressor.compress(&reads, 0).unwrap();
     assert_eq!(decode_codec_family(compressed.codec_seq), CodecFamily::ZstdPlain);
 
-    let decompressed = decompress_block(&compressor, &compressed);
+    let decompressed = decompress_block(&mut compressor, &compressed);
     assert_reads_match(&reads, &decompressed.reads);
 }
 
@@ -111,13 +110,13 @@ fn test_block_compress_decompress_medium_reads() {
         id_mode: IdMode::Exact,
         ..Default::default()
     };
-    let compressor = BlockCompressor::new(config);
+    let mut compressor = BlockCompressor::new(config);
 
     let compressed = compressor.compress(&reads, 1).unwrap();
     assert_eq!(compressed.read_count, 10);
     assert_eq!(compressed.uniform_read_length, 600);
 
-    let decompressed = decompress_block(&compressor, &compressed);
+    let decompressed = decompress_block(&mut compressor, &compressed);
     assert_reads_match(&reads, &decompressed.reads);
 }
 
@@ -134,14 +133,14 @@ fn test_block_compress_decompress_variable_length() {
         id_mode: IdMode::Exact,
         ..Default::default()
     };
-    let compressor = BlockCompressor::new(config);
+    let mut compressor = BlockCompressor::new(config);
 
     let compressed = compressor.compress(&reads, 2).unwrap();
     assert_eq!(compressed.read_count, 15);
     assert_eq!(compressed.uniform_read_length, 0); // variable
     assert!(!compressed.aux_stream.is_empty()); // aux needed for lengths
 
-    let decompressed = decompress_block(&compressor, &compressed);
+    let decompressed = decompress_block(&mut compressor, &compressed);
     for (orig, dec) in reads.iter().zip(decompressed.reads.iter()) {
         assert_eq!(orig.sequence.len(), dec.sequence.len(), "Length mismatch");
         assert_eq!(orig.sequence, dec.sequence);
@@ -162,12 +161,12 @@ fn test_block_compress_quality_discard() {
         id_mode: IdMode::Exact,
         ..Default::default()
     };
-    let compressor = BlockCompressor::new(config);
+    let mut compressor = BlockCompressor::new(config);
 
     let compressed = compressor.compress(&reads, 0).unwrap();
     assert!(compressed.qual_stream.is_empty());
 
-    let decompressed = decompress_block(&compressor, &compressed);
+    let decompressed = decompress_block(&mut compressor, &compressed);
     for (orig, dec) in reads.iter().zip(decompressed.reads.iter()) {
         assert_eq!(orig.sequence, dec.sequence);
         assert!(dec.quality.chars().all(|c| c == '!'), "Quality should be placeholder");
@@ -187,10 +186,10 @@ fn test_block_compress_id_discard() {
         id_mode: IdMode::Discard,
         ..Default::default()
     };
-    let compressor = BlockCompressor::new(config);
+    let mut compressor = BlockCompressor::new(config);
 
     let compressed = compressor.compress(&reads, 0).unwrap();
-    let decompressed = decompress_block(&compressor, &compressed);
+    let decompressed = decompress_block(&mut compressor, &compressed);
 
     // IDs should be sequential placeholders
     for (i, dec) in decompressed.reads.iter().enumerate() {
@@ -267,7 +266,7 @@ fn test_delta_encode_decode_ids_empty() {
 fn test_block_compress_decompress_empty() {
     let reads: Vec<ReadRecord> = vec![];
     let config = BlockCompressorConfig::default();
-    let compressor = BlockCompressor::new(config);
+    let mut compressor = BlockCompressor::new(config);
 
     let compressed = compressor.compress(&reads, 0).unwrap();
     assert_eq!(compressed.read_count, 0);
@@ -278,7 +277,6 @@ fn test_block_compress_decompress_empty() {
             0,
             0,
             compressed.codec_seq,
-            compressed.codec_qual,
             &compressed.id_stream,
             &compressed.seq_stream,
             &compressed.qual_stream,
@@ -308,7 +306,7 @@ fn test_full_archive_roundtrip() {
         id_mode: IdMode::Exact,
         ..Default::default()
     };
-    let compressor = BlockCompressor::new(config);
+    let mut compressor = BlockCompressor::new(config);
 
     // Write archive
     {
@@ -349,7 +347,6 @@ fn test_full_archive_roundtrip() {
                 bh.uncompressed_count,
                 bh.uniform_read_length,
                 bh.codec_seq,
-                bh.codec_qual,
                 &block_data.ids_data,
                 &block_data.seq_data,
                 &block_data.qual_data,
@@ -383,7 +380,7 @@ fn test_archive_with_reorder_map() {
         id_mode: IdMode::Exact,
         ..Default::default()
     };
-    let compressor = BlockCompressor::new(config);
+    let mut compressor = BlockCompressor::new(config);
 
     // Create a simple reorder map (identity)
     let forward_map: Vec<u64> = (0..20).collect();

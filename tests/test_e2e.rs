@@ -135,7 +135,7 @@ fn compress_file(
         zstd_level: 3,
         ..Default::default()
     };
-    let compressor = BlockCompressor::new(config);
+    let mut compressor = BlockCompressor::new(config);
 
     for (i, chunk) in records.chunks(block_size).enumerate() {
         let compressed = compressor.compress(chunk, i as u32).unwrap();
@@ -156,7 +156,7 @@ fn decompress_file(input_path: &str, output_path: &str) {
         id_mode: get_id_mode(f),
         ..Default::default()
     };
-    let compressor = BlockCompressor::new(config);
+    let mut compressor = BlockCompressor::new(config);
 
     let mut out = std::io::BufWriter::new(std::fs::File::create(output_path).unwrap());
     for block_id in 0..block_count {
@@ -168,7 +168,6 @@ fn decompress_file(input_path: &str, output_path: &str) {
                 bh.uncompressed_count,
                 bh.uniform_read_length,
                 bh.codec_seq,
-                bh.codec_qual,
                 &bd.ids_data,
                 &bd.seq_data,
                 &bd.qual_data,
@@ -662,7 +661,7 @@ fn test_e2e_multiblock_roundtrip() {
         zstd_level: 3,
         ..Default::default()
     };
-    let compressor = BlockCompressor::new(config);
+    let mut compressor = BlockCompressor::new(config);
 
     let mut blocks = 0u32;
     for chunk in records.chunks(block_size) {

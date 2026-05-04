@@ -335,7 +335,7 @@ impl CompressCommand {
         let compressed_blocks: Vec<Result<CompressedBlockData>> = block_read_sets
             .par_iter()
             .map(|(block_id, reads)| {
-                let compressor = BlockCompressor::new((*block_config).clone());
+                let mut compressor = BlockCompressor::new((*block_config).clone());
                 compressor.compress(reads, *block_id)
             })
             .collect();
@@ -444,7 +444,7 @@ impl CompressCommand {
         let global_header = GlobalHeader::new(flags, 0, input_filename, timestamp);
         writer.write_global_header(&global_header)?;
 
-        let compressor = BlockCompressor::new(self.opts.to_block_config(effective_length_class));
+        let mut compressor = BlockCompressor::new(self.opts.to_block_config(effective_length_class));
 
         let mut block_id = 0u32;
         let mut archive_id_start = 0u64;
@@ -517,7 +517,7 @@ impl CompressCommand {
         let global_header = GlobalHeader::new(flags, 0, input_filename, timestamp);
         writer.write_global_header(&global_header)?;
 
-        let compressor = BlockCompressor::new(self.opts.to_block_config(effective_length_class));
+        let mut compressor = BlockCompressor::new(self.opts.to_block_config(effective_length_class));
 
         let mut block_id = 0u32;
         let mut archive_id_start = 0u64;
@@ -616,7 +616,7 @@ impl CompressCommand {
         let global_header = GlobalHeader::new(flags, 0, input_filename, timestamp);
         writer.write_global_header(&global_header)?;
 
-        let compressor = BlockCompressor::new(self.opts.to_block_config(effective_length_class));
+        let mut compressor = BlockCompressor::new(self.opts.to_block_config(effective_length_class));
 
         let mut block_id = 0u32;
         let mut archive_id_start = 0u64;

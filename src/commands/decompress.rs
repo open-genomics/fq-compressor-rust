@@ -209,7 +209,7 @@ impl DecompressCommand {
             ..Default::default()
         };
 
-        let compressor = BlockCompressor::new(block_config.clone());
+        let mut compressor = BlockCompressor::new(block_config.clone());
 
         let is_paired = (flags & flags::IS_PAIRED) != 0;
         let total_archive_reads = reader.total_read_count();
@@ -266,7 +266,13 @@ impl DecompressCommand {
 
         if self.opts.original_order && reader.reorder_forward.is_some() {
             // Original order mode: buffer all reads, then output in original order
-            self.run_original_order(&mut reader, &compressor, block_count, total_archive_reads, &mut output)?;
+            self.run_original_order(
+                &mut reader,
+                &mut compressor,
+                block_count,
+                total_archive_reads,
+                &mut output,
+            )?;
         } else if block_count > 1 && self.opts.threads != 1 {
             // Parallel decompression: read blocks sequentially, decompress in parallel, write sequentially
             self.run_parallel(
@@ -284,7 +290,7 @@ impl DecompressCommand {
 
                 match self.process_block(
                     &mut reader,
-                    &compressor,
+                    &mut compressor,
                     block_id as u32,
                     total_archive_reads,
                     &mut global_read_idx,
@@ -366,7 +372,7 @@ impl DecompressCommand {
             let results: Vec<std::result::Result<(u32, DecompressedBlockData), (u32, String)>> = block_data_vec
                 .into_par_iter()
                 .map(|(bid, bd)| {
-                    let comp = BlockCompressor::new((*cfg).clone());
+                    let mut comp = BlockCompressor::new((*cfg).clone());
                     match comp.decompress_block(&bd) {
                         Ok(dec) => Ok((bid, dec)),
                         Err(e) => Err((bid, format!("{}", e))),
@@ -414,7 +420,7 @@ impl DecompressCommand {
     fn process_block(
         &mut self,
         reader: &mut FqcReader,
-        compressor: &BlockCompressor,
+        compressor: &mut BlockCompressor,
         block_id: u32,
         total_archive_reads: u64,
         global_read_idx: &mut u64,
@@ -437,7 +443,7 @@ impl DecompressCommand {
     fn run_original_order(
         &mut self,
         reader: &mut FqcReader,
-        compressor: &BlockCompressor,
+        compressor: &mut BlockCompressor,
         block_count: usize,
         total_archive_reads: u64,
         output: &mut OutputWriters,

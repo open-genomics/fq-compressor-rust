@@ -51,7 +51,7 @@ pub fn write_archive(records: &[ReadRecord], output_path: &Path, original_filena
     let header = GlobalHeader::new(flags, records.len() as u64, original_filename, 0);
     writer.write_global_header(&header).unwrap();
 
-    let compressor = BlockCompressor::new(BlockCompressorConfig {
+    let mut compressor = BlockCompressor::new(BlockCompressorConfig {
         read_length_class: length_class,
         quality_mode: QualityMode::Lossless,
         id_mode: IdMode::Exact,
@@ -71,7 +71,7 @@ pub fn write_archive(records: &[ReadRecord], output_path: &Path, original_filena
 pub fn decompress_archive(path: &Path) -> Vec<ReadRecord> {
     let mut reader = FqcReader::open(path.to_str().unwrap()).unwrap();
     let flags = reader.global_header.flags;
-    let compressor = BlockCompressor::new(BlockCompressorConfig {
+    let mut compressor = BlockCompressor::new(BlockCompressorConfig {
         read_length_class: get_read_length_class(flags),
         quality_mode: get_quality_mode(flags),
         id_mode: get_id_mode(flags),
@@ -88,7 +88,6 @@ pub fn decompress_archive(path: &Path) -> Vec<ReadRecord> {
                 header.uncompressed_count,
                 header.uniform_read_length,
                 header.codec_seq,
-                header.codec_qual,
                 &block.ids_data,
                 &block.seq_data,
                 &block.qual_data,
@@ -120,7 +119,7 @@ pub fn verify_archive(path: &Path) -> u64 {
     }
 
     let flags = reader.global_header.flags;
-    let compressor = BlockCompressor::new(BlockCompressorConfig {
+    let mut compressor = BlockCompressor::new(BlockCompressorConfig {
         read_length_class: get_read_length_class(flags),
         quality_mode: get_quality_mode(flags),
         id_mode: get_id_mode(flags),
@@ -137,7 +136,6 @@ pub fn verify_archive(path: &Path) -> u64 {
                 header.uncompressed_count,
                 header.uniform_read_length,
                 header.codec_seq,
-                header.codec_qual,
                 &block.ids_data,
                 &block.seq_data,
                 &block.qual_data,
