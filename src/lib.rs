@@ -41,3 +41,5 @@ pub mod fqc_writer;
 pub mod io;
 pub mod pipeline;
 pub mod types;
+
+pub use algo::compressor_traits::{AuxCompressor, IdCompressor, QualityCompressor, SequenceCompressor};

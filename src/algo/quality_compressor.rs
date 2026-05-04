@@ -2,8 +2,9 @@
 // fqc-rust - Quality Compressor (SCM + Arithmetic Coding)
 // =============================================================================
 
+use crate::algo::compressor_traits::QualityCompressor as QualityCompressorTrait;
 use crate::error::{FqcError, Result};
-use crate::types::QualityMode;
+use crate::types::{encode_codec, CodecFamily, QualityMode, ReadRecord};
 
 pub const NUM_QUALITY_SYMBOLS: usize = 94; // Phred 0-93 (ASCII 33-126)
 pub const NUM_POSITION_BINS: usize = 8;
@@ -492,5 +493,36 @@ impl QualityCompressor {
         }
 
         Ok(qualities)
+    }
+}
+
+// =============================================================================
+// QualityCompressor Trait Implementation
+// =============================================================================
+
+impl QualityCompressorTrait for QualityCompressor {
+    fn compress(&mut self, reads: &[ReadRecord]) -> Result<Vec<u8>> {
+        let qualities: Vec<&str> = reads.iter().map(|r| r.quality.as_str()).collect();
+        QualityCompressor::compress(self, &qualities)
+    }
+
+    fn decompress(
+        &mut self,
+        data: &[u8],
+        _read_count: u32,
+        _uniform_length: u32,
+        lengths: &[u32],
+    ) -> Result<Vec<String>> {
+        QualityCompressor::decompress(self, data, lengths)
+    }
+
+    fn codec_id(&self) -> u8 {
+        match self.config.quality_mode {
+            QualityMode::Discard => encode_codec(CodecFamily::Raw, 0),
+            QualityMode::Lossless | QualityMode::Illumina8 | QualityMode::Qvz => match self.config.context_order {
+                ContextOrder::Order0 | ContextOrder::Order1 => encode_codec(CodecFamily::ScmOrder1, 0),
+                ContextOrder::Order2 => encode_codec(CodecFamily::ScmV1, 0),
+            },
+        }
     }
 }

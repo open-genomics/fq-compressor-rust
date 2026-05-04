@@ -143,3 +143,14 @@ The codebase is organized into layers:
 4. **Format** (`src/format.rs`): Binary format definitions
 5. **I/O** (`src/io/`): Async I/O, compressed stream detection
 6. **FASTQ** (`src/fastq/`): Parsing and validation
+
+## Compressor Traits
+
+Each stream type (sequence, quality, ID, aux) has a compressor trait defining its interface:
+
+- **SequenceCompressor** — compresses/decompresses DNA sequences
+- **QualityCompressor** — compresses/decompresses quality scores
+- **IdCompressor** — compresses/decompresses read IDs
+- **AuxCompressor** — compresses/decompresses auxiliary data (lengths)
+
+Each trait provides `compress()`, `decompress()`, and `codec_id()` methods. The `BlockCompressor` coordinates these traits, selecting the appropriate implementation based on `ReadLengthClass` and configuration.

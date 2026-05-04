@@ -10,9 +10,10 @@
 //!
 //! Best suited for short reads (≤511 bp) where reads have high similarity.
 
+use crate::algo::compressor_traits::SequenceCompressor;
 use crate::algo::dna::{reverse_complement, BASE_TO_INDEX, INDEX_TO_BASE};
 use crate::error::{FqcError, Result};
-use crate::types::ReadRecord;
+use crate::types::{encode_codec, CodecFamily, ReadRecord};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read};
 
@@ -631,6 +632,24 @@ impl AbcCompressor {
         }
 
         Ok(sequences)
+    }
+}
+
+// =============================================================================
+// SequenceCompressor Trait Implementation
+// =============================================================================
+
+impl SequenceCompressor for AbcCompressor {
+    fn compress(&self, reads: &[ReadRecord]) -> Result<Vec<u8>> {
+        AbcCompressor::compress(self, reads).map(|encoded| encoded.data)
+    }
+
+    fn decompress(&self, data: &[u8], read_count: u32, _uniform_length: u32, _lengths: &[u32]) -> Result<Vec<String>> {
+        AbcCompressor::decompress(self, data, read_count)
+    }
+
+    fn codec_id(&self) -> u8 {
+        encode_codec(CodecFamily::AbcV1, 0)
     }
 }
 
