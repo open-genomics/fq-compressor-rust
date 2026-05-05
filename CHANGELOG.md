@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Changed
+- Removed outdated planning documents from docs/superpowers/
+- Cleaned up empty documentation directories
+- Fixed docs/agents/domain.md to reflect current state
+
 ## [0.1.2] - 2026-05-01
 
 ### Added
