@@ -133,6 +133,9 @@ In ABC, a compact encoding of a mismatch:
 The codebase is organized into layers:
 
 1. **Commands** (`src/commands/`): CLI orchestration
+   - `compress`, `decompress`, `info`, `verify`: CLI entry points
+   - `compression_engine`: Normalized compression execution with mode dispatch
+   - `compression_request`: Request types for compression orchestration
 2. **Pipeline** (`src/pipeline/`): Parallel processing stages
 3. **Algorithms** (`src/algo/`): Compression algorithms
    - `abc`: Anchor-Based Compression
@@ -143,6 +146,31 @@ The codebase is organized into layers:
 4. **Format** (`src/format.rs`): Binary format definitions
 5. **I/O** (`src/io/`): Async I/O, compressed stream detection
 6. **FASTQ** (`src/fastq/`): Parsing and validation
+
+## Compression Orchestration
+
+### CompressionEngine
+
+The central orchestrator for compression operations. It normalizes requests and routes them to the appropriate execution mode:
+
+- **Archive mode**: Full ingest with global analysis and optional reordering
+- **Streaming mode**: Single-pass incremental processing without reordering
+- **Pipeline mode**: Staged concurrent execution with backpressure
+
+### CompressionRequest
+
+Normalized input type that captures:
+- Execution mode (Archive, Streaming, Pipeline)
+- Input topology (Single, Paired, Interleaved, Stdin)
+- Compression parameters (level, quality mode, ID mode)
+- Resource constraints (threads, memory limit)
+
+### CompressionOutcome
+
+Result type that captures:
+- Detected read length class
+- Reorder map presence
+- Block count and processing statistics
 
 ## Compressor Traits
 
