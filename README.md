@@ -69,7 +69,7 @@ The maintained docs summary lives in the docs site and repo-backed docs pages be
 - **Performance roadmap:** [docs/architecture/performance-roadmap.md](docs/architecture/performance-roadmap.md)
 - **Algorithms:** [docs/algorithms/index.md](docs/algorithms/index.md)
 
-`--memory-limit 0` keeps the default automatic memory selection behavior. For strict low-memory runs, prefer `--streaming`; archive mode still performs a full ingest for global analysis.
+`--memory-limit 0` keeps the default automatic memory selection behavior. For strict low-memory runs, prefer `--streaming`; pipeline mode remains a staged execution path, and archive mode still performs a full ingest for global analysis.
 
 ## Development
 
