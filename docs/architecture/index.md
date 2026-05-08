@@ -10,6 +10,7 @@
 | FASTQ I/O | `src/fastq/parser.rs`, `src/io/*` | Read FASTQ input and compressed stream variants |
 | Archive format | `src/format.rs`, `src/fqc_writer.rs`, `src/fqc_reader.rs` | Encode and decode the `.fqc` container |
 | Compression logic | `src/algo/*` | Sequence, quality, ID, reorder, and paired-end logic |
+| Compression orchestration | `src/commands/compression_engine.rs`, `src/commands/compression_request.rs` | Normalize requests, route execution modes, and capture outcomes |
 | Pipelines | `src/pipeline/*` | Reader/compressor/writer parallel flow for pipeline mode |
 | Shared types | `src/types.rs`, `src/error.rs` | Public types, defaults, and exit-code mapping |
 
@@ -26,9 +27,13 @@ This layout is why `fqc info`, `fqc verify`, and range-based decompression can o
 
 ## Execution modes
 
-- **default mode**: full ingest with optional reordering
-- **streaming mode**: lower-memory flow with reordering disabled
-- **pipeline mode**: staged reader/compressor/writer execution
+Compression operations route through `CompressionEngine`, which selects one of three distinct execution modes:
+
+- **Archive mode** (default): full ingest with optional reordering and global analysis
+- **Streaming mode** (`--streaming`): single-pass incremental processing with reordering disabled; strict low-memory option
+- **Pipeline mode** (`--pipeline`): staged concurrent reader/compressor/writer execution with in-flight block buffering
+
+Each mode preserves the same output format and CLI semantics while varying memory footprint and concurrency behavior.
 
 ## Performance roadmap
 

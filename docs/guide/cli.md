@@ -34,7 +34,7 @@ fqc compress -i INPUT -o OUTPUT [OPTIONS]
 | `--interleaved` | treat input as interleaved paired-end FASTQ |
 | `--max-block-bases` | cap per-block bases for medium and long reads |
 | `--scan-all-lengths` | inspect the full input instead of sampled reads for length detection |
-| `--pipeline` | use the staged compression pipeline; pair with `--streaming` if you need strict memory control |
+| `--pipeline` | use the staged compression pipeline |
 | `--pe-layout` | `interleaved` or `consecutive` metadata for paired-end archives |
 | `-f, --force` | overwrite output if it exists |
 
@@ -42,7 +42,8 @@ Notes:
 
 - archive mode keeps the full read set in memory for global analysis and optional reordering
 - `--memory-limit 0` uses automatic memory selection based on available system memory
-- for explicit low-memory runs, prefer `--streaming`; archive mode rejects limits that are too small for full-ingest analysis
+- for explicit low-memory runs, prefer `--streaming`
+- pipeline mode remains a staged execution path, not a strict low-memory ingest mode
 
 ## `decompress`
 
