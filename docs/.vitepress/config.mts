@@ -25,7 +25,7 @@ export default withMermaid(defineConfig({
 
   head: [
     ['link', { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' }],
-    ['meta', { name: 'theme-color', content: '#0e7c6b' }],
+    ['meta', { name: 'theme-color', content: '#06b6d4' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:site_name', content: 'fqc' }],
     ['meta', { property: 'og:image', content: '/og-image.svg' }],
@@ -64,6 +64,11 @@ export default withMermaid(defineConfig({
       themeConfig: {
         nav: [
           {
+            text: '白皮书',
+            link: '/zh/whitepaper',
+            activeMatch: '/zh/whitepaper'
+          },
+          {
             text: '指南',
             activeMatch: '/zh/guide/',
             items: [
@@ -92,10 +97,12 @@ export default withMermaid(defineConfig({
           },
           {
             text: '参考',
-            activeMatch: '/zh/(reference|benchmarks|references|release-notes)',
+            activeMatch: '/zh/(reference|benchmarks|references|release-notes|comparison|theory)',
             items: [
               { text: '二进制格式规范', link: '/zh/reference/format-spec' },
               { text: '基准测试', link: '/zh/benchmarks/performance-report' },
+              { text: '竞品对比', link: '/zh/comparison' },
+              { text: '理论基础', link: '/zh/theory' },
               { text: '参考文献', link: '/zh/references/' },
               { text: '发布说明', link: '/zh/release-notes' }
             ]
@@ -163,6 +170,30 @@ export default withMermaid(defineConfig({
                 { text: '参考文献与相关工作', link: '/zh/references/' }
               ]
             }
+          ],
+          '/zh/whitepaper': [
+            {
+              text: '技术白皮书',
+              items: [
+                { text: '概述', link: '/zh/whitepaper' }
+              ]
+            }
+          ],
+          '/zh/comparison': [
+            {
+              text: '竞品对比',
+              items: [
+                { text: '对比分析', link: '/zh/comparison' }
+              ]
+            }
+          ],
+          '/zh/theory': [
+            {
+              text: '理论基础',
+              items: [
+                { text: '算法理论', link: '/zh/theory' }
+              ]
+            }
           ]
         }
       }
@@ -175,6 +206,11 @@ export default withMermaid(defineConfig({
       description: 'A block-indexed FASTQ compression tool in Rust',
       themeConfig: {
         nav: [
+          {
+            text: 'Whitepaper',
+            link: '/en/whitepaper',
+            activeMatch: '/en/whitepaper'
+          },
           {
             text: 'Guide',
             activeMatch: '/en/guide/',
@@ -204,10 +240,12 @@ export default withMermaid(defineConfig({
           },
           {
             text: 'Reference',
-            activeMatch: '/en/(reference|benchmarks|references|release-notes)',
+            activeMatch: '/en/(reference|benchmarks|references|release-notes|comparison|theory)',
             items: [
               { text: 'Binary Format Spec', link: '/en/reference/format-spec' },
               { text: 'Benchmarks', link: '/en/benchmarks/performance-report' },
+              { text: 'Comparison', link: '/en/comparison' },
+              { text: 'Theory', link: '/en/theory' },
               { text: 'References', link: '/en/references/' },
               { text: 'Release Notes', link: '/en/release-notes' }
             ]
@@ -275,6 +313,30 @@ export default withMermaid(defineConfig({
                 { text: 'References & Related Work', link: '/en/references/' }
               ]
             }
+          ],
+          '/en/whitepaper': [
+            {
+              text: 'Technical Whitepaper',
+              items: [
+                { text: 'Overview', link: '/en/whitepaper' }
+              ]
+            }
+          ],
+          '/en/comparison': [
+            {
+              text: 'Comparison',
+              items: [
+                { text: 'Competitive Analysis', link: '/en/comparison' }
+              ]
+            }
+          ],
+          '/en/theory': [
+            {
+              text: 'Theory',
+              items: [
+                { text: 'Algorithmic Theory', link: '/en/theory' }
+              ]
+            }
           ]
         }
       }
@@ -294,7 +356,7 @@ export default withMermaid(defineConfig({
       { icon: 'github', link: 'https://github.com/LessUp/fq-compressor-rust' }
     ],
     footer: {
-      message: 'Technical documentation for fqc, a block-indexed FASTQ compression tool.',
+      message: 'Technical Whitepaper & Architecture Showcase for fqc.',
       copyright: 'GPL-3.0 · fqc contributors'
     }
   },
@@ -312,12 +374,12 @@ export default withMermaid(defineConfig({
       dark: 'dark'
     },
     themeVariables: {
-      primaryColor: '#0e7c6b',
-      primaryTextColor: '#1a1f36',
-      primaryBorderColor: '#0e7c6b',
-      lineColor: '#4a5568',
-      secondaryColor: '#f1f5f9',
-      tertiaryColor: '#ffffff',
+      primaryColor: '#06b6d4',
+      primaryTextColor: '#F9FAFB',
+      primaryBorderColor: '#06b6d4',
+      lineColor: '#6B7280',
+      secondaryColor: '#1F2937',
+      tertiaryColor: '#111827',
       fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif',
       fontSize: '14px'
     }

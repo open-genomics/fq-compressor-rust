@@ -6,6 +6,7 @@ layout: home
   <span class="academic-badge-item highlight">Technical Whitepaper</span>
   <span class="academic-badge-item">v0.1.1</span>
   <span class="academic-badge-item">Rust 1.75+</span>
+  <span class="academic-badge-item">Zero unsafe</span>
 </div>
 
 <div class="home-header">
@@ -17,6 +18,7 @@ layout: home
     </div>
   </div>
   <div class="home-nav">
+    <a href="./whitepaper">Whitepaper</a>
     <a href="./architecture/">Architecture</a>
     <a href="./algorithms/">Algorithms</a>
     <a href="./benchmarks/performance-report">Benchmarks</a>
@@ -28,13 +30,13 @@ layout: home
 <div class="abstract-section">
   <div class="abstract-title">Abstract</div>
   <div class="abstract-content">
-    fqc is a domain-aware FASTQ compression tool that achieves <mark>2.4× compression ratio</mark> through block-indexed archiving, component-specific encoding (ABC, SCM, Zstd), and <mark>O(log N) random access</mark>. Written in pure Rust with zero unsafe code, it supports three execution modes (Archive, Streaming, Pipeline) for flexible memory-throughput trade-offs. Designed for bioinformatics workflows requiring both compression efficiency and operational tooling.
+    <strong>fqc</strong> is a domain-aware FASTQ compression engine that achieves <mark>2.4&times; compression ratio</mark> through block-indexed archiving, component-specific encoding (ABC consensus/delta, SCM quality, Zstd sequence), and <mark>O(log N) random access</mark>. Written in pure Rust with zero unsafe code, it introduces three execution modes &mdash; Archive, Streaming, and Pipeline &mdash; enabling flexible memory-throughput trade-offs without format fragmentation. Designed for bioinformatics workflows requiring both compression efficiency and operational tooling.
   </div>
 </div>
 
 <div class="stats-bar">
   <div class="stat-item">
-    <span class="stat-value">2.4×</span>
+    <span class="stat-value">2.4&times;</span>
     <span class="stat-label">Compression Ratio</span>
   </div>
   <div class="stat-item">
@@ -79,9 +81,9 @@ flowchart LR
     end
     
     A --> B --> C --> D
-    D -->|≤511 bp| E
+    D -->|&le;511 bp| E
     D -->|512bp-10KB| F
-    D -->|>10KB| G
+    D -->|&gt;10KB| G
     E --> H
     F --> H
     G --> H
@@ -90,71 +92,71 @@ flowchart LR
 
 </div>
 
-## Technical Highlights
+## Why fqc?
 
 <div class="feature-map">
   <div class="feature-card">
-    <div class="feature-card-title">Architecture & Design</div>
+    <div class="feature-card-title">Block-Indexed Random Access</div>
     <div class="feature-card-desc">
-      Layered system architecture with CLI, I/O, Format, Algorithm, and Pipeline layers. Three Architecture Decision Records document key design choices.
+      Unlike stream-based compressors (gzip, DSRC), fqc's footer-embedded block index enables O(log N) range queries without full archive decompression.
     </div>
     <div class="feature-tags">
-      <a href="./architecture/" class="feature-tag">Overview</a>
-      <a href="./architecture/decisions/" class="feature-tag">ADRs</a>
-      <a href="./architecture/performance-roadmap" class="feature-tag">Roadmap</a>
+      <a href="./reference/format-spec" class="feature-tag">Format Spec</a>
+      <a href="./architecture/" class="feature-tag">Architecture</a>
     </div>
   </div>
 
   <div class="feature-card">
-    <div class="feature-card-title">Algorithms</div>
+    <div class="feature-card-title">Component-Specific Encoding</div>
     <div class="feature-card-desc">
-      ABC (Anchor-Based Compression) for short reads with contig building and delta encoding. SCM arithmetic coding for quality scores. Adaptive codec selection per component.
+      Each FASTQ component (ID, sequence, quality, aux) uses an independently tuned codec. Sequence gets ABC or Zstd; quality gets lossless, Illumina8 binning, QVZ, or discard.
     </div>
     <div class="feature-tags">
-      <a href="./algorithms/" class="feature-tag">Overview</a>
+      <a href="./algorithms/" class="feature-tag">Algorithms</a>
       <a href="./algorithms/abc-deep-dive" class="feature-tag">ABC Deep Dive</a>
     </div>
   </div>
 
   <div class="feature-card">
-    <div class="feature-card-title">Binary Format</div>
+    <div class="feature-card-title">Three Modes, One Format</div>
     <div class="feature-card-desc">
-      Custom <code>.fqc</code> container with magic header, block-level checksums (xxHash64), footer index for O(log N) random access, and forward-compatible versioning.
-    </div>
-    <div class="feature-tags">
-      <a href="./reference/format-spec" class="feature-tag">Format Spec</a>
-    </div>
-  </div>
-
-  <div class="feature-card">
-    <div class="feature-card-title">Execution Modes</div>
-    <div class="feature-card-desc">
-      Archive mode for best ratio with global reordering, Streaming for bounded memory, Pipeline for staged throughput. All produce identical <code>.fqc</code> output.
+      Archive, Streaming, and Pipeline modes all produce identical .fqc output. Trade memory for ratio or throughput without creating format fragmentation.
     </div>
     <div class="feature-tags">
       <a href="./guide/modes" class="feature-tag">Modes Guide</a>
-      <a href="./architecture/performance-roadmap" class="feature-tag">Performance</a>
+      <a href="./architecture/decisions/002-three-execution-modes" class="feature-tag">ADR-002</a>
     </div>
   </div>
 
   <div class="feature-card">
-    <div class="feature-card-title">Benchmarks</div>
+    <div class="feature-card-title">Operational Tooling</div>
     <div class="feature-card-desc">
-      2.39x compression ratio on test data, sub-100ms operations. Criterion-based benchmarks for parser throughput and full archive workflows.
-    </div>
-    <div class="feature-tags">
-      <a href="./benchmarks/performance-report" class="feature-tag">Report</a>
-    </div>
-  </div>
-
-  <div class="feature-card">
-    <div class="feature-card-title">CLI Reference</div>
-    <div class="feature-card-desc">
-      Four commands: compress, decompress, info, verify. Paired-end support, compressed input detection, memory budget management.
+      A single binary provides compress, decompress, info, and verify commands. No sidecar scripts needed. CI/CD friendly with structured exit codes.
     </div>
     <div class="feature-tags">
       <a href="./guide/cli" class="feature-tag">CLI Docs</a>
       <a href="./guide/quick-start" class="feature-tag">Quick Start</a>
+    </div>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-card-title">Domain-Aware ABC Algorithm</div>
+    <div class="feature-card-desc">
+      Anchor-Based Compression exploits short-read similarity through contig building and delta encoding, outperforming generic LZ on biological sequences.
+    </div>
+    <div class="feature-tags">
+      <a href="./theory" class="feature-tag">Theory</a>
+      <a href="./algorithms/abc-deep-dive" class="feature-tag">Deep Dive</a>
+    </div>
+  </div>
+
+  <div class="feature-card">
+    <div class="feature-card-title">Pure Rust, Zero unsafe</div>
+    <div class="feature-card-desc">
+      Memory-safe by construction. No undefined behavior surface. MSRV 1.75.0. Single static binary with no runtime dependencies beyond libc.
+    </div>
+    <div class="feature-tags">
+      <a href="./comparison" class="feature-tag">Comparison</a>
     </div>
   </div>
 </div>
@@ -177,28 +179,53 @@ flowchart LR
     <span class="terminal-line"></span>
     <span class="terminal-line"><span class="terminal-prompt">$</span> <span class="terminal-comment"># Decompress</span></span>
     <span class="terminal-line"><span class="terminal-prompt">$</span> <span class="terminal-command">./target/release/fqc decompress -i reads.fqc -o reads.fq</span></span>
+    <span class="terminal-line"></span>
+    <span class="terminal-line"><span class="terminal-prompt">$</span> <span class="terminal-comment"># Inspect archive</span></span>
+    <span class="terminal-line"><span class="terminal-prompt">$</span> <span class="terminal-command">./target/release/fqc info -i reads.fqc</span></span>
   </div>
 </div>
 
 See the [Quick Start guide](./guide/quick-start) for installation options and first compression steps.
 
+## Research Context
+
+<div class="highlight-box">
+
+<strong>fqc</strong> is positioned at the intersection of domain-specific compression and modern systems programming. It draws on decades of research in DNA compression (LZ variants, reference-based encoding) while applying contemporary software engineering practices: memory safety, structured concurrency, and format stability.
+
+For a survey of the field and how fqc compares to prior art, see [References & Related Work](./references/) and [Competitive Analysis](./comparison).
+
+</div>
+
 ## Resources
 
 <div class="resources-section">
+  <a href="./whitepaper" class="resource-item">
+    <span class="resource-icon">&#128221;</span>
+    <span>Technical Whitepaper</span>
+  </a>
   <a href="./architecture/" class="resource-item">
-    <span class="resource-icon">📊</span>
-    <span>29 Interactive Diagrams</span>
+    <span class="resource-icon">&#128202;</span>
+    <span>Architecture Deep Dive</span>
   </a>
   <a href="./architecture/decisions/" class="resource-item">
-    <span class="resource-icon">📋</span>
+    <span class="resource-icon">&#128203;</span>
     <span>3 Architecture Decision Records</span>
   </a>
   <a href="./reference/format-spec" class="resource-item">
-    <span class="resource-icon">📄</span>
+    <span class="resource-icon">&#128196;</span>
     <span>Binary Format Specification</span>
   </a>
+  <a href="./theory" class="resource-item">
+    <span class="resource-icon">&#128300;</span>
+    <span>Algorithmic Theory</span>
+  </a>
+  <a href="./comparison" class="resource-item">
+    <span class="resource-icon">&#128200;</span>
+    <span>Competitive Analysis</span>
+  </a>
   <a href="./references/" class="resource-item">
-    <span class="resource-icon">📚</span>
+    <span class="resource-icon">&#128218;</span>
     <span>References & Related Work</span>
   </a>
 </div>
