@@ -17,11 +17,36 @@ export default withMermaid(defineConfig({
   cleanUrls: true,
   ignoreDeadLinks: false,
 
+  // Rewrites to fix llms.txt "Untitled" entries
+  rewrites: {
+    'en/index.md': 'en/index.md',
+    'zh/index.md': 'zh/index.md'
+  },
+
   head: [
     ['link', { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' }],
     ['meta', { name: 'theme-color', content: '#0e7c6b' }],
     ['meta', { property: 'og:type', content: 'website' }],
-    ['meta', { property: 'og:site_name', content: 'fqc' }]
+    ['meta', { property: 'og:site_name', content: 'fqc' }],
+    ['meta', { property: 'og:image', content: '/og-image.svg' }],
+    ['meta', { property: 'og:image:width', content: '1200' }],
+    ['meta', { property: 'og:image:height', content: '630' }],
+    ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
+    ['meta', { name: 'twitter:image', content: '/og-image.svg' }],
+    // JSON-LD structured data
+    ['script', { type: 'application/ld+json' }, JSON.stringify({
+      '@context': 'https://schema.org',
+      '@type': 'SoftwareSourceCode',
+      name: 'fqc',
+      description: 'Block-indexed FASTQ compression tool for bioinformatics',
+      programmingLanguage: 'Rust',
+      license: 'https://spdx.org/licenses/GPL-3.0-or-later.html',
+      codeRepository: 'https://github.com/LessUp/fq-compressor-rust',
+      author: {
+        '@type': 'Person',
+        name: 'LessUp'
+      }
+    })]
   ],
 
   sitemap: {
@@ -38,13 +63,43 @@ export default withMermaid(defineConfig({
       description: '基于 Rust 的块索引 FASTQ 压缩工具',
       themeConfig: {
         nav: [
-          { text: '快速开始', link: '/zh/guide/quick-start', activeMatch: '/zh/guide/' },
-          { text: 'CLI 参考', link: '/zh/guide/cli', activeMatch: '/zh/guide/' },
-          { text: '架构', link: '/zh/architecture/', activeMatch: '/zh/architecture/' },
-          { text: '算法', link: '/zh/algorithms/', activeMatch: '/zh/algorithms/' },
-          { text: '基准测试', link: '/zh/benchmarks/performance-report', activeMatch: '/zh/benchmarks/' },
-          { text: '发布说明', link: '/zh/release-notes', activeMatch: '/zh/release-notes/' },
-          { text: '参考文献', link: '/zh/references/', activeMatch: '/zh/references/' },
+          {
+            text: '指南',
+            activeMatch: '/zh/guide/',
+            items: [
+              { text: '快速开始', link: '/zh/guide/quick-start' },
+              { text: '安装', link: '/zh/guide/installation' },
+              { text: '压缩模式', link: '/zh/guide/modes' },
+              { text: 'CLI 参考', link: '/zh/guide/cli' }
+            ]
+          },
+          {
+            text: '架构',
+            activeMatch: '/zh/architecture/',
+            items: [
+              { text: '概述', link: '/zh/architecture/' },
+              { text: '决策记录', link: '/zh/architecture/decisions/' },
+              { text: '性能路线图', link: '/zh/architecture/performance-roadmap' }
+            ]
+          },
+          {
+            text: '算法',
+            activeMatch: '/zh/algorithms/',
+            items: [
+              { text: '概述', link: '/zh/algorithms/' },
+              { text: 'ABC 深度解析', link: '/zh/algorithms/abc-deep-dive' }
+            ]
+          },
+          {
+            text: '参考',
+            activeMatch: '/zh/(reference|benchmarks|references|release-notes)',
+            items: [
+              { text: '二进制格式规范', link: '/zh/reference/format-spec' },
+              { text: '基准测试', link: '/zh/benchmarks/performance-report' },
+              { text: '参考文献', link: '/zh/references/' },
+              { text: '发布说明', link: '/zh/release-notes' }
+            ]
+          }
         ],
         sidebar: {
           '/zh/guide/': [
@@ -63,8 +118,16 @@ export default withMermaid(defineConfig({
               text: '架构',
               items: [
                 { text: '概述', link: '/zh/architecture/' },
-                { text: '性能路线图', link: '/zh/architecture/performance-roadmap' },
-                { text: '决策记录', link: '/zh/architecture/decisions/' }
+                {
+                  text: '决策记录',
+                  collapsed: true,
+                  items: [
+                    { text: 'ADR-001: 块索引归档格式', link: '/zh/architecture/decisions/001-block-indexed-format' },
+                    { text: 'ADR-002: 三种执行模式', link: '/zh/architecture/decisions/002-three-execution-modes' },
+                    { text: 'ADR-003: 组件级编码', link: '/zh/architecture/decisions/003-component-encoding' }
+                  ]
+                },
+                { text: '性能路线图', link: '/zh/architecture/performance-roadmap' }
               ]
             }
           ],
@@ -112,13 +175,43 @@ export default withMermaid(defineConfig({
       description: 'A block-indexed FASTQ compression tool in Rust',
       themeConfig: {
         nav: [
-          { text: 'Quick Start', link: '/en/guide/quick-start', activeMatch: '/en/guide/' },
-          { text: 'CLI Reference', link: '/en/guide/cli', activeMatch: '/en/guide/' },
-          { text: 'Architecture', link: '/en/architecture/', activeMatch: '/en/architecture/' },
-          { text: 'Algorithms', link: '/en/algorithms/', activeMatch: '/en/algorithms/' },
-          { text: 'Benchmarks', link: '/en/benchmarks/performance-report', activeMatch: '/en/benchmarks/' },
-          { text: 'Release Notes', link: '/en/release-notes', activeMatch: '/en/release-notes/' },
-          { text: 'References', link: '/en/references/', activeMatch: '/en/references/' },
+          {
+            text: 'Guide',
+            activeMatch: '/en/guide/',
+            items: [
+              { text: 'Quick Start', link: '/en/guide/quick-start' },
+              { text: 'Installation', link: '/en/guide/installation' },
+              { text: 'Compression Modes', link: '/en/guide/modes' },
+              { text: 'CLI Reference', link: '/en/guide/cli' }
+            ]
+          },
+          {
+            text: 'Architecture',
+            activeMatch: '/en/architecture/',
+            items: [
+              { text: 'Overview', link: '/en/architecture/' },
+              { text: 'Decision Records', link: '/en/architecture/decisions/' },
+              { text: 'Performance Roadmap', link: '/en/architecture/performance-roadmap' }
+            ]
+          },
+          {
+            text: 'Algorithms',
+            activeMatch: '/en/algorithms/',
+            items: [
+              { text: 'Overview', link: '/en/algorithms/' },
+              { text: 'ABC Deep Dive', link: '/en/algorithms/abc-deep-dive' }
+            ]
+          },
+          {
+            text: 'Reference',
+            activeMatch: '/en/(reference|benchmarks|references|release-notes)',
+            items: [
+              { text: 'Binary Format Spec', link: '/en/reference/format-spec' },
+              { text: 'Benchmarks', link: '/en/benchmarks/performance-report' },
+              { text: 'References', link: '/en/references/' },
+              { text: 'Release Notes', link: '/en/release-notes' }
+            ]
+          }
         ],
         sidebar: {
           '/en/guide/': [
@@ -137,8 +230,16 @@ export default withMermaid(defineConfig({
               text: 'Architecture',
               items: [
                 { text: 'Overview', link: '/en/architecture/' },
-                { text: 'Performance Roadmap', link: '/en/architecture/performance-roadmap' },
-                { text: 'Architecture Decisions', link: '/en/architecture/decisions/' }
+                {
+                  text: 'Decision Records',
+                  collapsed: true,
+                  items: [
+                    { text: 'ADR-001: Block-Indexed Format', link: '/en/architecture/decisions/001-block-indexed-format' },
+                    { text: 'ADR-002: Three Execution Modes', link: '/en/architecture/decisions/002-three-execution-modes' },
+                    { text: 'ADR-003: Component Encoding', link: '/en/architecture/decisions/003-component-encoding' }
+                  ]
+                },
+                { text: 'Performance Roadmap', link: '/en/architecture/performance-roadmap' }
               ]
             }
           ],
@@ -199,7 +300,10 @@ export default withMermaid(defineConfig({
   },
 
   vite: {
-    plugins: [llmstxt()]
+    plugins: [llmstxt({
+      // Exclude language switch intermediate pages
+      ignoreFiles: ['en.md', 'zh.md']
+    })]
   },
 
   mermaid: {

@@ -2,6 +2,12 @@
 layout: home
 ---
 
+<div class="academic-badge">
+  <span class="academic-badge-item highlight">技术白皮书</span>
+  <span class="academic-badge-item">v0.1.1</span>
+  <span class="academic-badge-item">Rust 1.75+</span>
+</div>
+
 <div class="home-header">
   <div class="home-header-left">
     <div class="home-logo">FQ</div>
@@ -19,16 +25,69 @@ layout: home
   </div>
 </div>
 
-<div class="home-intro-row">
-  <div class="home-intro">
-    fqc 是一款用 Rust 编写的高性能 FASTQ 压缩工具。采用自定义块索引 <code>.fqc</code> 归档格式，支持组件级流编码、随机访问、并行压缩和灵活的内存控制。专为需要压缩效率与运维工具兼备的生物信息学工作流而设计。
+<div class="abstract-section">
+  <div class="abstract-title">摘要</div>
+  <div class="abstract-content">
+    fqc 是一款领域感知的 FASTQ 压缩工具，通过块索引归档、组件级编码（ABC、SCM、Zstd）实现 <mark>2.4× 压缩比</mark>，支持 <mark>O(log N) 随机访问</mark>。采用纯 Rust 编写，零 unsafe 代码，支持三种执行模式（Archive、Streaming、Pipeline）灵活权衡内存与吞吐量。专为需要压缩效率与运维工具兼备的生物信息学工作流而设计。
   </div>
-  <div class="home-stats">
-    <span><strong>Rust</strong> 原生</span>
-    <span><strong>2.4x+</strong> 压缩比</span>
-    <span><strong>块</strong>索引</span>
-    <span><strong>3</strong> 种模式</span>
+</div>
+
+<div class="stats-bar">
+  <div class="stat-item">
+    <span class="stat-value">2.4×</span>
+    <span class="stat-label">压缩比</span>
   </div>
+  <div class="stat-item">
+    <span class="stat-value">O(log N)</span>
+    <span class="stat-label">随机访问</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-value">3</span>
+    <span class="stat-label">执行模式</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-value">0</span>
+    <span class="stat-label">unsafe 代码</span>
+  </div>
+</div>
+
+## 核心架构
+
+<div class="core-architecture">
+
+```mermaid
+flowchart LR
+    subgraph Input[输入]
+        A[FASTQ 文件]
+    end
+    
+    subgraph Parser[解析器]
+        B[记录读取器]
+        C[块分组器]
+    end
+    
+    subgraph Encoder[编码器]
+        D{读长判断}
+        E[ABC 编解码器<br/>短读长]
+        F[Zstd 编解码器<br/>中等]
+        G[Zstd Large<br/>长读长]
+    end
+    
+    subgraph Archive[归档]
+        H[.fqc 容器]
+        I[块索引]
+    end
+    
+    A --> B --> C --> D
+    D -->|≤511 bp| E
+    D -->|512bp-10KB| F
+    D -->|>10KB| G
+    E --> H
+    F --> H
+    G --> H
+    H --> I
+```
+
 </div>
 
 ## 技术亮点
@@ -102,22 +161,44 @@ layout: home
 
 ## 快速开始
 
-<div class="quick-start">
-  <div class="quick-start-title">安装并压缩</div>
-  <div class="quick-start-content">
-    <div class="command-block">
-      <code>cargo build --release && ./target/release/fqc compress -i reads.fastq -o reads.fqc</code>
-    </div>
-    查看<a href="./guide/quick-start">快速开始指南</a>了解安装选项和首次压缩步骤。
+<div class="terminal-block">
+  <div class="terminal-header">
+    <span class="terminal-dot red"></span>
+    <span class="terminal-dot yellow"></span>
+    <span class="terminal-dot green"></span>
+    <span class="terminal-title">bash</span>
+  </div>
+  <div class="terminal-body">
+    <span class="terminal-line"><span class="terminal-prompt">$</span> <span class="terminal-comment"># 从源码构建</span></span>
+    <span class="terminal-line"><span class="terminal-prompt">$</span> <span class="terminal-command">cargo build --release</span></span>
+    <span class="terminal-line"></span>
+    <span class="terminal-line"><span class="terminal-prompt">$</span> <span class="terminal-comment"># 压缩 FASTQ 文件</span></span>
+    <span class="terminal-line"><span class="terminal-prompt">$</span> <span class="terminal-command">./target/release/fqc compress -i reads.fq -o reads.fqc</span></span>
+    <span class="terminal-line"></span>
+    <span class="terminal-line"><span class="terminal-prompt">$</span> <span class="terminal-comment"># 解压</span></span>
+    <span class="terminal-line"><span class="terminal-prompt">$</span> <span class="terminal-command">./target/release/fqc decompress -i reads.fqc -o reads.fq</span></span>
   </div>
 </div>
 
-## 架构深度解析
+查看<a href="./guide/quick-start">快速开始指南</a>了解安装选项和首次压缩步骤。
 
-<div class="architecture-teaser">
-  <div class="architecture-teaser-title">探索架构设计</div>
-  <div class="architecture-teaser-desc">
-    fqc 采用分层架构，支持组件级流编码、块级索引和三种执行模式。文档包含 29 个交互式 Mermaid 图表，覆盖从 CLI 到二进制格式的每一层。
-  </div>
-  <a href="./architecture/" class="architecture-teaser-link">查看架构文档 &rarr;</a>
+## 资源
+
+<div class="resources-section">
+  <a href="./architecture/" class="resource-item">
+    <span class="resource-icon">📊</span>
+    <span>29 个交互式图表</span>
+  </a>
+  <a href="./architecture/decisions/" class="resource-item">
+    <span class="resource-icon">📋</span>
+    <span>3 份架构决策记录</span>
+  </a>
+  <a href="./reference/format-spec" class="resource-item">
+    <span class="resource-icon">📄</span>
+    <span>二进制格式规范</span>
+  </a>
+  <a href="./references/" class="resource-item">
+    <span class="resource-icon">📚</span>
+    <span>参考文献与相关工作</span>
+  </a>
 </div>

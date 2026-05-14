@@ -2,6 +2,12 @@
 layout: home
 ---
 
+<div class="academic-badge">
+  <span class="academic-badge-item highlight">Technical Whitepaper</span>
+  <span class="academic-badge-item">v0.1.1</span>
+  <span class="academic-badge-item">Rust 1.75+</span>
+</div>
+
 <div class="home-header">
   <div class="home-header-left">
     <div class="home-logo">FQ</div>
@@ -19,23 +25,76 @@ layout: home
   </div>
 </div>
 
-<div class="home-intro-row">
-  <div class="home-intro">
-    fqc is a high-performance FASTQ compression tool written in Rust. It uses a custom block-indexed <code>.fqc</code> archive format with component-specific stream encoding, enabling random access, parallel compression, and flexible memory control. Designed for bioinformatics workflows that demand both compression efficiency and operational tooling.
+<div class="abstract-section">
+  <div class="abstract-title">Abstract</div>
+  <div class="abstract-content">
+    fqc is a domain-aware FASTQ compression tool that achieves <mark>2.4× compression ratio</mark> through block-indexed archiving, component-specific encoding (ABC, SCM, Zstd), and <mark>O(log N) random access</mark>. Written in pure Rust with zero unsafe code, it supports three execution modes (Archive, Streaming, Pipeline) for flexible memory-throughput trade-offs. Designed for bioinformatics workflows requiring both compression efficiency and operational tooling.
   </div>
-  <div class="home-stats">
-    <span><strong>Rust</strong> native</span>
-    <span><strong>2.4x+</strong> ratio</span>
-    <span><strong>Block</strong> indexed</span>
-    <span><strong>3</strong> modes</span>
+</div>
+
+<div class="stats-bar">
+  <div class="stat-item">
+    <span class="stat-value">2.4×</span>
+    <span class="stat-label">Compression Ratio</span>
   </div>
+  <div class="stat-item">
+    <span class="stat-value">O(log N)</span>
+    <span class="stat-label">Random Access</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-value">3</span>
+    <span class="stat-label">Execution Modes</span>
+  </div>
+  <div class="stat-item">
+    <span class="stat-value">0</span>
+    <span class="stat-label">unsafe Code</span>
+  </div>
+</div>
+
+## Core Architecture
+
+<div class="core-architecture">
+
+```mermaid
+flowchart LR
+    subgraph Input
+        A[FASTQ File]
+    end
+    
+    subgraph Parser
+        B[Record Reader]
+        C[Block Grouper]
+    end
+    
+    subgraph Encoder
+        D{Read Length?}
+        E[ABC Codec<br/>Short Reads]
+        F[Zstd Codec<br/>Medium]
+        G[Zstd Large<br/>Long Reads]
+    end
+    
+    subgraph Archive
+        H[.fqc Container]
+        I[Block Index]
+    end
+    
+    A --> B --> C --> D
+    D -->|≤511 bp| E
+    D -->|512bp-10KB| F
+    D -->|>10KB| G
+    E --> H
+    F --> H
+    G --> H
+    H --> I
+```
+
 </div>
 
 ## Technical Highlights
 
 <div class="feature-map">
   <div class="feature-card">
-    <div class="feature-card-title">Architecture &amp; Design</div>
+    <div class="feature-card-title">Architecture & Design</div>
     <div class="feature-card-desc">
       Layered system architecture with CLI, I/O, Format, Algorithm, and Pipeline layers. Three Architecture Decision Records document key design choices.
     </div>
@@ -102,22 +161,44 @@ layout: home
 
 ## Quick Start
 
-<div class="quick-start">
-  <div class="quick-start-title">Install and compress</div>
-  <div class="quick-start-content">
-    <div class="command-block">
-      <code>cargo build --release && ./target/release/fqc compress -i reads.fastq -o reads.fqc</code>
-    </div>
-    See the <a href="./guide/quick-start">Quick Start guide</a> for installation options and first compression steps.
+<div class="terminal-block">
+  <div class="terminal-header">
+    <span class="terminal-dot red"></span>
+    <span class="terminal-dot yellow"></span>
+    <span class="terminal-dot green"></span>
+    <span class="terminal-title">bash</span>
+  </div>
+  <div class="terminal-body">
+    <span class="terminal-line"><span class="terminal-prompt">$</span> <span class="terminal-comment"># Build from source</span></span>
+    <span class="terminal-line"><span class="terminal-prompt">$</span> <span class="terminal-command">cargo build --release</span></span>
+    <span class="terminal-line"></span>
+    <span class="terminal-line"><span class="terminal-prompt">$</span> <span class="terminal-comment"># Compress a FASTQ file</span></span>
+    <span class="terminal-line"><span class="terminal-prompt">$</span> <span class="terminal-command">./target/release/fqc compress -i reads.fq -o reads.fqc</span></span>
+    <span class="terminal-line"></span>
+    <span class="terminal-line"><span class="terminal-prompt">$</span> <span class="terminal-comment"># Decompress</span></span>
+    <span class="terminal-line"><span class="terminal-prompt">$</span> <span class="terminal-command">./target/release/fqc decompress -i reads.fqc -o reads.fq</span></span>
   </div>
 </div>
 
-## Architecture Deep Dive
+See the [Quick Start guide](./guide/quick-start) for installation options and first compression steps.
 
-<div class="architecture-teaser">
-  <div class="architecture-teaser-title">Explore the Architecture</div>
-  <div class="architecture-teaser-desc">
-    fqc uses a layered architecture with component-specific stream encoding, block-level indexing, and three execution modes. The documentation includes 29 interactive Mermaid diagrams covering every layer from CLI to binary format.
-  </div>
-  <a href="./architecture/" class="architecture-teaser-link">View Architecture Documentation &rarr;</a>
+## Resources
+
+<div class="resources-section">
+  <a href="./architecture/" class="resource-item">
+    <span class="resource-icon">📊</span>
+    <span>29 Interactive Diagrams</span>
+  </a>
+  <a href="./architecture/decisions/" class="resource-item">
+    <span class="resource-icon">📋</span>
+    <span>3 Architecture Decision Records</span>
+  </a>
+  <a href="./reference/format-spec" class="resource-item">
+    <span class="resource-icon">📄</span>
+    <span>Binary Format Specification</span>
+  </a>
+  <a href="./references/" class="resource-item">
+    <span class="resource-icon">📚</span>
+    <span>References & Related Work</span>
+  </a>
 </div>

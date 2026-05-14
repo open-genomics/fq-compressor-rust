@@ -2,6 +2,10 @@
 layout: home
 ---
 
+<head>
+  <meta http-equiv="refresh" content="0;url=/en/">
+</head>
+
 <script setup>
 import { onMounted } from 'vue'
 import { useRouter } from 'vitepress'
@@ -9,6 +13,7 @@ import { useRouter } from 'vitepress'
 const router = useRouter()
 
 onMounted(() => {
+  // Clear the meta refresh timeout by navigating immediately
   const lang = typeof navigator !== 'undefined'
     ? (navigator.language || navigator.userLanguage || 'en').toLowerCase()
     : 'en'

@@ -1,8 +1,15 @@
 # ADR-003: 组件分离编码
 
-## 状态
-
-已采纳
+<div class="adr-meta">
+  <span class="adr-meta-key">状态</span>
+  <span class="adr-meta-value">已采纳</span>
+  <span class="adr-meta-key">日期</span>
+  <span class="adr-meta-value">2024-02-01</span>
+  <span class="adr-meta-key">作者</span>
+  <span class="adr-meta-value">shane</span>
+  <span class="adr-meta-key">替代</span>
+  <span class="adr-meta-value">—</span>
+</div>
 
 ## 背景
 

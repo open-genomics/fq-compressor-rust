@@ -1,8 +1,15 @@
 # ADR-001: Block-Indexed Format
 
-## Status
-
-Accepted
+<div class="adr-meta">
+  <span class="adr-meta-key">Status</span>
+  <span class="adr-meta-value">Accepted</span>
+  <span class="adr-meta-key">Date</span>
+  <span class="adr-meta-value">2024-01-15</span>
+  <span class="adr-meta-key">Authors</span>
+  <span class="adr-meta-value">shane</span>
+  <span class="adr-meta-key">Supersedes</span>
+  <span class="adr-meta-value">—</span>
+</div>
 
 ## Context
 
