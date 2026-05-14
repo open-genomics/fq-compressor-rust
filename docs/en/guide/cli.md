@@ -1,4 +1,4 @@
-# CLI reference
+# CLI Reference
 
 `fqc` exposes four top-level commands:
 

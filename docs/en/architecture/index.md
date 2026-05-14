@@ -1,8 +1,45 @@
-# Architecture overview
+# Architecture Overview
 
 `fqc` is a single-binary Rust CLI with a small number of well-defined layers.
 
-## Main layers
+## System Architecture
+
+```mermaid
+flowchart TD
+    subgraph CLI["CLI Layer"]
+        M[main.rs] --> CMD[commands/]
+    end
+    
+    subgraph IO["I/O Layer"]
+        FP[fastq/parser.rs] --> ASYNC[io/async_io.rs]
+        FP --> CS[io/compressed_stream.rs]
+    end
+    
+    subgraph FORMAT["Format Layer"]
+        FR[format.rs] --> FW[fqc_writer.rs]
+        FR --> FR2[fqc_reader.rs]
+    end
+    
+    subgraph ALGO["Algorithm Layer"]
+        ABC[algo/abc.rs] --> BC[algo/block_compressor.rs]
+        QC[algo/quality_compressor.rs] --> BC
+        IC[algo/id_compressor.rs] --> BC
+        ZS[algo/zstd_sequence.rs] --> BC
+    end
+    
+    subgraph PIPELINE["Pipeline Layer"]
+        PL_COMP[pipeline/compression.rs]
+        PL_DECOMP[pipeline/decompression.rs]
+    end
+    
+    CLI --> IO
+    IO --> FORMAT
+    ALGO --> FORMAT
+    PIPELINE --> ALGO
+    PIPELINE --> IO
+```
+
+## Main Layers
 
 | Layer | Key files | Responsibility |
 | --- | --- | --- |
@@ -14,9 +51,21 @@
 | Pipelines | `src/pipeline/*` | Reader/compressor/writer parallel flow for pipeline mode |
 | Shared types | `src/types.rs`, `src/error.rs` | Public types, defaults, and exit-code mapping |
 
-## Archive model
+## Archive Model
 
 An `.fqc` archive contains:
+
+```mermaid
+flowchart TD
+    A["Magic Header (9 bytes)"] --> B["Global Header"]
+    B --> C["Block 0"]
+    B --> D["Block 1"]
+    B --> E["Block N"]
+    C --> F["Block Index"]
+    D --> F
+    E --> F
+    F --> G["File Footer (32 bytes)"]
+```
 
 1. a global header with mode flags and archive metadata
 2. one or more compressed blocks
@@ -25,7 +74,7 @@ An `.fqc` archive contains:
 
 This layout is why `fqc info`, `fqc verify`, and range-based decompression can operate on archive structure rather than treating the file as an opaque blob.
 
-## Execution modes
+## Execution Modes
 
 Compression operations route through `CompressionEngine`, which selects one of three distinct execution modes:
 
@@ -35,6 +84,6 @@ Compression operations route through `CompressionEngine`, which selects one of t
 
 Each mode preserves the same output format and CLI semantics while varying memory footprint and concurrency behavior.
 
-## Performance roadmap
+## Performance Roadmap
 
 For the maintained summary of current bottlenecks, the preferred optimization direction, and the active phase boundary, see [Performance roadmap](./performance-roadmap.md).

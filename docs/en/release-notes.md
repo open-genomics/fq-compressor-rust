@@ -1,4 +1,4 @@
-# Release notes
+# Release Notes
 
 For downloadable artifacts, checksums, and release metadata, use the
 [GitHub Releases page](https://github.com/LessUp/fq-compressor-rust/releases).
