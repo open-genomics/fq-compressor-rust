@@ -61,8 +61,6 @@ flowchart LR
     D --> E["Decompress only that block"]
     E --> F["Extract specific read"]
     
-    style A fill:#e3f2fd
-    style F fill:#c8e6c9
 ```
 
 ## Alternatives Considered

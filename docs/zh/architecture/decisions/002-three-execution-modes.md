@@ -91,9 +91,6 @@ flowchart TB
         P3 --> P4[并行输出]
     end
     
-    style 归档模式 fill:#E8F5E9
-    style 流式模式 fill:#E3F2FD
-    style 管道模式 fill:#FFF9C4
 ```
 
 ### 归档模式 (Archive Mode)

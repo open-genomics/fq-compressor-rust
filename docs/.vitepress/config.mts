@@ -19,7 +19,7 @@ export default withMermaid(defineConfig({
 
   head: [
     ['link', { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' }],
-    ['meta', { name: 'theme-color', content: '#4f46e5' }],
+    ['meta', { name: 'theme-color', content: '#0e7c6b' }],
     ['meta', { property: 'og:type', content: 'website' }],
     ['meta', { property: 'og:site_name', content: 'fqc' }]
   ],
@@ -44,6 +44,7 @@ export default withMermaid(defineConfig({
           { text: '算法', link: '/zh/algorithms/', activeMatch: '/zh/algorithms/' },
           { text: '基准测试', link: '/zh/benchmarks/performance-report', activeMatch: '/zh/benchmarks/' },
           { text: '发布说明', link: '/zh/release-notes', activeMatch: '/zh/release-notes/' },
+          { text: '参考文献', link: '/zh/references/', activeMatch: '/zh/references/' },
         ],
         sidebar: {
           '/zh/guide/': [
@@ -91,6 +92,14 @@ export default withMermaid(defineConfig({
                 { text: '二进制格式规范', link: '/zh/reference/format-spec' }
               ]
             }
+          ],
+          '/zh/references/': [
+            {
+              text: '参考文献',
+              items: [
+                { text: '参考文献与相关工作', link: '/zh/references/' }
+              ]
+            }
           ]
         }
       }
@@ -109,6 +118,7 @@ export default withMermaid(defineConfig({
           { text: 'Algorithms', link: '/en/algorithms/', activeMatch: '/en/algorithms/' },
           { text: 'Benchmarks', link: '/en/benchmarks/performance-report', activeMatch: '/en/benchmarks/' },
           { text: 'Release Notes', link: '/en/release-notes', activeMatch: '/en/release-notes/' },
+          { text: 'References', link: '/en/references/', activeMatch: '/en/references/' },
         ],
         sidebar: {
           '/en/guide/': [
@@ -156,6 +166,14 @@ export default withMermaid(defineConfig({
                 { text: 'Binary Format Specification', link: '/en/reference/format-spec' }
               ]
             }
+          ],
+          '/en/references/': [
+            {
+              text: 'References',
+              items: [
+                { text: 'References & Related Work', link: '/en/references/' }
+              ]
+            }
           ]
         }
       }
@@ -175,7 +193,7 @@ export default withMermaid(defineConfig({
       { icon: 'github', link: 'https://github.com/LessUp/fq-compressor-rust' }
     ],
     footer: {
-      message: 'A focused FASTQ compression tool for bioinformatics.',
+      message: 'Technical documentation for fqc, a block-indexed FASTQ compression tool.',
       copyright: 'GPL-3.0 · fqc contributors'
     }
   },
@@ -185,7 +203,19 @@ export default withMermaid(defineConfig({
   },
 
   mermaid: {
-    // Mermaid configuration
-    theme: 'default'
+    theme: {
+      light: 'base',
+      dark: 'dark'
+    },
+    themeVariables: {
+      primaryColor: '#0e7c6b',
+      primaryTextColor: '#1a1f36',
+      primaryBorderColor: '#0e7c6b',
+      lineColor: '#4a5568',
+      secondaryColor: '#f1f5f9',
+      tertiaryColor: '#ffffff',
+      fontFamily: 'ui-sans-serif, system-ui, -apple-system, sans-serif',
+      fontSize: '14px'
+    }
   }
 }))

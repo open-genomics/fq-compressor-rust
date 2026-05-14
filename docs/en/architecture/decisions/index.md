@@ -34,7 +34,6 @@ flowchart TD
     G --> H[Implement]
     H --> I[Document Consequences]
     
-    style G fill:#90EE90
 ```
 
 ## ADR Template

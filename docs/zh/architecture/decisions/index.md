@@ -32,7 +32,6 @@ flowchart TD
     G --> H[实施]
     H --> I[记录后果]
     
-    style G fill:#90EE90
 ```
 
 ## ADR 模板

@@ -25,9 +25,6 @@ flowchart TD
     I --> J[优化流式/管道模式]
     J --> K[改进重排路径]
     
-    style F fill:#90EE90
-    style G fill:#FFB6C1
-    style H fill:#FFB6C1
 ```
 
 1. 保持下一个切片专注于内存可预测性和测量的热点路径，而非新编解码器或大规模重写。

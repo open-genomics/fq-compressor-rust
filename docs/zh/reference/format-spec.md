@@ -20,12 +20,6 @@ flowchart TD
     
     A --> B --> C --> D --> E --> F --> G --> H --> I
     
-    style A fill:#E3F2FD
-    style B fill:#E8F5E9
-    style C fill:#FFF9C4
-    style G fill:#F3E5F5
-    style H fill:#FFECB3
-    style I fill:#FFCDD2
 ```
 
 ## Magic Header
@@ -114,7 +108,6 @@ flowchart TD
     
     A --> B --> C --> D --> E
     
-    style A fill:#E8F5E9
 ```
 
 ### Block Header
@@ -175,10 +168,6 @@ flowchart TD
     B -->|0x03| F[QVZ<br/>质量专用]
     B -->|其他| G[保留]
     
-    style C fill:#FFECB3
-    style D fill:#90EE90
-    style E fill:#87CEEB
-    style F fill:#DDA0DD
 ```
 
 ## Reorder Map
@@ -248,9 +237,6 @@ flowchart TD
     H -->|是| G
     H -->|否| I[错误: 不兼容]
     
-    style C fill:#90EE90
-    style F fill:#FFCDD2
-    style G fill:#C8E6C9
 ```
 
 ### 兼容性规则

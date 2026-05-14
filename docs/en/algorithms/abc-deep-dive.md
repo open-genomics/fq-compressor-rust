@@ -45,9 +45,6 @@ flowchart TB
     J --> K --> L
     L --> M
     
-    style A fill:#E3F2FD
-    style G fill:#C8E6C9
-    style M fill:#FFF9C4
 ```
 
 ## Phase 1: Contig Building
@@ -287,8 +284,6 @@ flowchart TD
     F -->|Low| G[ABC Optimal]
     F -->|High| H[ABC Moderate]
     
-    style G fill:#90EE90
-    style E fill:#87CEEB
 ```
 
 ## Implementation Details

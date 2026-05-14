@@ -186,8 +186,6 @@ flowchart LR
         B1["同类数据<br/>熵值低"] --> B2["压缩率高"]
     end
     
-    style A2 fill:#FFCDD2
-    style B2 fill:#C8E6C9
 ```
 
 1. **数据局部性**: 相似数据聚集，提高压缩效率

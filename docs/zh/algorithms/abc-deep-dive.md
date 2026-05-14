@@ -45,9 +45,6 @@ flowchart TB
     J --> K --> L
     L --> M
     
-    style A fill:#E3F2FD
-    style G fill:#C8E6C9
-    style M fill:#FFF9C4
 ```
 
 ## 阶段一：Contig 构建
@@ -252,8 +249,6 @@ flowchart TD
     F -->|低| G[ABC 最佳]
     F -->|高| H[ABC 一般]
     
-    style G fill:#90EE90
-    style E fill:#87CEEB
 ```
 
 ## 实现细节

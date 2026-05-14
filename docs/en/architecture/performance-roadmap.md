@@ -53,7 +53,6 @@ flowchart LR
     
     A4 -.->|"High Memory"| B1
     
-    style A4 fill:#ff6b6b,stroke:#c92a2a
 ```
 
 - **Short-read compression still pays for a global analysis pass.** The main compression path can analyze the full dataset before writing blocks so reorder-aware compression improves ratio, but that also concentrates memory and wall-clock pressure in phase 1.

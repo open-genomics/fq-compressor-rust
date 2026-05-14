@@ -19,7 +19,6 @@ flowchart LR
     B --> C[输出: 933 字节]
     C --> D[压缩比: 2.39x]
     
-    style D fill:#C8E6C9
 ```
 
 ---
@@ -216,10 +215,6 @@ flowchart LR
     C --> C1["✓ 文件相同"]
     D --> D1["✓ PASSED"]
     
-    style A1 fill:#C8E6C9
-    style B1 fill:#C8E6C9
-    style C1 fill:#C8E6C9
-    style D1 fill:#C8E6C9
 ```
 
 | 测试 | 命令 | 结果 |
@@ -273,11 +268,6 @@ flowchart TD
     A --> E["✅ 块索引归档支持随机访问"]
     A --> F["✅ 单二进制 CLI 无依赖"]
     
-    style B fill:#C8E6C9
-    style C fill:#C8E6C9
-    style D fill:#C8E6C9
-    style E fill:#C8E6C9
-    style F fill:#C8E6C9
 ```
 
 - ✅ **2.39x 压缩比** (测试数据)

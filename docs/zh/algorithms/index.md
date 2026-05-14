@@ -25,8 +25,6 @@ flowchart TD
     J --> L[压缩输出]
     K --> L
     
-    style C fill:#E8F5E9
-    style F fill:#C8E6C9
 ```
 
 - **短读段路径**：`fqc` 对较小的短读段块优先使用 ABC 风格的共识/增量表示，当较大块会使该路径成本过高时回退到 Zstd 支持的块存储。
@@ -52,10 +50,6 @@ flowchart LR
     E --> I[有损压缩]
     F --> J[占位符]
     
-    style C fill:#90EE90
-    style D fill:#87CEEB
-    style E fill:#DDA0DD
-    style F fill:#FFB6C1
 ```
 
 | 模式 | 描述 | 数据保留 |
@@ -83,8 +77,6 @@ flowchart TD
     H --> I[逆重排映射]
     I --> J[恢复原始顺序]
     
-    style C fill:#FFF9C4
-    style F fill:#E1BEE7
 ```
 
 归档在需要时存储重排元数据，因此仍可按原始顺序解压。

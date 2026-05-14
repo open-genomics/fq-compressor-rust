@@ -270,4 +270,4 @@ flowchart TB
 ## References
 
 - [Performance Roadmap](../performance-roadmap.md) - Performance characteristics
-- [CLI Reference](../../reference/cli.md) - Command-line options
+- [CLI Reference](../../guide/cli.md) - Command-line options
