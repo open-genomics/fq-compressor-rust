@@ -80,10 +80,15 @@ impl FqcReader {
         // Read global header (after magic)
         reader.seek(SeekFrom::Start(MAGIC_HEADER_SIZE as u64))?;
         let global_header = GlobalHeader::read(&mut reader)?;
+        let header_end = reader.stream_position()?;
+
+        Self::validate_footer_offsets(&footer, header_end, footer_pos)?;
 
         // Read block index
         reader.seek(SeekFrom::Start(footer.index_offset))?;
         let block_index = BlockIndex::read(&mut reader)?;
+        Self::validate_block_index(&block_index, header_end, &footer, global_header.total_read_count)?;
+        Self::validate_block_headers(&mut reader, &block_index, &footer)?;
 
         Ok(Self {
             path: path.to_string(),
@@ -95,6 +100,166 @@ impl FqcReader {
             reorder_forward: None,
             reorder_reverse: None,
         })
+    }
+
+    fn validate_footer_offsets(footer: &FileFooter, header_end: u64, footer_pos: u64) -> Result<()> {
+        if footer.index_offset < header_end || footer.index_offset >= footer_pos {
+            return Err(FqcError::Format(format!(
+                "Block index offset {} is outside archive data region",
+                footer.index_offset
+            )));
+        }
+
+        if footer.has_reorder_map()
+            && (footer.reorder_map_offset < header_end || footer.reorder_map_offset >= footer.index_offset)
+        {
+            return Err(FqcError::Format(format!(
+                "Reorder map offset {} is outside archive data region",
+                footer.reorder_map_offset
+            )));
+        }
+
+        Ok(())
+    }
+
+    fn validate_block_index(
+        block_index: &BlockIndex,
+        header_end: u64,
+        footer: &FileFooter,
+        total_read_count: u64,
+    ) -> Result<()> {
+        let data_end = if footer.has_reorder_map() {
+            footer.reorder_map_offset
+        } else {
+            footer.index_offset
+        };
+        let mut previous_end = header_end;
+        let mut expected_archive_id_start = 0u64;
+
+        for (idx, entry) in block_index.entries.iter().enumerate() {
+            if entry.compressed_size < BLOCK_HEADER_SIZE as u64 {
+                return Err(FqcError::Format(format!(
+                    "Block index entry {idx} compressed size {} is smaller than block header",
+                    entry.compressed_size
+                )));
+            }
+            if entry.offset < header_end {
+                return Err(FqcError::Format(format!(
+                    "Block index entry {idx} offset {} precedes block region",
+                    entry.offset
+                )));
+            }
+            if entry.offset < previous_end {
+                return Err(FqcError::Format(format!(
+                    "Block index entry {idx} overlaps or reorders block data"
+                )));
+            }
+            if entry.archive_id_start != expected_archive_id_start {
+                return Err(FqcError::Format(format!(
+                    "Block index entry {idx} archive start {} does not match expected {}",
+                    entry.archive_id_start, expected_archive_id_start
+                )));
+            }
+
+            let entry_end = entry
+                .offset
+                .checked_add(entry.compressed_size)
+                .ok_or_else(|| FqcError::Format(format!("Block index entry {idx} overflows archive offsets")))?;
+            if entry_end > data_end {
+                return Err(FqcError::Format(format!(
+                    "Block index entry {idx} exceeds archive data region"
+                )));
+            }
+
+            previous_end = entry_end;
+            expected_archive_id_start = expected_archive_id_start
+                .checked_add(entry.read_count as u64)
+                .ok_or_else(|| FqcError::Format("Block index read counts overflow total read count".to_string()))?;
+        }
+
+        if expected_archive_id_start != total_read_count {
+            return Err(FqcError::Format(format!(
+                "Block index total read count {} does not match global header {}",
+                expected_archive_id_start, total_read_count
+            )));
+        }
+
+        Ok(())
+    }
+
+    fn validate_block_headers(
+        reader: &mut BufReader<File>,
+        block_index: &BlockIndex,
+        footer: &FileFooter,
+    ) -> Result<()> {
+        let block_region_end = if footer.has_reorder_map() {
+            footer.reorder_map_offset
+        } else {
+            footer.index_offset
+        };
+
+        for (idx, entry) in block_index.entries.iter().enumerate() {
+            reader.seek(SeekFrom::Start(entry.offset))?;
+            let header = BlockHeader::read(reader)?;
+
+            if header.block_id != idx as u32 {
+                return Err(FqcError::Format(format!(
+                    "Block header id {} does not match block index position {}",
+                    header.block_id, idx
+                )));
+            }
+            if header.uncompressed_count != entry.read_count {
+                return Err(FqcError::Format(format!(
+                    "Block header read count {} does not match block index {} for block {}",
+                    header.uncompressed_count, entry.read_count, idx
+                )));
+            }
+
+            let block_end = entry
+                .offset
+                .checked_add(entry.compressed_size)
+                .ok_or_else(|| FqcError::Format(format!("Block {} overflows archive offsets", idx)))?;
+            let payload_start = entry
+                .offset
+                .checked_add(header.header_size as u64)
+                .ok_or_else(|| FqcError::Format(format!("Block {} header overflows archive offsets", idx)))?;
+            if payload_start > block_end {
+                return Err(FqcError::Format(format!(
+                    "Block {} stream extent exceeds block payload bounds",
+                    idx
+                )));
+            }
+
+            let declared_stream_end = [
+                header.offset_ids.checked_add(header.size_ids),
+                header.offset_seq.checked_add(header.size_seq),
+                header.offset_qual.checked_add(header.size_qual),
+                header.offset_aux.checked_add(header.size_aux),
+            ]
+            .into_iter()
+            .flatten()
+            .max()
+            .ok_or_else(|| FqcError::Format(format!("Block {} stream extent overflows block payload", idx)))?;
+
+            if declared_stream_end > header.compressed_size {
+                return Err(FqcError::Format(format!(
+                    "Block {} stream extent exceeds declared block payload",
+                    idx
+                )));
+            }
+
+            let declared_block_end = payload_start
+                .checked_add(header.compressed_size)
+                .ok_or_else(|| FqcError::Format(format!("Block {} payload overflows archive offsets", idx)))?;
+            if declared_block_end > block_end || declared_block_end > block_region_end {
+                return Err(FqcError::Format(format!(
+                    "Block {} stream extent exceeds block payload bounds",
+                    idx
+                )));
+            }
+        }
+
+        Ok(())
     }
 
     pub fn block_count(&self) -> usize {

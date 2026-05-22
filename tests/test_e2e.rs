@@ -79,6 +79,28 @@ fn write_fastq_records(path: &str, records: &[ReadRecord]) {
     }
 }
 
+fn corrupt_block_codec_seq(path: &str, block_id: usize, codec_seq: u8) {
+    let reader = FqcReader::open(path).unwrap();
+    let block_offset = reader.block_index.entries[block_id].offset as usize;
+    drop(reader);
+
+    let mut bytes = std::fs::read(path).unwrap();
+    bytes[block_offset + 10] = codec_seq;
+    std::fs::write(path, bytes).unwrap();
+}
+
+fn patch_u64(path: &str, offset: usize, value: u64) {
+    let mut bytes = std::fs::read(path).unwrap();
+    bytes[offset..offset + 8].copy_from_slice(&value.to_le_bytes());
+    std::fs::write(path, bytes).unwrap();
+}
+
+fn patch_u32(path: &str, offset: usize, value: u32) {
+    let mut bytes = std::fs::read(path).unwrap();
+    bytes[offset..offset + 4].copy_from_slice(&value.to_le_bytes());
+    std::fs::write(path, bytes).unwrap();
+}
+
 fn gzip_file(src: &str, dst: &str) {
     let mut input = std::fs::File::open(src).unwrap();
     let output = std::fs::File::create(dst).unwrap();
@@ -459,6 +481,389 @@ fn test_e2e_compress_decompress_gzip_paired_end_roundtrip() {
 
     let _ = std::fs::remove_file(restored_r1);
     let _ = std::fs::remove_file(restored_r2);
+}
+
+#[test]
+fn test_e2e_archive_mode_consecutive_layout_split_roundtrip() {
+    let input_r1 = test_data_dir().join("test_R1.fastq");
+    let input_r2 = test_data_dir().join("test_R2.fastq");
+    let archive = TempFile::new("e2e_archive_consecutive_pe.fqc");
+    let output = TempFile::new("e2e_archive_consecutive.fastq");
+
+    let compress_exit = CompressCommand::new(CompressOptions {
+        input_path: input_r1.to_string_lossy().to_string(),
+        input2_path: Some(input_r2.to_string_lossy().to_string()),
+        output_path: archive.path().to_string(),
+        pe_layout: PeLayout::Consecutive,
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(compress_exit, 0);
+
+    let info = FqcReader::open(archive.path()).unwrap().info();
+    assert_eq!(info.pe_layout, PeLayout::Consecutive);
+
+    let decompress_exit = DecompressCommand::new(DecompressOptions {
+        input_path: archive.path().to_string(),
+        output_path: output.path().to_string(),
+        split_pe: true,
+        force_overwrite: true,
+        show_progress: false,
+        ..DecompressOptions::default()
+    })
+    .execute();
+    assert_eq!(decompress_exit, 0);
+
+    let restored_r1 = format!("{}_R1.fastq", output.path().trim_end_matches(".fastq"));
+    let restored_r2 = format!("{}_R2.fastq", output.path().trim_end_matches(".fastq"));
+
+    let original_r1 = read_fastq_records(input_r1.to_str().unwrap());
+    let original_r2 = read_fastq_records(input_r2.to_str().unwrap());
+    let restored_r1_reads = read_fastq_records(&restored_r1);
+    let restored_r2_reads = read_fastq_records(&restored_r2);
+
+    assert_roundtrip_match(&original_r1, &restored_r1_reads);
+    assert_roundtrip_match(&original_r2, &restored_r2_reads);
+
+    let _ = std::fs::remove_file(restored_r1);
+    let _ = std::fs::remove_file(restored_r2);
+}
+
+#[test]
+fn test_e2e_archive_mode_interleaved_input_consecutive_layout_split_roundtrip() {
+    let input = test_data_dir().join("test_interleaved.fastq");
+    let archive = TempFile::new("e2e_archive_interleaved_consecutive_pe.fqc");
+    let output = TempFile::new("e2e_archive_interleaved_consecutive.fastq");
+
+    let compress_exit = CompressCommand::new(CompressOptions {
+        input_path: input.to_string_lossy().to_string(),
+        output_path: archive.path().to_string(),
+        interleaved: true,
+        pe_layout: PeLayout::Consecutive,
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(compress_exit, 0);
+
+    let info = FqcReader::open(archive.path()).unwrap().info();
+    assert!(info.is_paired);
+    assert_eq!(info.pe_layout, PeLayout::Consecutive);
+
+    let decompress_exit = DecompressCommand::new(DecompressOptions {
+        input_path: archive.path().to_string(),
+        output_path: output.path().to_string(),
+        split_pe: true,
+        force_overwrite: true,
+        show_progress: false,
+        ..DecompressOptions::default()
+    })
+    .execute();
+    assert_eq!(decompress_exit, 0);
+
+    let restored_r1 = format!("{}_R1.fastq", output.path().trim_end_matches(".fastq"));
+    let restored_r2 = format!("{}_R2.fastq", output.path().trim_end_matches(".fastq"));
+
+    let original_interleaved = read_fastq_records(input.to_str().unwrap());
+    let (original_r1, original_r2) = PeLayout::Interleaved.split(original_interleaved);
+    let restored_r1_reads = read_fastq_records(&restored_r1);
+    let restored_r2_reads = read_fastq_records(&restored_r2);
+
+    assert_roundtrip_match(&original_r1, &restored_r1_reads);
+    assert_roundtrip_match(&original_r2, &restored_r2_reads);
+
+    let _ = std::fs::remove_file(restored_r1);
+    let _ = std::fs::remove_file(restored_r2);
+}
+
+#[test]
+fn test_e2e_streaming_consecutive_layout_split_roundtrip_multiblock() {
+    let r1_records = synthetic_reads(&[12, 12, 12, 12, 12, 12], "stream_r1");
+    let r2_records = synthetic_reads(&[12, 12, 12, 12, 12, 12], "stream_r2");
+    let input_r1 = TempFile::new("e2e_streaming_consecutive_r1.fastq");
+    let input_r2 = TempFile::new("e2e_streaming_consecutive_r2.fastq");
+    let archive = TempFile::new("e2e_streaming_consecutive.fqc");
+    let output = TempFile::new("e2e_streaming_consecutive.fastq");
+
+    write_fastq_records(input_r1.path(), &r1_records);
+    write_fastq_records(input_r2.path(), &r2_records);
+
+    let compress_exit = CompressCommand::new(CompressOptions {
+        input_path: input_r1.path().to_string(),
+        input2_path: Some(input_r2.path().to_string()),
+        output_path: archive.path().to_string(),
+        streaming_mode: true,
+        pe_layout: PeLayout::Consecutive,
+        block_size: 4,
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(compress_exit, 0);
+
+    let info = FqcReader::open(archive.path()).unwrap().info();
+    assert!(info.streaming_mode);
+    assert_eq!(info.pe_layout, PeLayout::Consecutive);
+    assert!(info.num_blocks > 1);
+
+    let decompress_exit = DecompressCommand::new(DecompressOptions {
+        input_path: archive.path().to_string(),
+        output_path: output.path().to_string(),
+        split_pe: true,
+        force_overwrite: true,
+        show_progress: false,
+        ..DecompressOptions::default()
+    })
+    .execute();
+    assert_eq!(decompress_exit, 0);
+
+    let restored_r1 = format!("{}_R1.fastq", output.path().trim_end_matches(".fastq"));
+    let restored_r2 = format!("{}_R2.fastq", output.path().trim_end_matches(".fastq"));
+    let restored_r1_reads = read_fastq_records(&restored_r1);
+    let restored_r2_reads = read_fastq_records(&restored_r2);
+
+    assert_roundtrip_match(&r1_records, &restored_r1_reads);
+    assert_roundtrip_match(&r2_records, &restored_r2_reads);
+
+    let _ = std::fs::remove_file(restored_r1);
+    let _ = std::fs::remove_file(restored_r2);
+}
+
+#[test]
+fn test_reader_rejects_footer_index_offset_past_file_end() {
+    let input = TempFile::new("reader_index_offset_input.fastq");
+    let archive = TempFile::new("reader_index_offset_bad_footer.fqc");
+    write_fastq_records(input.path(), &synthetic_reads(&[16, 16, 16], "reader_index_offset"));
+
+    let compress_exit = CompressCommand::new(CompressOptions {
+        input_path: input.path().to_string(),
+        output_path: archive.path().to_string(),
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(compress_exit, 0);
+
+    let mut bytes = std::fs::read(archive.path()).unwrap();
+    let file_size = bytes.len() as u64;
+    let footer_pos = bytes.len() - FILE_FOOTER_SIZE;
+    bytes[footer_pos..footer_pos + 8].copy_from_slice(&(file_size + 1).to_le_bytes());
+    std::fs::write(archive.path(), bytes).unwrap();
+
+    let err = match FqcReader::open(archive.path()) {
+        Ok(_) => panic!("expected malformed footer index offset to be rejected"),
+        Err(err) => err,
+    };
+    assert!(
+        err.to_string().contains("index offset"),
+        "expected index-offset validation error, got {err}"
+    );
+}
+
+#[test]
+fn test_reader_rejects_block_index_entry_offset_past_file_end() {
+    let input = TempFile::new("reader_entry_offset_input.fastq");
+    let archive = TempFile::new("reader_entry_offset_bad_index.fqc");
+    write_fastq_records(input.path(), &synthetic_reads(&[20, 20, 20, 20], "reader_entry_offset"));
+
+    let compress_exit = CompressCommand::new(CompressOptions {
+        input_path: input.path().to_string(),
+        output_path: archive.path().to_string(),
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(compress_exit, 0);
+
+    let valid_reader = FqcReader::open(archive.path()).unwrap();
+    let index_offset = valid_reader.footer.index_offset as usize;
+    drop(valid_reader);
+
+    let mut bytes = std::fs::read(archive.path()).unwrap();
+    let file_size = bytes.len() as u64;
+    let entry_offset_pos = index_offset + BLOCK_INDEX_HEADER_SIZE;
+    bytes[entry_offset_pos..entry_offset_pos + 8].copy_from_slice(&file_size.to_le_bytes());
+    std::fs::write(archive.path(), bytes).unwrap();
+
+    let err = match FqcReader::open(archive.path()) {
+        Ok(_) => panic!("expected malformed block index entry offset to be rejected"),
+        Err(err) => err,
+    };
+    assert!(
+        err.to_string().contains("Block index entry"),
+        "expected block-index bounds validation error, got {err}"
+    );
+}
+
+#[test]
+fn test_reader_rejects_block_header_stream_extent_past_payload() {
+    let input = TempFile::new("reader_bad_block_extent.fastq");
+    let archive = TempFile::new("reader_bad_block_extent.fqc");
+    write_fastq_records(
+        input.path(),
+        &synthetic_reads(&[20, 20, 20, 20], "reader_bad_block_extent"),
+    );
+
+    let compress_exit = CompressCommand::new(CompressOptions {
+        input_path: input.path().to_string(),
+        output_path: archive.path().to_string(),
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(compress_exit, 0);
+
+    let reader = FqcReader::open(archive.path()).unwrap();
+    let block_offset = reader.block_index.entries[0].offset as usize;
+    drop(reader);
+
+    patch_u64(archive.path(), block_offset + 88, u64::MAX / 2);
+
+    let err = match FqcReader::open(archive.path()) {
+        Ok(_) => panic!("expected malformed block stream extents to be rejected"),
+        Err(err) => err,
+    };
+    assert!(
+        err.to_string().contains("stream extent"),
+        "expected block stream extent validation error, got {err}"
+    );
+}
+
+#[test]
+fn test_reader_rejects_block_index_total_reads_mismatch() {
+    let input = TempFile::new("reader_bad_total_reads.fastq");
+    let archive = TempFile::new("reader_bad_total_reads.fqc");
+    write_fastq_records(
+        input.path(),
+        &synthetic_reads(&[20, 20, 20, 20], "reader_bad_total_reads"),
+    );
+
+    let compress_exit = CompressCommand::new(CompressOptions {
+        input_path: input.path().to_string(),
+        output_path: archive.path().to_string(),
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(compress_exit, 0);
+
+    let reader = FqcReader::open(archive.path()).unwrap();
+    let index_offset = reader.footer.index_offset as usize;
+    drop(reader);
+
+    patch_u32(archive.path(), index_offset + BLOCK_INDEX_HEADER_SIZE + 24, 999);
+
+    let err = match FqcReader::open(archive.path()) {
+        Ok(_) => panic!("expected block-index read-count mismatch to be rejected"),
+        Err(err) => err,
+    };
+    assert!(
+        err.to_string().contains("total read count"),
+        "expected total-read-count validation error, got {err}"
+    );
+}
+
+#[test]
+fn test_skip_corrupted_emits_placeholder_reads() {
+    let input = TempFile::new("skip_corrupted_placeholders.fastq");
+    let archive = TempFile::new("skip_corrupted_placeholders.fqc");
+    let output = TempFile::new("skip_corrupted_placeholders.out.fastq");
+    let original = synthetic_reads(&[18, 18, 18, 18, 18, 18], "skip_corrupted");
+    write_fastq_records(input.path(), &original);
+
+    let compress_exit = CompressCommand::new(CompressOptions {
+        input_path: input.path().to_string(),
+        output_path: archive.path().to_string(),
+        block_size: 4,
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(compress_exit, 0);
+
+    corrupt_block_codec_seq(archive.path(), 0, 0xFF);
+
+    let decompress_exit = DecompressCommand::new(DecompressOptions {
+        input_path: archive.path().to_string(),
+        output_path: output.path().to_string(),
+        skip_corrupted: true,
+        corrupted_placeholder: Some("NNNN".to_string()),
+        show_progress: false,
+        force_overwrite: true,
+        ..DecompressOptions::default()
+    })
+    .execute();
+    assert_eq!(decompress_exit, 0);
+
+    let restored = read_fastq_records(output.path());
+    assert_eq!(
+        restored.len(),
+        original.len(),
+        "placeholder reads should preserve read count"
+    );
+    for (idx, read) in restored.iter().take(4).enumerate() {
+        assert_eq!(read.id, format!("corrupted_block0_read{idx}"));
+        assert_eq!(read.sequence, "NNNN");
+        assert_eq!(read.quality, "!!!!");
+    }
+    assert_roundtrip_match(&original[4..], &restored[4..]);
+}
+
+#[test]
+fn test_pipeline_skip_corrupted_emits_placeholder_reads() {
+    let input = TempFile::new("pipeline_skip_corrupted_placeholders.fastq");
+    let archive = TempFile::new("pipeline_skip_corrupted_placeholders.fqc");
+    let output = TempFile::new("pipeline_skip_corrupted_placeholders.out.fastq");
+    let original = synthetic_reads(&[18, 18, 18, 18, 18, 18], "pipeline_skip_corrupted");
+    write_fastq_records(input.path(), &original);
+
+    let compress_exit = CompressCommand::new(CompressOptions {
+        input_path: input.path().to_string(),
+        output_path: archive.path().to_string(),
+        block_size: 4,
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(compress_exit, 0);
+
+    corrupt_block_codec_seq(archive.path(), 0, 0xFF);
+
+    let decompress_exit = DecompressCommand::new(DecompressOptions {
+        input_path: archive.path().to_string(),
+        output_path: output.path().to_string(),
+        skip_corrupted: true,
+        corrupted_placeholder: Some("NNNN".to_string()),
+        show_progress: false,
+        force_overwrite: true,
+        use_pipeline: true,
+        ..DecompressOptions::default()
+    })
+    .execute();
+    assert_eq!(decompress_exit, 0);
+
+    let restored = read_fastq_records(output.path());
+    assert_eq!(
+        restored.len(),
+        original.len(),
+        "pipeline placeholders should preserve read count"
+    );
+    for (idx, read) in restored.iter().take(4).enumerate() {
+        assert_eq!(read.id, format!("corrupted_block0_read{idx}"));
+        assert_eq!(read.sequence, "NNNN");
+        assert_eq!(read.quality, "!!!!");
+    }
+    assert_roundtrip_match(&original[4..], &restored[4..]);
 }
 
 #[test]

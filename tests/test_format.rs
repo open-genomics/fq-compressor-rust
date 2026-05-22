@@ -109,6 +109,48 @@ fn test_global_header_empty_filename() {
 }
 
 #[test]
+fn test_global_header_rejects_undersized_declared_header() {
+    let gh = GlobalHeader::new(0, 0, "tiny.fastq", 7);
+    let mut buf = Vec::new();
+    gh.write(&mut buf).unwrap();
+    buf[..4].copy_from_slice(&((GLOBAL_HEADER_MIN_SIZE as u32) - 1).to_le_bytes());
+
+    let err = GlobalHeader::read(&mut Cursor::new(&buf)).unwrap_err();
+    assert!(
+        err.to_string().contains("header size"),
+        "expected header-size validation error, got {err}"
+    );
+}
+
+#[test]
+fn test_global_header_rejects_oversized_declared_header() {
+    let gh = GlobalHeader::new(0, 0, "tiny.fastq", 7);
+    let mut buf = Vec::new();
+    gh.write(&mut buf).unwrap();
+    buf[..4].copy_from_slice(&((GLOBAL_HEADER_MIN_SIZE as u32) + 1_048_577_u32).to_le_bytes());
+
+    let err = GlobalHeader::read(&mut Cursor::new(&buf)).unwrap_err();
+    assert!(
+        err.to_string().contains("header size"),
+        "expected header-size validation error, got {err}"
+    );
+}
+
+#[test]
+fn test_global_header_rejects_filename_length_inconsistent_with_declared_size() {
+    let gh = GlobalHeader::new(0, 0, "tiny.fastq", 7);
+    let mut buf = Vec::new();
+    gh.write(&mut buf).unwrap();
+    buf[..4].copy_from_slice(&(GLOBAL_HEADER_MIN_SIZE as u32).to_le_bytes());
+
+    let err = GlobalHeader::read(&mut Cursor::new(&buf)).unwrap_err();
+    assert!(
+        err.to_string().contains("filename length"),
+        "expected filename-length consistency error, got {err}"
+    );
+}
+
+#[test]
 fn test_block_header_roundtrip() {
     let bh = BlockHeader {
         block_id: 42,
@@ -194,6 +236,42 @@ fn test_block_header_quality_discarded() {
 }
 
 #[test]
+fn test_block_header_rejects_undersized_declared_header() {
+    let bh = BlockHeader {
+        block_id: 9,
+        codec_seq: encode_codec(CodecFamily::AbcV1, 0),
+        ..Default::default()
+    };
+    let mut buf = Vec::new();
+    bh.write(&mut buf).unwrap();
+    buf[..4].copy_from_slice(&((BLOCK_HEADER_SIZE as u32) - 1).to_le_bytes());
+
+    let err = BlockHeader::read(&mut Cursor::new(&buf)).unwrap_err();
+    assert!(
+        err.to_string().contains("header size"),
+        "expected header-size validation error, got {err}"
+    );
+}
+
+#[test]
+fn test_block_header_rejects_oversized_declared_header() {
+    let bh = BlockHeader {
+        block_id: 9,
+        codec_seq: encode_codec(CodecFamily::AbcV1, 0),
+        ..Default::default()
+    };
+    let mut buf = Vec::new();
+    bh.write(&mut buf).unwrap();
+    buf[..4].copy_from_slice(&((BLOCK_HEADER_SIZE as u32) + 1_048_577_u32).to_le_bytes());
+
+    let err = BlockHeader::read(&mut Cursor::new(&buf)).unwrap_err();
+    assert!(
+        err.to_string().contains("header size"),
+        "expected header-size validation error, got {err}"
+    );
+}
+
+#[test]
 fn test_index_entry_roundtrip() {
     let entry = IndexEntry {
         offset: 1024,
@@ -256,6 +334,34 @@ fn test_block_index_roundtrip() {
     assert_eq!(index2.entries.len(), 3);
     assert_eq!(index2.entries[0].offset, 100);
     assert_eq!(index2.entries[2].read_count, 50);
+}
+
+#[test]
+fn test_block_index_accepts_large_declared_count_until_stream_ends() {
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&(BLOCK_INDEX_HEADER_SIZE as u32).to_le_bytes());
+    buf.extend_from_slice(&(INDEX_ENTRY_SIZE as u32).to_le_bytes());
+    buf.extend_from_slice(&100_000_u64.to_le_bytes());
+
+    let err = BlockIndex::read(&mut Cursor::new(&buf)).unwrap_err();
+    assert!(
+        err.to_string().contains("failed to fill whole buffer"),
+        "expected stream exhaustion error, got {err}"
+    );
+}
+
+#[test]
+fn test_block_index_rejects_oversized_entry_size() {
+    let mut buf = Vec::new();
+    buf.extend_from_slice(&(BLOCK_INDEX_HEADER_SIZE as u32).to_le_bytes());
+    buf.extend_from_slice(&((INDEX_ENTRY_SIZE as u32) + 1_048_577_u32).to_le_bytes());
+    buf.extend_from_slice(&1_u64.to_le_bytes());
+
+    let err = BlockIndex::read(&mut Cursor::new(&buf)).unwrap_err();
+    assert!(
+        err.to_string().contains("entry size"),
+        "expected entry-size validation error, got {err}"
+    );
 }
 
 #[test]

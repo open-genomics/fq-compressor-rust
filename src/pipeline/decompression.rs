@@ -35,6 +35,7 @@ pub struct DecompressionPipelineConfig {
     pub header_only: bool,
     pub verify_checksums: bool,
     pub skip_corrupted: bool,
+    pub corrupted_placeholder: Option<String>,
     pub split_pe: bool,
 }
 
@@ -49,6 +50,7 @@ impl Default for DecompressionPipelineConfig {
             header_only: false,
             verify_checksums: true,
             skip_corrupted: false,
+            corrupted_placeholder: None,
             split_pe: false,
         }
     }
@@ -86,6 +88,39 @@ struct DecompressedResult {
     result: std::result::Result<DecompressedBlockData, FqcError>,
     is_last: bool,
     expected_read_count: u32,
+}
+
+fn placeholder_record(placeholder_seq: &str, block_id: u32, read_idx: usize) -> crate::types::ReadRecord {
+    crate::types::ReadRecord {
+        id: format!("corrupted_block{}_read{}", block_id, read_idx),
+        comment: String::new(),
+        sequence: placeholder_seq.to_string(),
+        quality: "!".repeat(placeholder_seq.len()),
+    }
+}
+
+fn write_output_read(
+    output: &mut dyn std::io::Write,
+    read: &crate::types::ReadRecord,
+    header_only: bool,
+) -> Result<u64> {
+    if header_only {
+        let line = if read.comment.is_empty() {
+            format!("@{}\n", read.id)
+        } else {
+            format!("@{} {}\n", read.id, read.comment)
+        };
+        output.write_all(line.as_bytes()).map_err(FqcError::Io)?;
+        Ok(line.len() as u64)
+    } else {
+        write_record(output, read)?;
+        let comment_bytes = if read.comment.is_empty() {
+            0_u64
+        } else {
+            read.comment.len() as u64 + 1
+        };
+        Ok(read.id.len() as u64 + comment_bytes + read.sequence.len() as u64 + read.quality.len() as u64 + 4)
+    }
 }
 
 // =============================================================================
@@ -171,6 +206,8 @@ impl DecompressionPipeline {
         let (result_tx, result_rx): (Sender<DecompressedResult>, Receiver<DecompressedResult>) = bounded(max_inflight);
 
         let control = self.control.clone();
+        let skip_corrupted = self.config.skip_corrupted;
+        let reader_result_tx = result_tx.clone();
 
         // ---- Reader thread ----
         let reader_control = control.clone();
@@ -180,16 +217,36 @@ impl DecompressionPipeline {
                     break;
                 }
 
-                let block_data = reader.read_block(block_id as u32)?;
+                let expected_read_count = reader
+                    .block_index
+                    .entries
+                    .get(block_id)
+                    .map(|entry| entry.read_count)
+                    .unwrap_or(0);
                 let is_last = block_id + 1 == end_block;
-
-                task_tx
-                    .send(BlockTask {
-                        block_id: block_id as u32,
-                        block_data,
-                        is_last,
-                    })
-                    .map_err(|_| FqcError::Decompression("Reader: channel closed".to_string()))?;
+                match reader.read_block(block_id as u32) {
+                    Ok(block_data) => task_tx
+                        .send(BlockTask {
+                            block_id: block_id as u32,
+                            block_data,
+                            is_last,
+                        })
+                        .map_err(|_| FqcError::Decompression("Reader: channel closed".to_string()))?,
+                    Err(e) => {
+                        if skip_corrupted {
+                            reader_result_tx
+                                .send(DecompressedResult {
+                                    block_id: block_id as u32,
+                                    result: Err(e),
+                                    is_last,
+                                    expected_read_count,
+                                })
+                                .map_err(|_| FqcError::Decompression("Reader: result channel closed".to_string()))?;
+                            continue;
+                        }
+                        return Err(e);
+                    }
+                }
             }
             Ok(())
         });
@@ -236,6 +293,11 @@ impl DecompressionPipeline {
         let writer_control = control.clone();
         let header_only = self.config.header_only;
         let skip_corrupted = self.config.skip_corrupted;
+        let corrupted_placeholder = self
+            .config
+            .corrupted_placeholder
+            .clone()
+            .unwrap_or_else(|| "N".to_string());
         let range_start = self.config.range_start;
         let range_end = self.config.range_end;
         let has_range = self.config.has_range();
@@ -276,32 +338,27 @@ impl DecompressionPipeline {
                                         continue;
                                     }
                                 }
-                                if header_only {
-                                    let line = if read.comment.is_empty() {
-                                        format!("@{}\n", read.id)
-                                    } else {
-                                        format!("@{} {}\n", read.id, read.comment)
-                                    };
-                                    output.write_all(line.as_bytes()).map_err(FqcError::Io)?;
-                                    total_output_bytes += line.len() as u64;
-                                } else {
-                                    write_record(output.as_mut(), read)?;
-                                    let comment_bytes = if read.comment.is_empty() {
-                                        0
-                                    } else {
-                                        read.comment.len() + 1
-                                    };
-                                    total_output_bytes +=
-                                        (read.id.len() + comment_bytes + read.sequence.len() + read.quality.len() + 5)
-                                            as u64;
-                                }
+                                total_output_bytes += write_output_read(output.as_mut(), read, header_only)?;
                                 total_reads_written += 1;
                             }
                         }
                         Err(e) => {
                             if skip_corrupted {
-                                // Account for skipped reads so global_read_idx stays correct
-                                global_read_idx += dr.expected_read_count as u64;
+                                for read_idx in 0..dr.expected_read_count as usize {
+                                    global_read_idx += 1;
+                                    if has_range {
+                                        if range_start > 0 && global_read_idx < range_start {
+                                            continue;
+                                        }
+                                        if range_end > 0 && global_read_idx > range_end {
+                                            continue;
+                                        }
+                                    }
+                                    let placeholder = placeholder_record(&corrupted_placeholder, dr.block_id, read_idx);
+                                    total_output_bytes +=
+                                        write_output_read(output.as_mut(), &placeholder, header_only)?;
+                                    total_reads_written += 1;
+                                }
                                 log::warn!("Block {} corrupted, skipping: {}", dr.block_id, e);
                             } else {
                                 return Err(e);

@@ -14,7 +14,7 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use crate::algo::block_compressor::{BlockCompressor, BlockCompressorConfig, CompressedBlockData};
 use crate::algo::global_analyzer::{GlobalAnalyzer, GlobalAnalyzerConfig};
 use crate::error::{FqcError, Result};
-use crate::fastq::parser::{open_fastq, open_fastq_paired, open_fastq_stdin};
+use crate::fastq::parser::{open_fastq, open_fastq_interleaved, open_fastq_paired, open_fastq_stdin};
 use crate::format::{build_flags, GlobalHeader};
 use crate::fqc_writer::FqcWriter;
 use crate::types::*;
@@ -398,6 +398,120 @@ impl CompressionPipeline {
         }
 
         // Store reads, then run pipeline (reuse single-end logic for Phase 2)
+        let total_reads = all_reads.len();
+        let input_bytes: usize = all_reads
+            .iter()
+            .map(|r| r.id.len() + r.sequence.len() + r.quality.len() + 4)
+            .sum();
+        let block_size = self.config.effective_block_size();
+        let threads = self.config.effective_threads();
+
+        let (ordered_reads, forward_map, reverse_map) = if self.config.enable_reorder && !self.config.streaming_mode {
+            let ga_config = GlobalAnalyzerConfig {
+                reads_per_block: block_size,
+                ..Default::default()
+            };
+            let sequences: Vec<String> = all_reads.iter().map(|r| r.sequence.clone()).collect();
+            let analyzer = GlobalAnalyzer::new(ga_config);
+            let result = analyzer.analyze(&sequences)?;
+            let ordered: Vec<ReadRecord> = result
+                .reverse_map
+                .iter()
+                .map(|&orig_idx| all_reads[orig_idx as usize].clone())
+                .collect();
+            (ordered, Some(result.forward_map), Some(result.reverse_map))
+        } else {
+            (all_reads, None, None)
+        };
+
+        let flags = build_flags(
+            true,
+            !self.config.enable_reorder,
+            self.config.quality_mode,
+            self.config.id_mode,
+            forward_map.is_some(),
+            pe_layout,
+            self.config.read_length_class,
+            self.config.streaming_mode,
+        );
+
+        let compressor_config = BlockCompressorConfig {
+            read_length_class: self.config.read_length_class,
+            compression_level: self.config.compression_level,
+            quality_mode: self.config.quality_mode,
+            id_mode: self.config.id_mode,
+            zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(self.config.compression_level),
+            ..Default::default()
+        };
+
+        let mut compressor = BlockCompressor::new(compressor_config);
+        let mut writer = FqcWriter::create(output_path)?;
+
+        let gh = GlobalHeader::new(
+            flags,
+            total_reads as u64,
+            original_filename,
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_secs())
+                .unwrap_or(0),
+        );
+        writer.write_global_header(&gh)?;
+
+        let mut output_bytes: u64 = 0;
+        for (i, chunk) in ordered_reads.chunks(block_size).enumerate() {
+            let compressed = compressor.compress(chunk, i as u32)?;
+            output_bytes += compressed.total_compressed_size() as u64;
+            writer.write_block(&compressed)?;
+        }
+
+        if let (Some(fwd), Some(rev)) = (&forward_map, &reverse_map) {
+            writer.write_reorder_map(fwd, rev)?;
+        }
+
+        writer.finalize()?;
+
+        let elapsed = start.elapsed();
+        self.stats = PipelineStats {
+            total_reads: total_reads as u64,
+            total_blocks: total_reads.div_ceil(block_size) as u32,
+            input_bytes: input_bytes as u64,
+            output_bytes,
+            processing_time_ms: elapsed.as_millis() as u64,
+            peak_memory_bytes: 0,
+            threads_used: threads,
+        };
+
+        Ok(())
+    }
+
+    /// Run compression on interleaved paired-end input in a single file.
+    pub fn run_interleaved(
+        &mut self,
+        input_path: &str,
+        output_path: &str,
+        original_filename: &str,
+        pe_layout: PeLayout,
+    ) -> Result<()> {
+        self.config.validate()?;
+        let start = Instant::now();
+
+        log::info!("Reading interleaved paired-end file: {}", input_path);
+
+        let mut parser = if input_path == "-" {
+            crate::fastq::parser::InterleavedPeParser::new(open_fastq_stdin())
+        } else {
+            open_fastq_interleaved(input_path)?
+        };
+        let all_reads = match pe_layout {
+            PeLayout::Interleaved => parser.collect_all_interleaved()?,
+            PeLayout::Consecutive => parser.collect_all_consecutive()?,
+        };
+
+        if all_reads.is_empty() {
+            return Err(FqcError::InvalidArgument("Input file is empty".to_string()));
+        }
+
         let total_reads = all_reads.len();
         let input_bytes: usize = all_reads
             .iter()

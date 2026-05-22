@@ -259,3 +259,16 @@ fn test_pe_id_validation_illumina_convention() {
 fn test_pe_id_validation_different() {
     assert!(!validate_pe_pair_ids("read1", "read2"));
 }
+
+#[test]
+fn test_paired_reader_rejects_mismatched_mate_counts() {
+    let r1_data = make_fastq_data(&[("pair1/1", "AAAA", "IIII"), ("pair2/1", "CCCC", "JJJJ")]);
+    let r2_data = make_fastq_data(&[("pair1/2", "TTTT", "KKKK")]);
+
+    let r1 = FastqParser::new(BufReader::new(r1_data.as_slice()));
+    let r2 = FastqParser::new(BufReader::new(r2_data.as_slice()));
+    let mut reader = PairedFastqReader::new(r1, r2);
+
+    assert!(reader.next_pair().unwrap().is_some());
+    assert!(reader.next_pair().is_err(), "mismatched mates must fail");
+}

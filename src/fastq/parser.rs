@@ -347,14 +347,12 @@ impl<R1: BufRead, R2: BufRead> PairedFastqReader<R1, R2> {
     pub fn next_pair(&mut self) -> Result<Option<(ReadRecord, ReadRecord)>> {
         match (self.r1.next_record()?, self.r2.next_record()?) {
             (Some(a), Some(b)) => Ok(Some((a, b))),
-            (Some(_), None) => {
-                log::warn!("R1 has more reads than R2, truncating");
-                Ok(None)
-            }
-            (None, Some(_)) => {
-                log::warn!("R2 has more reads than R1, truncating");
-                Ok(None)
-            }
+            (Some(_), None) => Err(FqcError::Parse(
+                "Paired FASTQ inputs have mismatched mate counts: R1 has more reads than R2".to_string(),
+            )),
+            (None, Some(_)) => Err(FqcError::Parse(
+                "Paired FASTQ inputs have mismatched mate counts: R2 has more reads than R1".to_string(),
+            )),
             (None, None) => Ok(None),
         }
     }

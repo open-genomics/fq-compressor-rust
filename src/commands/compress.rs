@@ -136,6 +136,7 @@ impl CompressOptions {
             CompressionInputTopology::PairedFiles {
                 input_path_r1: PathBuf::from(&self.input_path),
                 input_path_r2: PathBuf::from(input2_path),
+                archive_layout: self.pe_layout,
             }
         } else if self.interleaved {
             // Interleaved file

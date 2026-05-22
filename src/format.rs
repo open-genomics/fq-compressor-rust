@@ -41,6 +41,7 @@ pub const CURRENT_VERSION: u8 = (FORMAT_VERSION_MAJOR << 4) | FORMAT_VERSION_MIN
 
 pub const MAGIC_HEADER_SIZE: usize = 9;
 pub const FILE_FOOTER_SIZE: usize = 32;
+const MAX_FORWARD_COMPAT_PADDING: usize = 1 << 20;
 
 // =============================================================================
 // Flag Bit Definitions
@@ -109,12 +110,38 @@ pub fn get_read_length_class(f: u64) -> ReadLengthClass {
     ReadLengthClass::from_u8(((f & flags::READ_LENGTH_CLASS_MASK) >> flags::READ_LENGTH_CLASS_SHIFT) as u8)
 }
 
+fn validate_declared_size(section: &str, declared_size: usize, minimum_size: usize, maximum_size: usize) -> Result<()> {
+    if declared_size < minimum_size {
+        return Err(FqcError::Format(format!(
+            "{section} header size {declared_size} < required {minimum_size}"
+        )));
+    }
+    if declared_size > maximum_size {
+        return Err(FqcError::Format(format!(
+            "{section} header size {declared_size} > allowed {maximum_size}"
+        )));
+    }
+    Ok(())
+}
+
+fn skip_extra_bytes<R: Read>(r: &mut R, extra: usize) -> Result<()> {
+    let mut remaining = extra;
+    let mut scratch = [0u8; 8192];
+    while remaining > 0 {
+        let chunk = remaining.min(scratch.len());
+        r.read_exact(&mut scratch[..chunk])?;
+        remaining -= chunk;
+    }
+    Ok(())
+}
+
 // =============================================================================
 // GlobalHeader
 // =============================================================================
 
 /// Minimum size: 34 bytes
 pub const GLOBAL_HEADER_MIN_SIZE: usize = 34;
+const MAX_GLOBAL_HEADER_SIZE: usize = GLOBAL_HEADER_MIN_SIZE + MAX_FORWARD_COMPAT_PADDING;
 
 #[derive(Debug, Clone, Default)]
 pub struct GlobalHeader {
@@ -169,6 +196,21 @@ impl GlobalHeader {
         let reserved = r.read_u16::<LittleEndian>()?;
         let total_read_count = r.read_u64::<LittleEndian>()?;
         let fname_len = r.read_u16::<LittleEndian>()? as usize;
+
+        validate_declared_size(
+            "GlobalHeader",
+            header_size as usize,
+            GLOBAL_HEADER_MIN_SIZE,
+            MAX_GLOBAL_HEADER_SIZE,
+        )?;
+        let minimum_required = GLOBAL_HEADER_MIN_SIZE + fname_len;
+        if (header_size as usize) < minimum_required {
+            return Err(FqcError::Format(format!(
+                "GlobalHeader header size {} < required {} for filename length {}",
+                header_size, minimum_required, fname_len
+            )));
+        }
+
         let mut fname_buf = vec![0u8; fname_len];
         r.read_exact(&mut fname_buf)?;
         let original_filename =
@@ -179,8 +221,7 @@ impl GlobalHeader {
         let read_so_far = GLOBAL_HEADER_MIN_SIZE + fname_len;
         if header_size as usize > read_so_far {
             let extra = header_size as usize - read_so_far;
-            let mut skip = vec![0u8; extra];
-            r.read_exact(&mut skip)?;
+            skip_extra_bytes(r, extra)?;
         }
 
         if reserved != 0 {
@@ -205,6 +246,7 @@ impl GlobalHeader {
 // =============================================================================
 
 pub const BLOCK_HEADER_SIZE: usize = 104;
+const MAX_BLOCK_HEADER_SIZE: usize = BLOCK_HEADER_SIZE + MAX_FORWARD_COMPAT_PADDING;
 
 #[derive(Debug, Clone, Default)]
 pub struct BlockHeader {
@@ -280,11 +322,17 @@ impl BlockHeader {
         let size_qual = r.read_u64::<LittleEndian>()?;
         let size_aux = r.read_u64::<LittleEndian>()?;
 
+        validate_declared_size(
+            "BlockHeader",
+            header_size as usize,
+            BLOCK_HEADER_SIZE,
+            MAX_BLOCK_HEADER_SIZE,
+        )?;
+
         // Skip extra bytes if header is larger
         if header_size as usize > BLOCK_HEADER_SIZE {
             let extra = header_size as usize - BLOCK_HEADER_SIZE;
-            let mut skip = vec![0u8; extra];
-            r.read_exact(&mut skip)?;
+            skip_extra_bytes(r, extra)?;
         }
 
         if reserved1 != 0 || reserved2 != 0 {
@@ -330,6 +378,7 @@ impl BlockHeader {
 // =============================================================================
 
 pub const INDEX_ENTRY_SIZE: usize = 28;
+const MAX_BLOCK_INDEX_ENTRY_SIZE: usize = INDEX_ENTRY_SIZE + MAX_FORWARD_COMPAT_PADDING;
 
 #[derive(Debug, Clone, Default)]
 pub struct IndexEntry {
@@ -375,6 +424,7 @@ impl IndexEntry {
 // =============================================================================
 
 pub const BLOCK_INDEX_HEADER_SIZE: usize = 16;
+const MAX_BLOCK_INDEX_HEADER_SIZE: usize = BLOCK_INDEX_HEADER_SIZE + MAX_FORWARD_COMPAT_PADDING;
 
 #[derive(Debug, Clone, Default)]
 pub struct BlockIndex {
@@ -398,27 +448,41 @@ impl BlockIndex {
         let entry_size = r.read_u32::<LittleEndian>()? as usize;
         let num_blocks = r.read_u64::<LittleEndian>()?;
 
+        validate_declared_size(
+            "BlockIndex",
+            header_size,
+            BLOCK_INDEX_HEADER_SIZE,
+            MAX_BLOCK_INDEX_HEADER_SIZE,
+        )?;
         if entry_size < INDEX_ENTRY_SIZE {
             return Err(FqcError::Format(format!(
                 "BlockIndex entry size {entry_size} < required {INDEX_ENTRY_SIZE}"
+            )));
+        }
+        if entry_size > MAX_BLOCK_INDEX_ENTRY_SIZE {
+            return Err(FqcError::Format(format!(
+                "BlockIndex entry size {entry_size} > allowed {MAX_BLOCK_INDEX_ENTRY_SIZE}"
+            )));
+        }
+        if usize::try_from(num_blocks).is_err() {
+            return Err(FqcError::Format(format!(
+                "BlockIndex block count {num_blocks} does not fit in memory on this platform"
             )));
         }
 
         // Skip extra header bytes
         if header_size > BLOCK_INDEX_HEADER_SIZE {
             let extra = header_size - BLOCK_INDEX_HEADER_SIZE;
-            let mut skip = vec![0u8; extra];
-            r.read_exact(&mut skip)?;
+            skip_extra_bytes(r, extra)?;
         }
 
-        let mut entries = Vec::with_capacity(num_blocks as usize);
+        let mut entries = Vec::new();
         for _ in 0..num_blocks {
             let entry = IndexEntry::read(r)?;
             // Skip extra entry bytes for forward compatibility
             if entry_size > INDEX_ENTRY_SIZE {
                 let extra = entry_size - INDEX_ENTRY_SIZE;
-                let mut skip = vec![0u8; extra];
-                r.read_exact(&mut skip)?;
+                skip_extra_bytes(r, extra)?;
             }
             entries.push(entry);
         }
@@ -432,6 +496,7 @@ impl BlockIndex {
 // =============================================================================
 
 pub const REORDER_MAP_HEADER_SIZE: usize = 32;
+const MAX_REORDER_MAP_HEADER_SIZE: usize = REORDER_MAP_HEADER_SIZE + MAX_FORWARD_COMPAT_PADDING;
 
 #[derive(Debug, Clone, Default)]
 pub struct ReorderMapHeader {
@@ -458,10 +523,15 @@ impl ReorderMapHeader {
         let forward_map_size = r.read_u64::<LittleEndian>()?;
         let reverse_map_size = r.read_u64::<LittleEndian>()?;
 
+        validate_declared_size(
+            "ReorderMapHeader",
+            header_size,
+            REORDER_MAP_HEADER_SIZE,
+            MAX_REORDER_MAP_HEADER_SIZE,
+        )?;
         if header_size > REORDER_MAP_HEADER_SIZE {
             let extra = header_size - REORDER_MAP_HEADER_SIZE;
-            let mut skip = vec![0u8; extra];
-            r.read_exact(&mut skip)?;
+            skip_extra_bytes(r, extra)?;
         }
 
         Ok(Self {

@@ -8,9 +8,9 @@
 
 use crate::algo::block_compressor::{BlockCompressor, BlockCompressorConfig, CompressedBlockData};
 use crate::algo::global_analyzer::{GlobalAnalyzer, GlobalAnalyzerConfig};
-use crate::commands::compression_request::{CompressionExecutionMode, CompressionInputTopology, CompressionRequest};
+use crate::commands::compression_request::{CompressionExecutionMode, CompressionRequest};
 use crate::error::{FqcError, Result};
-use crate::fastq::parser::{open_fastq, open_fastq_paired, open_fastq_stdin};
+use crate::fastq::parser::{open_fastq, open_fastq_interleaved, open_fastq_paired, open_fastq_stdin};
 use crate::format::{build_flags, GlobalHeader};
 use crate::fqc_writer::FqcWriter;
 use crate::types::*;
@@ -152,27 +152,16 @@ impl CompressionEngine {
     /// 5. Write archive with optional reorder map
     #[allow(clippy::needless_pass_by_value)]
     fn run_archive(&self, request: CompressionRequest) -> Result<CompressionOutcome> {
-        // Determine input path and pairing
-        let (input_path, input2_path, is_paired) = match &request.input {
-            CompressionInputTopology::SingleFile { input_path } => {
-                (input_path.to_string_lossy().to_string(), None, false)
-            }
-            CompressionInputTopology::PairedFiles {
-                input_path_r1,
-                input_path_r2,
-            } => (
-                input_path_r1.to_string_lossy().to_string(),
-                Some(input_path_r2.to_string_lossy().to_string()),
-                true,
-            ),
-            CompressionInputTopology::InterleavedFile { input_path, .. } => {
-                (input_path.to_string_lossy().to_string(), None, true)
-            }
-            CompressionInputTopology::Stdin { .. } => ("-".to_string(), None, false),
-        };
+        let input = request.input.resolve();
 
-        log::info!("Reading input file: {}", input_path);
-        let records = Self::read_all_records(&input_path, input2_path.as_deref())?;
+        log::info!("Reading input file: {}", input.primary_path);
+        let records = if let Some(path2) = input.secondary_path.as_deref() {
+            Self::read_all_paired_records(&input.primary_path, path2, input.archive_layout)?
+        } else if input.is_interleaved {
+            Self::read_all_interleaved_records(&input.primary_path, input.archive_layout)?
+        } else {
+            Self::read_all_records(&input.primary_path)?
+        };
 
         if records.is_empty() {
             return Err(FqcError::InvalidArgument(
@@ -195,7 +184,7 @@ impl CompressionEngine {
             &length_stats,
             request.max_block_bases,
         );
-        let enable_reorder = !is_paired && effective_length_class == ReadLengthClass::Short;
+        let enable_reorder = !input.is_paired && effective_length_class == ReadLengthClass::Short;
 
         Self::enforce_archive_mode_memory_limit(records.len(), block_size, &length_stats, request.memory_limit_mb)?;
 
@@ -240,17 +229,13 @@ impl CompressionEngine {
         let mut writer = FqcWriter::create(request.output_path.to_str().unwrap())?;
 
         // Build flags
-        let pe_layout = match &request.input {
-            CompressionInputTopology::InterleavedFile { archive_layout, .. } => *archive_layout,
-            _ => PeLayout::Interleaved,
-        };
         let flags = build_flags(
-            is_paired,
+            input.is_paired,
             !analysis.reordering_performed,
             request.quality_mode,
             request.id_mode,
             analysis.reordering_performed,
-            pe_layout,
+            input.archive_layout,
             effective_length_class,
             false, // not streaming
         );
@@ -260,7 +245,7 @@ impl CompressionEngine {
             .map(|d| d.as_secs())
             .unwrap_or(0);
 
-        let input_filename = std::path::Path::new(&input_path)
+        let input_filename = std::path::Path::new(&input.primary_path)
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown");
@@ -406,39 +391,21 @@ impl CompressionEngine {
             )));
         }
 
-        // Determine input path and pairing
-        let (input_path, input2_path, _is_paired, is_interleaved) = match &request.input {
-            CompressionInputTopology::SingleFile { input_path } => {
-                (input_path.to_string_lossy().to_string(), None, false, false)
-            }
-            CompressionInputTopology::PairedFiles {
-                input_path_r1,
-                input_path_r2,
-            } => (
-                input_path_r1.to_string_lossy().to_string(),
-                Some(input_path_r2.to_string_lossy().to_string()),
-                true,
-                false,
-            ),
-            CompressionInputTopology::InterleavedFile {
-                input_path,
-                archive_layout: _,
-            } => (input_path.to_string_lossy().to_string(), None, true, true),
-            CompressionInputTopology::Stdin { archive_layout } => {
-                let is_interleaved = archive_layout.is_some();
-                ("-".to_string(), None, is_interleaved, is_interleaved)
-            }
-        };
+        let input = request.input.resolve();
 
         // Inspect input lengths
-        let length_stats =
-            Self::inspect_input_lengths_for_streaming(&input_path, input2_path.as_deref(), request.scan_all_lengths)?
-                .unwrap_or(LengthStats {
-                    sample_size: 0,
-                    avg_length: MEDIUM_READ_THRESHOLD,
-                    median_length: MEDIUM_READ_THRESHOLD,
-                    max_length: MEDIUM_READ_THRESHOLD,
-                });
+        let length_stats = Self::inspect_input_lengths_for_streaming(
+            &input.primary_path,
+            input.secondary_path.as_deref(),
+            input.is_interleaved,
+            request.scan_all_lengths,
+        )?
+        .unwrap_or(LengthStats {
+            sample_size: 0,
+            avg_length: MEDIUM_READ_THRESHOLD,
+            median_length: MEDIUM_READ_THRESHOLD,
+            max_length: MEDIUM_READ_THRESHOLD,
+        });
 
         let effective_length_class = Self::effective_length_class(request.requested_read_length_class, &length_stats);
         let block_size = Self::effective_block_size(
@@ -459,26 +426,26 @@ impl CompressionEngine {
         );
 
         // Get archive layout for paired/interleaved
-        let pe_layout = match &request.input {
-            CompressionInputTopology::InterleavedFile { archive_layout, .. } => *archive_layout,
-            CompressionInputTopology::Stdin { archive_layout } => archive_layout.unwrap_or(PeLayout::Interleaved),
-            _ => PeLayout::Interleaved,
-        };
-
         // Route to appropriate streaming handler
-        if let Some(path2) = input2_path {
+        if let Some(path2) = input.secondary_path {
             Self::run_streaming_paired(
-                &input_path,
+                &input.primary_path,
                 &path2,
                 &request,
                 effective_length_class,
                 block_size,
-                pe_layout,
+                input.archive_layout,
             )
-        } else if is_interleaved {
-            Self::run_streaming_interleaved(&input_path, &request, effective_length_class, block_size, pe_layout)
+        } else if input.is_interleaved {
+            Self::run_streaming_interleaved(
+                &input.primary_path,
+                &request,
+                effective_length_class,
+                block_size,
+                input.archive_layout,
+            )
         } else {
-            Self::run_streaming_single(&input_path, &request, effective_length_class, block_size)
+            Self::run_streaming_single(&input.primary_path, &request, effective_length_class, block_size)
         }
     }
 
@@ -502,37 +469,21 @@ impl CompressionEngine {
             )));
         }
 
-        // Determine input path and pairing
-        let (input_path, input2_path, is_paired) = match &request.input {
-            CompressionInputTopology::SingleFile { input_path } => {
-                (input_path.to_string_lossy().to_string(), None, false)
-            }
-            CompressionInputTopology::PairedFiles {
-                input_path_r1,
-                input_path_r2,
-            } => (
-                input_path_r1.to_string_lossy().to_string(),
-                Some(input_path_r2.to_string_lossy().to_string()),
-                true,
-            ),
-            CompressionInputTopology::InterleavedFile { input_path, .. } => {
-                (input_path.to_string_lossy().to_string(), None, true)
-            }
-            CompressionInputTopology::Stdin { archive_layout } => {
-                let is_paired = archive_layout.is_some();
-                ("-".to_string(), None, is_paired)
-            }
-        };
+        let input = request.input.resolve();
 
         // Inspect input lengths
-        let length_stats =
-            Self::inspect_input_lengths_for_streaming(&input_path, input2_path.as_deref(), request.scan_all_lengths)?
-                .unwrap_or(LengthStats {
-                    sample_size: 0,
-                    avg_length: 150,
-                    median_length: 150,
-                    max_length: 150,
-                });
+        let length_stats = Self::inspect_input_lengths_for_streaming(
+            &input.primary_path,
+            input.secondary_path.as_deref(),
+            input.is_interleaved,
+            request.scan_all_lengths,
+        )?
+        .unwrap_or(LengthStats {
+            sample_size: 0,
+            avg_length: 150,
+            median_length: 150,
+            max_length: 150,
+        });
 
         let effective_length_class = Self::effective_length_class(request.requested_read_length_class, &length_stats);
         let block_size = Self::effective_block_size_for_pipeline(
@@ -564,12 +515,6 @@ impl CompressionEngine {
         );
 
         // Get archive layout for paired/interleaved
-        let pe_layout = match &request.input {
-            CompressionInputTopology::InterleavedFile { archive_layout, .. } => *archive_layout,
-            CompressionInputTopology::Stdin { archive_layout } => archive_layout.unwrap_or(PeLayout::Interleaved),
-            _ => PeLayout::Interleaved,
-        };
-
         // Create pipeline config
         let effective_threads = if request.threads == 0 {
             std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)
@@ -585,26 +530,34 @@ impl CompressionEngine {
             quality_mode: request.quality_mode,
             id_mode: request.id_mode,
             compression_level: request.level,
-            enable_reorder: !is_paired,
-            save_reorder_map: !is_paired,
+            enable_reorder: !input.is_paired,
+            save_reorder_map: !input.is_paired,
             streaming_mode: false,
-            pe_layout,
+            pe_layout: input.archive_layout,
             memory_limit_mb: request.memory_limit_mb,
         };
 
         let mut pipeline = CompressionPipeline::new(pipeline_config);
 
-        let input_filename = std::path::Path::new(&input_path)
+        let input_filename = std::path::Path::new(&input.primary_path)
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("unknown");
 
         let output_path = request.output_path.to_string_lossy().to_string();
 
-        if let Some(ref path2) = input2_path {
-            pipeline.run_paired(&input_path, path2, &output_path, input_filename, pe_layout)?;
+        if let Some(ref path2) = input.secondary_path {
+            pipeline.run_paired(
+                &input.primary_path,
+                path2,
+                &output_path,
+                input_filename,
+                input.archive_layout,
+            )?;
+        } else if input.is_interleaved {
+            pipeline.run_interleaved(&input.primary_path, &output_path, input_filename, input.archive_layout)?;
         } else {
-            pipeline.run(&input_path, &output_path, input_filename)?;
+            pipeline.run(&input.primary_path, &output_path, input_filename)?;
         }
 
         let stats = pipeline.stats();
@@ -650,16 +603,8 @@ impl CompressionEngine {
     // Helper methods (extracted from CompressCommand)
     // =============================================================================
 
-    fn read_all_records(input_path: &str, input2_path: Option<&str>) -> Result<Vec<ReadRecord>> {
-        if let Some(path2) = input2_path {
-            let mut pe_reader = open_fastq_paired(input_path, path2)?;
-            let mut records = Vec::new();
-            while let Some((r1, r2)) = pe_reader.next_pair()? {
-                records.push(r1);
-                records.push(r2);
-            }
-            Ok(records)
-        } else if input_path == "-" {
+    fn read_all_records(input_path: &str) -> Result<Vec<ReadRecord>> {
+        if input_path == "-" {
             let mut parser = open_fastq_stdin();
             let mut records = Vec::new();
             while let Some(rec) = parser.next_record()? {
@@ -673,6 +618,26 @@ impl CompressionEngine {
                 records.push(rec);
             }
             Ok(records)
+        }
+    }
+
+    fn read_all_paired_records(input_path: &str, input2_path: &str, pe_layout: PeLayout) -> Result<Vec<ReadRecord>> {
+        let mut pe_reader = open_fastq_paired(input_path, input2_path)?;
+        match pe_layout {
+            PeLayout::Interleaved => pe_reader.collect_all_interleaved(),
+            PeLayout::Consecutive => pe_reader.collect_all_consecutive(),
+        }
+    }
+
+    fn read_all_interleaved_records(input_path: &str, pe_layout: PeLayout) -> Result<Vec<ReadRecord>> {
+        let mut parser = if input_path == "-" {
+            crate::fastq::parser::InterleavedPeParser::new(open_fastq_stdin())
+        } else {
+            open_fastq_interleaved(input_path)?
+        };
+        match pe_layout {
+            PeLayout::Interleaved => parser.collect_all_interleaved(),
+            PeLayout::Consecutive => parser.collect_all_consecutive(),
         }
     }
 
@@ -990,9 +955,9 @@ impl CompressionEngine {
         log::info!("Streaming compression mode (interleaved single-file PE)");
 
         let mut parser = if input_path == "-" {
-            open_fastq_stdin()
+            crate::fastq::parser::InterleavedPeParser::new(open_fastq_stdin())
         } else {
-            open_fastq(input_path)?
+            open_fastq_interleaved(input_path)?
         };
 
         let mut writer = FqcWriter::create(request.output_path.to_str().unwrap())?;
@@ -1038,17 +1003,11 @@ impl CompressionEngine {
         let mut output_bytes = 0u64;
         let mut blocks_written = 0;
 
-        let mut is_r1 = true;
-        while let Some(rec) = parser.next_record()? {
-            total_reads += 1;
-            total_bases += rec.sequence.len() as u64;
-
-            if is_r1 {
-                r1_buf.push(rec);
-            } else {
-                r2_buf.push(rec);
-            }
-            is_r1 = !is_r1;
+        while let Some((r1, r2)) = parser.next_pair()? {
+            total_reads += 2;
+            total_bases += (r1.sequence.len() + r2.sequence.len()) as u64;
+            r1_buf.push(r1);
+            r2_buf.push(r2);
 
             if r1_buf.len() >= target_pairs {
                 let block_buf = pe_layout.arrange(std::mem::take(&mut r1_buf), std::mem::take(&mut r2_buf));
@@ -1106,6 +1065,7 @@ impl CompressionEngine {
     fn inspect_input_lengths_for_streaming(
         input_path: &str,
         input2_path: Option<&str>,
+        is_interleaved: bool,
         scan_all: bool,
     ) -> Result<Option<LengthStats>> {
         if input_path == "-" {
@@ -1126,6 +1086,14 @@ impl CompressionEngine {
                 lengths.push(r2.sequence.len());
                 if lengths.len() >= sample_limit {
                     break;
+                }
+            }
+        } else if is_interleaved {
+            let mut parser = open_fastq_interleaved(input_path)?;
+            while let Some((r1, r2)) = parser.next_pair()? {
+                if scan_all || lengths.len() < sample_limit {
+                    lengths.push(r1.sequence.len());
+                    lengths.push(r2.sequence.len());
                 }
             }
         } else {

@@ -29,6 +29,7 @@ pub enum CompressionInputTopology {
     PairedFiles {
         input_path_r1: PathBuf,
         input_path_r2: PathBuf,
+        archive_layout: PeLayout,
     },
     /// Interleaved FASTQ file (paired reads interleaved in one file)
     InterleavedFile {
@@ -37,6 +38,62 @@ pub enum CompressionInputTopology {
     },
     /// Read from stdin
     Stdin { archive_layout: Option<PeLayout> },
+}
+
+/// Resolved input properties used by compression execution.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompressionInputResolution {
+    pub primary_path: String,
+    pub secondary_path: Option<String>,
+    pub is_paired: bool,
+    pub is_interleaved: bool,
+    pub archive_layout: PeLayout,
+}
+
+impl CompressionInputTopology {
+    /// Resolve topology-specific details once so callers do not duplicate branching.
+    pub fn resolve(&self) -> CompressionInputResolution {
+        match self {
+            Self::SingleFile { input_path } => CompressionInputResolution {
+                primary_path: input_path.to_string_lossy().to_string(),
+                secondary_path: None,
+                is_paired: false,
+                is_interleaved: false,
+                archive_layout: PeLayout::Interleaved,
+            },
+            Self::PairedFiles {
+                input_path_r1,
+                input_path_r2,
+                archive_layout,
+            } => CompressionInputResolution {
+                primary_path: input_path_r1.to_string_lossy().to_string(),
+                secondary_path: Some(input_path_r2.to_string_lossy().to_string()),
+                is_paired: true,
+                is_interleaved: false,
+                archive_layout: *archive_layout,
+            },
+            Self::InterleavedFile {
+                input_path,
+                archive_layout,
+            } => CompressionInputResolution {
+                primary_path: input_path.to_string_lossy().to_string(),
+                secondary_path: None,
+                is_paired: true,
+                is_interleaved: true,
+                archive_layout: *archive_layout,
+            },
+            Self::Stdin { archive_layout } => {
+                let is_paired = archive_layout.is_some();
+                CompressionInputResolution {
+                    primary_path: "-".to_string(),
+                    secondary_path: None,
+                    is_paired,
+                    is_interleaved: is_paired,
+                    archive_layout: archive_layout.unwrap_or(PeLayout::Interleaved),
+                }
+            }
+        }
+    }
 }
 
 /// Normalized compression request.
