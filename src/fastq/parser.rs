@@ -172,7 +172,10 @@ impl<R: BufRead> FastqParser<R> {
 
         let id_line = self.line_buf.trim_end();
         if id_line.is_empty() {
-            return Ok(None);
+            return Err(FqcError::Parse(format!(
+                "Line {}: Blank line encountered where FASTQ record header was expected",
+                self.line_number
+            )));
         }
         if !id_line.starts_with('@') {
             return Err(FqcError::Parse(format!(

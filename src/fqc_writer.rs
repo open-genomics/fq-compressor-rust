@@ -10,6 +10,7 @@ use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
 use std::fs::File;
 use std::io::{BufWriter, Seek, SeekFrom, Write};
+use std::path::Path;
 use xxhash_rust::xxh64::Xxh64;
 
 // =============================================================================
@@ -26,7 +27,7 @@ pub struct FqcWriter {
 }
 
 impl FqcWriter {
-    pub fn create(path: &str) -> Result<Self> {
+    pub fn create(path: impl AsRef<Path>) -> Result<Self> {
         let file = File::create(path).map_err(|e| FqcError::Io(e))?;
         let mut writer = BufWriter::new(file);
 

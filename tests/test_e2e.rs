@@ -993,6 +993,38 @@ fn test_e2e_pipeline_roundtrip() {
     assert_roundtrip_match(&original, &restored);
 }
 
+#[test]
+fn test_e2e_pipeline_respects_save_reorder_map_flag() {
+    use fqc::pipeline::compression::{CompressionPipeline, CompressionPipelineConfig};
+
+    let input = test_data_dir().join("test_se.fastq").to_string_lossy().to_string();
+    let compressed = TempFile::new("e2e_pipeline_no_reorder_map.fqc");
+
+    let config = CompressionPipelineConfig {
+        num_threads: 2,
+        block_size: 100,
+        read_length_class: ReadLengthClass::Short,
+        quality_mode: QualityMode::Lossless,
+        id_mode: IdMode::Exact,
+        compression_level: 3,
+        enable_reorder: true,
+        save_reorder_map: false,
+        streaming_mode: false,
+        pe_layout: PeLayout::Interleaved,
+        memory_limit_mb: 1024,
+        ..Default::default()
+    };
+
+    let mut pipeline = CompressionPipeline::new(config);
+    pipeline.run(&input, compressed.path(), "test_se.fastq").unwrap();
+
+    let stats = pipeline.stats();
+    assert!(!stats.reorder_map_written);
+
+    let reader = FqcReader::open(compressed.path()).unwrap();
+    assert!(!reader.has_reorder_map());
+}
+
 // =============================================================================
 // E2E: Decompression Pipeline Round-Trip
 // =============================================================================

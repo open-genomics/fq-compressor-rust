@@ -205,6 +205,19 @@ fn test_parse_length_mismatch() {
     assert!(parser.next_record().is_err());
 }
 
+#[test]
+fn test_parse_blank_line_between_records_is_error() {
+    let data = b"@read1\nACGT\n+\nIIII\n\n@read2\nTGCA\n+\nJJJJ\n";
+    let reader = BufReader::new(data.as_slice());
+    let mut parser = FastqParser::new(reader);
+
+    let first = parser.next_record().unwrap().unwrap();
+    assert_eq!(first.id, "read1");
+
+    let err = parser.next_record().unwrap_err();
+    assert!(format!("{err}").contains("Blank line"));
+}
+
 // =============================================================================
 // for_each callback
 // =============================================================================

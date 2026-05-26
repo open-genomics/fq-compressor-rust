@@ -5,6 +5,7 @@
 // Uses bounded channels for backpressure control.
 // =============================================================================
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
@@ -139,12 +140,12 @@ impl CompressionPipeline {
     }
 
     /// Run compression on a single-end input file
-    pub fn run(&mut self, input_path: &str, output_path: &str, original_filename: &str) -> Result<()> {
+    pub fn run(&mut self, input_path: &str, output_path: impl AsRef<Path>, original_filename: &str) -> Result<()> {
         self.config.validate()?;
         let start = Instant::now();
         let threads = self.config.effective_threads();
         let block_size = self.config.effective_block_size();
-        let output_path_owned = output_path.to_string();
+        let output_path_owned: PathBuf = output_path.as_ref().to_path_buf();
         let original_filename_owned = original_filename.to_string();
 
         log::info!("Compression pipeline: {} threads, block_size={}", threads, block_size);
@@ -163,10 +164,12 @@ impl CompressionPipeline {
         }
 
         let total_reads = all_reads.len();
-        let input_bytes: usize = all_reads
-            .iter()
-            .map(|r| r.id.len() + r.sequence.len() + r.quality.len() + 4)
-            .sum();
+        let (input_bytes, total_bases) = all_reads.iter().fold((0usize, 0u64), |(bytes, bases), record| {
+            (
+                bytes + record.id.len() + record.sequence.len() + record.quality.len() + 4,
+                bases + record.sequence.len() as u64,
+            )
+        });
 
         log::info!("Read {} records ({} bytes)", total_reads, input_bytes);
 
@@ -190,6 +193,7 @@ impl CompressionPipeline {
         } else {
             (all_reads, None, None)
         };
+        let reorder_map_written = forward_map.is_some() && self.config.save_reorder_map;
 
         // ---- Phase 2: Pipeline compression ----
         let is_paired = false;
@@ -198,7 +202,7 @@ impl CompressionPipeline {
             !self.config.enable_reorder,
             self.config.quality_mode,
             self.config.id_mode,
-            forward_map.is_some(),
+            reorder_map_written,
             self.config.pe_layout,
             self.config.read_length_class,
             self.config.streaming_mode,
@@ -326,7 +330,12 @@ impl CompressionPipeline {
             }
 
             // Write reorder map if present
-            if let (Some(fwd), Some(rev)) = (&forward_map, &reverse_map) {
+            if reorder_map_written {
+                let (Some(fwd), Some(rev)) = (&forward_map, &reverse_map) else {
+                    return Err(FqcError::Compression(
+                        "Reorder map metadata missing despite reorder_map_written=true".to_string(),
+                    ));
+                };
                 writer.write_reorder_map(fwd, rev)?;
             }
 
@@ -350,12 +359,14 @@ impl CompressionPipeline {
         let elapsed = start.elapsed();
         self.stats = PipelineStats {
             total_reads: total_reads as u64,
+            total_bases,
             total_blocks: num_chunks as u32,
             input_bytes: input_bytes as u64,
             output_bytes,
             processing_time_ms: elapsed.as_millis() as u64,
             peak_memory_bytes: 0,
             threads_used: threads,
+            reorder_map_written,
         };
 
         log::info!(
@@ -378,7 +389,7 @@ impl CompressionPipeline {
         &mut self,
         input1_path: &str,
         input2_path: &str,
-        output_path: &str,
+        output_path: impl AsRef<Path>,
         original_filename: &str,
         pe_layout: PeLayout,
     ) -> Result<()> {
@@ -399,10 +410,12 @@ impl CompressionPipeline {
 
         // Store reads, then run pipeline (reuse single-end logic for Phase 2)
         let total_reads = all_reads.len();
-        let input_bytes: usize = all_reads
-            .iter()
-            .map(|r| r.id.len() + r.sequence.len() + r.quality.len() + 4)
-            .sum();
+        let (input_bytes, total_bases) = all_reads.iter().fold((0usize, 0u64), |(bytes, bases), record| {
+            (
+                bytes + record.id.len() + record.sequence.len() + record.quality.len() + 4,
+                bases + record.sequence.len() as u64,
+            )
+        });
         let block_size = self.config.effective_block_size();
         let threads = self.config.effective_threads();
 
@@ -423,13 +436,14 @@ impl CompressionPipeline {
         } else {
             (all_reads, None, None)
         };
+        let reorder_map_written = forward_map.is_some() && self.config.save_reorder_map;
 
         let flags = build_flags(
             true,
             !self.config.enable_reorder,
             self.config.quality_mode,
             self.config.id_mode,
-            forward_map.is_some(),
+            reorder_map_written,
             pe_layout,
             self.config.read_length_class,
             self.config.streaming_mode,
@@ -465,7 +479,12 @@ impl CompressionPipeline {
             writer.write_block(&compressed)?;
         }
 
-        if let (Some(fwd), Some(rev)) = (&forward_map, &reverse_map) {
+        if reorder_map_written {
+            let (Some(fwd), Some(rev)) = (&forward_map, &reverse_map) else {
+                return Err(FqcError::Compression(
+                    "Reorder map metadata missing despite reorder_map_written=true".to_string(),
+                ));
+            };
             writer.write_reorder_map(fwd, rev)?;
         }
 
@@ -474,12 +493,14 @@ impl CompressionPipeline {
         let elapsed = start.elapsed();
         self.stats = PipelineStats {
             total_reads: total_reads as u64,
+            total_bases,
             total_blocks: total_reads.div_ceil(block_size) as u32,
             input_bytes: input_bytes as u64,
             output_bytes,
             processing_time_ms: elapsed.as_millis() as u64,
             peak_memory_bytes: 0,
             threads_used: threads,
+            reorder_map_written,
         };
 
         Ok(())
@@ -489,7 +510,7 @@ impl CompressionPipeline {
     pub fn run_interleaved(
         &mut self,
         input_path: &str,
-        output_path: &str,
+        output_path: impl AsRef<Path>,
         original_filename: &str,
         pe_layout: PeLayout,
     ) -> Result<()> {
@@ -513,10 +534,12 @@ impl CompressionPipeline {
         }
 
         let total_reads = all_reads.len();
-        let input_bytes: usize = all_reads
-            .iter()
-            .map(|r| r.id.len() + r.sequence.len() + r.quality.len() + 4)
-            .sum();
+        let (input_bytes, total_bases) = all_reads.iter().fold((0usize, 0u64), |(bytes, bases), record| {
+            (
+                bytes + record.id.len() + record.sequence.len() + record.quality.len() + 4,
+                bases + record.sequence.len() as u64,
+            )
+        });
         let block_size = self.config.effective_block_size();
         let threads = self.config.effective_threads();
 
@@ -537,13 +560,14 @@ impl CompressionPipeline {
         } else {
             (all_reads, None, None)
         };
+        let reorder_map_written = forward_map.is_some() && self.config.save_reorder_map;
 
         let flags = build_flags(
             true,
             !self.config.enable_reorder,
             self.config.quality_mode,
             self.config.id_mode,
-            forward_map.is_some(),
+            reorder_map_written,
             pe_layout,
             self.config.read_length_class,
             self.config.streaming_mode,
@@ -579,7 +603,12 @@ impl CompressionPipeline {
             writer.write_block(&compressed)?;
         }
 
-        if let (Some(fwd), Some(rev)) = (&forward_map, &reverse_map) {
+        if reorder_map_written {
+            let (Some(fwd), Some(rev)) = (&forward_map, &reverse_map) else {
+                return Err(FqcError::Compression(
+                    "Reorder map metadata missing despite reorder_map_written=true".to_string(),
+                ));
+            };
             writer.write_reorder_map(fwd, rev)?;
         }
 
@@ -588,12 +617,14 @@ impl CompressionPipeline {
         let elapsed = start.elapsed();
         self.stats = PipelineStats {
             total_reads: total_reads as u64,
+            total_bases,
             total_blocks: total_reads.div_ceil(block_size) as u32,
             input_bytes: input_bytes as u64,
             output_bytes,
             processing_time_ms: elapsed.as_millis() as u64,
             peak_memory_bytes: 0,
             threads_used: threads,
+            reorder_map_written,
         };
 
         Ok(())

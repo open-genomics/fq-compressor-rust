@@ -5,6 +5,7 @@
 use fqc::commands::compress::CompressOptions;
 use fqc::commands::compression_engine::{CompressionEngine, CompressionOutcome};
 use fqc::commands::compression_request::{CompressionExecutionMode, CompressionInputTopology, CompressionRequest};
+use fqc::fastq::parser::open_fastq;
 use fqc::types::{IdMode, PeLayout, QualityMode, ReadLengthClass};
 
 // =============================================================================
@@ -171,4 +172,73 @@ fn streaming_request_reports_streaming_mode_in_outcome() {
 
     let outcome = CompressionEngine::new().run(opts.to_request()).unwrap();
     assert_eq!(outcome.mode, CompressionExecutionMode::Streaming);
+}
+
+#[test]
+fn pipeline_outcome_tracks_total_bases_for_summary_metrics() {
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let opts = CompressOptions {
+        input_path: "tests/data/test_se.fastq".into(),
+        output_path: output.path().to_string_lossy().to_string(),
+        use_pipeline: true,
+        force_overwrite: true,
+        show_progress: false,
+        ..CompressOptions::default()
+    };
+
+    let outcome = CompressionEngine::new().run(opts.to_request()).unwrap();
+
+    let mut parser = open_fastq("tests/data/test_se.fastq").unwrap();
+    let expected_total_bases: u64 = parser
+        .collect_all()
+        .unwrap()
+        .iter()
+        .map(|record| record.sequence.len() as u64)
+        .sum();
+
+    assert_eq!(outcome.stats.total_bases, expected_total_bases);
+    assert!(outcome.stats.bits_per_base() > 0.0);
+}
+
+#[test]
+fn pipeline_outcome_reports_written_reorder_map() {
+    let output = tempfile::NamedTempFile::new().unwrap();
+    let opts = CompressOptions {
+        input_path: "tests/data/test_se.fastq".into(),
+        output_path: output.path().to_string_lossy().to_string(),
+        use_pipeline: true,
+        force_overwrite: true,
+        show_progress: false,
+        ..CompressOptions::default()
+    };
+
+    let outcome = CompressionEngine::new().run(opts.to_request()).unwrap();
+
+    assert!(outcome.reorder_map_written);
+}
+
+#[cfg(unix)]
+#[test]
+fn archive_execution_accepts_non_utf8_output_path() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let output_path = dir.path().join(OsString::from_vec(b"nonutf8-\xff.fqc".to_vec()));
+    let request = CompressionRequest {
+        mode: CompressionExecutionMode::Archive,
+        input: CompressionInputTopology::SingleFile {
+            input_path: "tests/data/test_se.fastq".into(),
+        },
+        output_path: output_path.clone(),
+        quality_mode: QualityMode::Lossless,
+        id_mode: IdMode::Exact,
+        force_overwrite: true,
+        ..CompressionRequest::for_tests()
+    };
+
+    CompressionEngine::new().run(request).unwrap();
+
+    let bytes = std::fs::read(&output_path).unwrap();
+    assert!(bytes.starts_with(&fqc::format::MAGIC_BYTES));
 }

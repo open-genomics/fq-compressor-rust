@@ -226,7 +226,7 @@ impl CompressionEngine {
             )));
         }
 
-        let mut writer = FqcWriter::create(request.output_path.to_str().unwrap())?;
+        let mut writer = FqcWriter::create(&request.output_path)?;
 
         // Build flags
         let flags = build_flags(
@@ -544,20 +544,23 @@ impl CompressionEngine {
             .and_then(|n| n.to_str())
             .unwrap_or("unknown");
 
-        let output_path = request.output_path.to_string_lossy().to_string();
-
         if let Some(ref path2) = input.secondary_path {
             pipeline.run_paired(
                 &input.primary_path,
                 path2,
-                &output_path,
+                &request.output_path,
                 input_filename,
                 input.archive_layout,
             )?;
         } else if input.is_interleaved {
-            pipeline.run_interleaved(&input.primary_path, &output_path, input_filename, input.archive_layout)?;
+            pipeline.run_interleaved(
+                &input.primary_path,
+                &request.output_path,
+                input_filename,
+                input.archive_layout,
+            )?;
         } else {
-            pipeline.run(&input.primary_path, &output_path, input_filename)?;
+            pipeline.run(&input.primary_path, &request.output_path, input_filename)?;
         }
 
         let stats = pipeline.stats();
@@ -575,7 +578,7 @@ impl CompressionEngine {
         // Build outcome
         let processing_stats = ProcessingStats {
             total_reads: stats.total_reads,
-            total_bases: 0, // pipeline doesn't track bases separately
+            total_bases: stats.total_bases,
             input_bytes: stats.input_bytes,
             output_bytes: stats.output_bytes,
             blocks_written: stats.total_blocks as u64,
@@ -585,7 +588,7 @@ impl CompressionEngine {
         Ok(CompressionOutcome {
             mode: CompressionExecutionMode::Pipeline,
             detected_read_length_class: effective_length_class,
-            reorder_map_written: false, // Pipeline stats don't track this separately
+            reorder_map_written: stats.reorder_map_written,
             blocks_written: stats.total_blocks as usize,
             reads_compressed: stats.total_reads,
             bytes_read: stats.input_bytes,
@@ -737,7 +740,7 @@ impl CompressionEngine {
         };
 
         // Open writer
-        let mut writer = FqcWriter::create(request.output_path.to_str().unwrap())?;
+        let mut writer = FqcWriter::create(&request.output_path)?;
 
         let flags = build_flags(
             false,
@@ -843,7 +846,7 @@ impl CompressionEngine {
         log::info!("Streaming compression mode (paired-end)");
 
         let mut pe_reader = open_fastq_paired(input_path, input2_path)?;
-        let mut writer = FqcWriter::create(request.output_path.to_str().unwrap())?;
+        let mut writer = FqcWriter::create(&request.output_path)?;
 
         let flags = build_flags(
             true,
@@ -960,7 +963,7 @@ impl CompressionEngine {
             open_fastq_interleaved(input_path)?
         };
 
-        let mut writer = FqcWriter::create(request.output_path.to_str().unwrap())?;
+        let mut writer = FqcWriter::create(&request.output_path)?;
 
         let flags = build_flags(
             true,

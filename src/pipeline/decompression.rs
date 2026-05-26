@@ -388,12 +388,14 @@ impl DecompressionPipeline {
         let elapsed = start.elapsed();
         self.stats = PipelineStats {
             total_reads: reads_written,
+            total_bases: 0,
             total_blocks: (end_block - start_block) as u32,
             input_bytes: file_size,
             output_bytes,
             processing_time_ms: elapsed.as_millis() as u64,
             peak_memory_bytes: 0,
             threads_used: threads,
+            reorder_map_written: false,
         };
 
         log::info!(

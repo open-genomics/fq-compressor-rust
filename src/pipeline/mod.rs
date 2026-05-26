@@ -49,12 +49,14 @@ pub const MAX_BLOCK_SIZE: usize = 1_000_000;
 #[derive(Debug, Clone, Default)]
 pub struct PipelineStats {
     pub total_reads: u64,
+    pub total_bases: u64,
     pub total_blocks: u32,
     pub input_bytes: u64,
     pub output_bytes: u64,
     pub processing_time_ms: u64,
     pub peak_memory_bytes: usize,
     pub threads_used: usize,
+    pub reorder_map_written: bool,
 }
 
 impl PipelineStats {
@@ -66,10 +68,10 @@ impl PipelineStats {
     }
 
     pub fn bits_per_base(&self) -> f64 {
-        if self.input_bytes == 0 {
+        if self.total_bases == 0 {
             return 0.0;
         }
-        (self.output_bytes as f64 * 8.0) / (self.input_bytes as f64 * 0.5)
+        (self.output_bytes as f64 * 8.0) / self.total_bases as f64
     }
 
     pub fn throughput_mbps(&self) -> f64 {
