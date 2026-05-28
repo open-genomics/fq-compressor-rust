@@ -17,7 +17,5 @@ RUN rustup component add \
         rustfmt
 
 RUN cargo install --locked \
-        bacon \
-        cargo-deny \
-        taplo-cli \
+        taplo-cli --version 0.10.0 \
     && rm -rf /usr/local/cargo/registry/cache

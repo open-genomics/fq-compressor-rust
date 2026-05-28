@@ -1,29 +1,41 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-WORKSPACE="${WORKSPACE:-$(pwd)}"
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+WORKSPACE="${WORKSPACE:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 
 setup_git() {
-    git config --global --add safe.directory "$WORKSPACE" 2>/dev/null || true
-}
-
-setup_hooks() {
-    if [ -x "$WORKSPACE/scripts/setup-hooks.sh" ]; then
-        "$WORKSPACE/scripts/setup-hooks.sh" >/dev/null 2>&1 || true
+    if ! git config --global --get-all safe.directory | grep -Fx -- "$WORKSPACE" >/dev/null; then
+        git config --global --add safe.directory "$WORKSPACE"
     fi
 }
 
+setup_hooks() {
+    local hook_script="$WORKSPACE/scripts/setup-hooks.sh"
+
+    if [ ! -x "$hook_script" ]; then
+        echo "Missing or non-executable hook setup script: $hook_script" >&2
+        exit 1
+    fi
+
+    "$hook_script"
+}
+
 install_js_deps() {
-    if [ -f "$WORKSPACE/package.json" ] && command -v npm >/dev/null 2>&1; then
-        cd "$WORKSPACE"
-        npm ci
+    if [ -f "$WORKSPACE/package.json" ]; then
+        (
+            cd "$WORKSPACE"
+            npm ci
+        )
     fi
 }
 
 prefetch_rust() {
-    if command -v cargo >/dev/null 2>&1; then
-        cd "$WORKSPACE"
-        cargo fetch
+    if [ -f "$WORKSPACE/Cargo.toml" ]; then
+        (
+            cd "$WORKSPACE"
+            cargo fetch
+        )
     fi
 }
 
@@ -36,6 +48,7 @@ case "${1:-}" in
         ;;
     start)
         setup_git
+        setup_hooks
         ;;
     *)
         echo "Usage: $0 {create|start}" >&2

@@ -7,19 +7,23 @@
         "ghcr.io/devcontainers/features/git:1": {},
         "ghcr.io/devcontainers/features/github-cli:1": {},
         "ghcr.io/devcontainers/features/node:1": {
-            "version": "20"
+            "version": "24"
         }
     },
     "mounts": [
-        "source=fqc-cargo-cache,target=/usr/local/cargo/registry,type=volume",
-        "source=fqc-target-cache,target=${containerWorkspaceFolder}/target,type=volume"
+        "source=fqc-cargo-registry,target=/home/vscode/.cargo/registry,type=volume",
+        "source=fqc-cargo-git,target=/home/vscode/.cargo/git,type=volume",
+        "source=fqc-target-cache,target=${containerWorkspaceFolder}/target,type=volume",
+        "source=fqc-npm-cache,target=/home/vscode/.npm,type=volume"
     ],
     "containerEnv": {
+        "CARGO_HOME": "/home/vscode/.cargo",
         "CARGO_TERM_COLOR": "always",
+        "npm_config_cache": "/home/vscode/.npm",
         "RUST_BACKTRACE": "1"
     },
-    "postCreateCommand": "bash ${containerWorkspaceFolder}/.devcontainer/scripts/container-setup.sh create",
-    "postStartCommand": "bash ${containerWorkspaceFolder}/.devcontainer/scripts/container-setup.sh start",
+    "postCreateCommand": "bash \"${containerWorkspaceFolder}/.devcontainer/scripts/container-setup.sh\" create",
+    "postStartCommand": "bash \"${containerWorkspaceFolder}/.devcontainer/scripts/container-setup.sh\" start",
     "remoteUser": "vscode",
     "customizations": {
         "vscode": {
