@@ -2,24 +2,18 @@
 
 ## [Unreleased]
 
-### Changed
-- Removed outdated planning documents from docs/superpowers/
-- Cleaned up empty documentation directories
-- Fixed docs/agents/domain.md to reflect current state
-
-## [0.1.2] - 2026-05-01
-
 ### Added
 - Benchmark foundation for parser and archive workflows (criterion-based)
 - Performance foundation architecture documentation
 
 ### Changed
+- Removed outdated planning documents from docs/superpowers/
+- Cleaned up empty documentation directories
 - Consolidated all development branches into master
 - Closed feature worktrees after completion
 
 ### Repository
 - Single-branch architecture (master only)
-- All OpenSpec changes completed
 - Repository metadata updated for discoverability
 
 ## [0.1.1] - 2026-04-16

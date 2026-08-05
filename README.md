@@ -5,27 +5,26 @@
 [![License](https://img.shields.io/badge/license-GPL--3.0-green)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 [![Docs](https://img.shields.io/badge/docs-live-4f46e5)](https://lessup.github.io/fq-compressor-rust/)
 
-`fqc` is a Rust FASTQ compressor built around a block-indexed `.fqc` archive format.
-It combines a short-read ABC-style path, Zstd-backed medium/long-read compression, and quality-score coding into a single CLI for compression, decompression, inspection, and verification.
+`fqc` 是一个用 Rust 编写的 FASTQ 压缩工具，围绕块索引的 `.fqc` 归档格式构建。
+它将短读 ABC 路径、Zstd 支撑的中/长读压缩与质量分编码整合进单一 CLI，支持压缩、解压、检视与校验。
 
-## Why use it
+## 为什么用它
 
-- **FASTQ-aware archive format** instead of a generic compressed blob
-- **Block-level metadata** for inspection, verification, and partial workflows
-- **Single binary CLI** with `compress`, `decompress`, `info`, and `verify`
-- **Memory-safe Rust implementation** with a pinned MSRV of **1.75.0**
+- **FASTQ 感知的归档格式**，而非通用的压缩数据块
+- **块级元数据**，支持检视、校验与部分流式工作流
+- **单一二进制 CLI**，提供 `compress`、`decompress`、`info`、`verify`
+- **内存安全的 Rust 实现**，MSRV 固定为 **1.75.0**，零 `unsafe`
 
-## Installation
+## 安装
 
-Download release binaries from the
-[GitHub Releases](https://github.com/LessUp/fq-compressor-rust/releases) page, or build locally:
+从 [GitHub Releases](https://github.com/LessUp/fq-compressor-rust/releases) 下载预编译二进制，或本地构建：
 
 ```bash
 cargo build --release
 cargo install --path .
 ```
 
-## Quick start
+## 快速开始
 
 ```bash
 git clone https://github.com/LessUp/fq-compressor-rust.git
@@ -38,7 +37,7 @@ cargo build --release
 ./target/release/fqc decompress -i sample.fqc -o sample.fastq
 ```
 
-## Common commands
+## 常用命令
 
 ```bash
 fqc compress -i reads.fastq -o reads.fqc
@@ -58,28 +57,26 @@ fqc verify -i reads.fqc
 fqc verify -i reads.fqc --quick
 ```
 
-## Documentation
+## 文档
 
-The maintained docs summary lives in the docs site and repo-backed docs pages below.
+- **项目站点：** <https://lessup.github.io/fq-compressor-rust/>
+- **快速开始：** [docs/guide/quick-start.md](docs/guide/quick-start.md)
+- **CLI 参考：** [docs/guide/cli.md](docs/guide/cli.md)
+- **架构概述：** [docs/architecture/index.md](docs/architecture/index.md)
+- **性能路线图：** [docs/architecture/performance-roadmap.md](docs/architecture/performance-roadmap.md)
+- **算法：** [docs/algorithms/index.md](docs/algorithms/index.md)
 
-- **Project site:** <https://lessup.github.io/fq-compressor-rust/>
-- **Quick start:** [docs/guide/quick-start.md](docs/guide/quick-start.md)
-- **CLI reference:** [docs/guide/cli.md](docs/guide/cli.md)
-- **Architecture overview:** [docs/architecture/index.md](docs/architecture/index.md)
-- **Performance roadmap:** [docs/architecture/performance-roadmap.md](docs/architecture/performance-roadmap.md)
-- **Algorithms:** [docs/algorithms/index.md](docs/algorithms/index.md)
+`--memory-limit 0` 保留默认的自动内存选择行为。低内存场景建议使用 `--streaming`；pipeline 模式为分阶段执行路径，archive 模式仍会全量读入以做全局分析。
 
-`--memory-limit 0` keeps the default automatic memory selection behavior. For strict low-memory runs, prefer `--streaming`; pipeline mode remains a staged execution path, and archive mode still performs a full ingest for global analysis.
+## 开发
 
-## Development
+本仓库使用 **OpenSpec** 作为规划与变更管理层。
 
-This repository uses **OpenSpec** as its planning and change-management layer.
+- living specs：[`openspec/specs/`](openspec/specs/)
+- 活跃变更目录：[`openspec/changes/`](openspec/changes/)
+- AI 贡献指南：[`AGENTS.md`](AGENTS.md)
 
-- living specs: [`openspec/specs/`](openspec/specs/)
-- active change folders: [`openspec/changes/`](openspec/changes/)
-- AI contributor guide: [`AGENTS.md`](AGENTS.md)
-
-Validation commands:
+校验命令：
 
 ```bash
 cargo fmt --all -- --check
@@ -89,7 +86,7 @@ cargo doc --no-deps
 npm run docs:build
 ```
 
-To enable local Git hooks:
+启用本地 Git 钩子：
 
 ```bash
 bash scripts/setup-hooks.sh

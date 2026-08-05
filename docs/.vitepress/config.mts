@@ -13,15 +13,10 @@ const base = rawBase
 export default withMermaid(defineConfig({
   base,
   title: 'fqc',
-  description: 'A block-indexed FASTQ compression tool in Rust',
+  description: '基于 Rust 的块索引 FASTQ 压缩工具',
   cleanUrls: true,
   ignoreDeadLinks: false,
-
-  // Rewrites to fix llms.txt "Untitled" entries
-  rewrites: {
-    'en/index.md': 'en/index.md',
-    'zh/index.md': 'zh/index.md'
-  },
+  lastUpdated: true,
 
   head: [
     ['link', { rel: 'icon', href: '/favicon.svg', type: 'image/svg+xml' }],
@@ -33,19 +28,15 @@ export default withMermaid(defineConfig({
     ['meta', { property: 'og:image:height', content: '630' }],
     ['meta', { name: 'twitter:card', content: 'summary_large_image' }],
     ['meta', { name: 'twitter:image', content: '/og-image.svg' }],
-    // JSON-LD structured data
     ['script', { type: 'application/ld+json' }, JSON.stringify({
       '@context': 'https://schema.org',
       '@type': 'SoftwareSourceCode',
       name: 'fqc',
-      description: 'Block-indexed FASTQ compression tool for bioinformatics',
+      description: '块索引 FASTQ 压缩工具',
       programmingLanguage: 'Rust',
       license: 'https://spdx.org/licenses/GPL-3.0-or-later.html',
       codeRepository: 'https://github.com/LessUp/fq-compressor-rust',
-      author: {
-        '@type': 'Person',
-        name: 'LessUp'
-      }
+      author: { '@type': 'Person', name: 'LessUp' }
     })]
   ],
 
@@ -53,326 +44,119 @@ export default withMermaid(defineConfig({
     hostname: 'https://lessup.github.io/fq-compressor-rust/'
   },
 
-  // i18n configuration
-  locales: {
-    zh: {
-      label: '简体中文',
-      lang: 'zh-CN',
-      link: '/zh/',
-      title: 'fqc',
-      description: '基于 Rust 的块索引 FASTQ 压缩工具',
-      themeConfig: {
-        nav: [
-          {
-            text: '白皮书',
-            link: '/zh/whitepaper',
-            activeMatch: '/zh/whitepaper'
-          },
-          {
-            text: '指南',
-            activeMatch: '/zh/guide/',
-            items: [
-              { text: '快速开始', link: '/zh/guide/quick-start' },
-              { text: '安装', link: '/zh/guide/installation' },
-              { text: '压缩模式', link: '/zh/guide/modes' },
-              { text: 'CLI 参考', link: '/zh/guide/cli' }
-            ]
-          },
-          {
-            text: '架构',
-            activeMatch: '/zh/architecture/',
-            items: [
-              { text: '概述', link: '/zh/architecture/' },
-              { text: '决策记录', link: '/zh/architecture/decisions/' },
-              { text: '性能路线图', link: '/zh/architecture/performance-roadmap' }
-            ]
-          },
-          {
-            text: '算法',
-            activeMatch: '/zh/algorithms/',
-            items: [
-              { text: '概述', link: '/zh/algorithms/' },
-              { text: 'ABC 深度解析', link: '/zh/algorithms/abc-deep-dive' }
-            ]
-          },
-          {
-            text: '参考',
-            activeMatch: '/zh/(reference|benchmarks|references|release-notes|comparison|theory)',
-            items: [
-              { text: '二进制格式规范', link: '/zh/reference/format-spec' },
-              { text: '基准测试', link: '/zh/benchmarks/performance-report' },
-              { text: '竞品对比', link: '/zh/comparison' },
-              { text: '理论基础', link: '/zh/theory' },
-              { text: '参考文献', link: '/zh/references/' },
-              { text: '发布说明', link: '/zh/release-notes' }
-            ]
-          }
-        ],
-        sidebar: {
-          '/zh/guide/': [
-            {
-              text: '指南',
-              items: [
-                { text: '安装', link: '/zh/guide/installation' },
-                { text: '快速开始', link: '/zh/guide/quick-start' },
-                { text: '压缩模式', link: '/zh/guide/modes' },
-                { text: 'CLI 参考', link: '/zh/guide/cli' }
-              ]
-            }
-          ],
-          '/zh/architecture/': [
-            {
-              text: '架构',
-              items: [
-                { text: '概述', link: '/zh/architecture/' },
-                {
-                  text: '决策记录',
-                  collapsed: true,
-                  items: [
-                    { text: 'ADR-001: 块索引归档格式', link: '/zh/architecture/decisions/001-block-indexed-format' },
-                    { text: 'ADR-002: 三种执行模式', link: '/zh/architecture/decisions/002-three-execution-modes' },
-                    { text: 'ADR-003: 组件级编码', link: '/zh/architecture/decisions/003-component-encoding' }
-                  ]
-                },
-                { text: '性能路线图', link: '/zh/architecture/performance-roadmap' }
-              ]
-            }
-          ],
-          '/zh/algorithms/': [
-            {
-              text: '算法',
-              items: [
-                { text: '概述', link: '/zh/algorithms/' },
-                { text: 'ABC 算法深度解析', link: '/zh/algorithms/abc-deep-dive' }
-              ]
-            }
-          ],
-          '/zh/benchmarks/': [
-            {
-              text: '基准测试',
-              items: [
-                { text: '性能报告', link: '/zh/benchmarks/performance-report' }
-              ]
-            }
-          ],
-          '/zh/reference/': [
-            {
-              text: '参考',
-              items: [
-                { text: '二进制格式规范', link: '/zh/reference/format-spec' }
-              ]
-            }
-          ],
-          '/zh/references/': [
-            {
-              text: '参考文献',
-              items: [
-                { text: '参考文献与相关工作', link: '/zh/references/' }
-              ]
-            }
-          ],
-          '/zh/whitepaper': [
-            {
-              text: '技术白皮书',
-              items: [
-                { text: '概述', link: '/zh/whitepaper' }
-              ]
-            }
-          ],
-          '/zh/comparison': [
-            {
-              text: '竞品对比',
-              items: [
-                { text: '对比分析', link: '/zh/comparison' }
-              ]
-            }
-          ],
-          '/zh/theory': [
-            {
-              text: '理论基础',
-              items: [
-                { text: '算法理论', link: '/zh/theory' }
-              ]
-            }
-          ]
-        }
-      }
-    },
-    en: {
-      label: 'English',
-      lang: 'en-US',
-      link: '/en/',
-      title: 'fqc',
-      description: 'A block-indexed FASTQ compression tool in Rust',
-      themeConfig: {
-        nav: [
-          {
-            text: 'Whitepaper',
-            link: '/en/whitepaper',
-            activeMatch: '/en/whitepaper'
-          },
-          {
-            text: 'Guide',
-            activeMatch: '/en/guide/',
-            items: [
-              { text: 'Quick Start', link: '/en/guide/quick-start' },
-              { text: 'Installation', link: '/en/guide/installation' },
-              { text: 'Compression Modes', link: '/en/guide/modes' },
-              { text: 'CLI Reference', link: '/en/guide/cli' }
-            ]
-          },
-          {
-            text: 'Architecture',
-            activeMatch: '/en/architecture/',
-            items: [
-              { text: 'Overview', link: '/en/architecture/' },
-              { text: 'Decision Records', link: '/en/architecture/decisions/' },
-              { text: 'Performance Roadmap', link: '/en/architecture/performance-roadmap' }
-            ]
-          },
-          {
-            text: 'Algorithms',
-            activeMatch: '/en/algorithms/',
-            items: [
-              { text: 'Overview', link: '/en/algorithms/' },
-              { text: 'ABC Deep Dive', link: '/en/algorithms/abc-deep-dive' }
-            ]
-          },
-          {
-            text: 'Reference',
-            activeMatch: '/en/(reference|benchmarks|references|release-notes|comparison|theory)',
-            items: [
-              { text: 'Binary Format Spec', link: '/en/reference/format-spec' },
-              { text: 'Benchmarks', link: '/en/benchmarks/performance-report' },
-              { text: 'Comparison', link: '/en/comparison' },
-              { text: 'Theory', link: '/en/theory' },
-              { text: 'References', link: '/en/references/' },
-              { text: 'Release Notes', link: '/en/release-notes' }
-            ]
-          }
-        ],
-        sidebar: {
-          '/en/guide/': [
-            {
-              text: 'Guide',
-              items: [
-                { text: 'Installation', link: '/en/guide/installation' },
-                { text: 'Quick Start', link: '/en/guide/quick-start' },
-                { text: 'Compression Modes', link: '/en/guide/modes' },
-                { text: 'CLI Reference', link: '/en/guide/cli' }
-              ]
-            }
-          ],
-          '/en/architecture/': [
-            {
-              text: 'Architecture',
-              items: [
-                { text: 'Overview', link: '/en/architecture/' },
-                {
-                  text: 'Decision Records',
-                  collapsed: true,
-                  items: [
-                    { text: 'ADR-001: Block-Indexed Format', link: '/en/architecture/decisions/001-block-indexed-format' },
-                    { text: 'ADR-002: Three Execution Modes', link: '/en/architecture/decisions/002-three-execution-modes' },
-                    { text: 'ADR-003: Component Encoding', link: '/en/architecture/decisions/003-component-encoding' }
-                  ]
-                },
-                { text: 'Performance Roadmap', link: '/en/architecture/performance-roadmap' }
-              ]
-            }
-          ],
-          '/en/algorithms/': [
-            {
-              text: 'Algorithms',
-              items: [
-                { text: 'Overview', link: '/en/algorithms/' },
-                { text: 'ABC Algorithm Deep Dive', link: '/en/algorithms/abc-deep-dive' }
-              ]
-            }
-          ],
-          '/en/benchmarks/': [
-            {
-              text: 'Benchmarks',
-              items: [
-                { text: 'Performance Report', link: '/en/benchmarks/performance-report' }
-              ]
-            }
-          ],
-          '/en/reference/': [
-            {
-              text: 'Reference',
-              items: [
-                { text: 'Binary Format Specification', link: '/en/reference/format-spec' }
-              ]
-            }
-          ],
-          '/en/references/': [
-            {
-              text: 'References',
-              items: [
-                { text: 'References & Related Work', link: '/en/references/' }
-              ]
-            }
-          ],
-          '/en/whitepaper': [
-            {
-              text: 'Technical Whitepaper',
-              items: [
-                { text: 'Overview', link: '/en/whitepaper' }
-              ]
-            }
-          ],
-          '/en/comparison': [
-            {
-              text: 'Comparison',
-              items: [
-                { text: 'Competitive Analysis', link: '/en/comparison' }
-              ]
-            }
-          ],
-          '/en/theory': [
-            {
-              text: 'Theory',
-              items: [
-                { text: 'Algorithmic Theory', link: '/en/theory' }
-              ]
-            }
-          ]
-        }
-      }
-    }
-  },
-
   themeConfig: {
     logo: { src: '/logo.svg', width: 24, height: 24 },
-    search: {
-      provider: 'local'
-    },
+    search: { provider: 'local' },
     editLink: {
       pattern: 'https://github.com/LessUp/fq-compressor-rust/edit/master/docs/:path',
-      text: 'Edit this page on GitHub'
+      text: '在 GitHub 上编辑此页'
     },
     socialLinks: [
       { icon: 'github', link: 'https://github.com/LessUp/fq-compressor-rust' }
     ],
     footer: {
-      message: 'Technical Whitepaper & Architecture Showcase for fqc.',
-      copyright: 'GPL-3.0 · fqc contributors'
+      message: 'fqc 技术白皮书与架构展示',
+      copyright: 'GPL-3.0 · fqc 贡献者'
+    },
+    nav: [
+      { text: '白皮书', link: '/whitepaper', activeMatch: '/whitepaper' },
+      {
+        text: '指南',
+        activeMatch: '/guide/',
+        items: [
+          { text: '快速开始', link: '/guide/quick-start' },
+          { text: '安装', link: '/guide/installation' },
+          { text: '压缩模式', link: '/guide/modes' },
+          { text: 'CLI 参考', link: '/guide/cli' }
+        ]
+      },
+      {
+        text: '架构',
+        activeMatch: '/architecture/',
+        items: [
+          { text: '概述', link: '/architecture/' },
+          { text: '决策记录', link: '/architecture/decisions/' },
+          { text: '性能路线图', link: '/architecture/performance-roadmap' }
+        ]
+      },
+      {
+        text: '算法',
+        activeMatch: '/algorithms/',
+        items: [
+          { text: '概述', link: '/algorithms/' },
+          { text: 'ABC 深度解析', link: '/algorithms/abc-deep-dive' }
+        ]
+      },
+      {
+        text: '参考',
+        activeMatch: '/(reference|benchmarks|references|release-notes|comparison|theory)',
+        items: [
+          { text: '二进制格式规范', link: '/reference/format-spec' },
+          { text: '基准测试', link: '/benchmarks/performance-report' },
+          { text: '竞品对比', link: '/comparison' },
+          { text: '理论基础', link: '/theory' },
+          { text: '参考文献', link: '/references/' },
+          { text: '发布说明', link: '/release-notes' }
+        ]
+      }
+    ],
+    sidebar: {
+      '/guide/': [
+        {
+          text: '指南',
+          items: [
+            { text: '安装', link: '/guide/installation' },
+            { text: '快速开始', link: '/guide/quick-start' },
+            { text: '压缩模式', link: '/guide/modes' },
+            { text: 'CLI 参考', link: '/guide/cli' }
+          ]
+        }
+      ],
+      '/architecture/': [
+        {
+          text: '架构',
+          items: [
+            { text: '概述', link: '/architecture/' },
+            {
+              text: '决策记录',
+              collapsed: true,
+              items: [
+                { text: 'ADR-001: 块索引归档格式', link: '/architecture/decisions/001-block-indexed-format' },
+                { text: 'ADR-002: 三种执行模式', link: '/architecture/decisions/002-three-execution-modes' },
+                { text: 'ADR-003: 组件级编码', link: '/architecture/decisions/003-component-encoding' }
+              ]
+            },
+            { text: '性能路线图', link: '/architecture/performance-roadmap' }
+          ]
+        }
+      ],
+      '/algorithms/': [
+        {
+          text: '算法',
+          items: [
+            { text: '概述', link: '/algorithms/' },
+            { text: 'ABC 算法深度解析', link: '/algorithms/abc-deep-dive' }
+          ]
+        }
+      ],
+      '/benchmarks/': [
+        { text: '基准测试', items: [{ text: '性能报告', link: '/benchmarks/performance-report' }] }
+      ],
+      '/reference/': [
+        { text: '参考', items: [{ text: '二进制格式规范', link: '/reference/format-spec' }] }
+      ],
+      '/references/': [
+        { text: '参考文献', items: [{ text: '参考文献与相关工作', link: '/references/' }] }
+      ]
     }
   },
 
   vite: {
-    plugins: [llmstxt({
-      // Exclude language switch intermediate pages
-      ignoreFiles: ['en.md', 'zh.md']
-    })]
+    plugins: [llmstxt({})]
   },
 
   mermaid: {
-    theme: {
-      light: 'base',
-      dark: 'dark'
-    },
+    theme: { light: 'base', dark: 'dark' },
     themeVariables: {
       primaryColor: '#06b6d4',
       primaryTextColor: '#F9FAFB',

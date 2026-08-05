@@ -1,45 +1,9 @@
 # CLAUDE.md
 
-Read [`AGENTS.md`](AGENTS.md) first. This file only adds Claude-specific guidance.
+本仓库的权威 AI 贡献指南是 [`AGENTS.md`](AGENTS.md)，请先阅读它。
 
-## Claude Code usage here
+补充说明：
 
-- Start from `openspec/specs/` and the active change folder under `openspec/changes/`.
-- Keep one coherent thread of work; avoid fragmenting repository cleanup into multiple speculative branches.
-- Favor surgical rewrites over layered patching when a document or workflow is clearly low value.
-- Use `/review` before merge for non-trivial changes.
-- Avoid `/fleet` unless the task clearly benefits from parallelism.
-- Use autopilot only after `proposal.md`, `design.md`, and `tasks.md` are in place and bounded.
-
-## Project-specific context
-
-This is a **FASTQ compression tool** for bioinformatics. Key domain concepts:
-
-- **FASTQ format**: 4-line records (ID, sequence, +, quality)
-- **Block-indexed archive**: Enables random access via block index
-- **Read length classification**: Short (ABC), Medium/Long (Zstd)
-- **Compression modes**: Archive (default), Streaming (`--streaming`), Pipeline (`--pipeline`)
-
-## Validation
-
-```bash
-cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
-cargo test --lib --tests
-cargo doc --no-deps
-npm run docs:build
-```
-
-## Conda/glibc workaround
-
-If tests fail with `__tunable_is_initialized@GLIBC_PRIVATE`, ensure `.cargo/config.toml` uses system GCC:
-
-```toml
-[target.x86_64-unknown-linux-gnu]
-linker = "/usr/bin/gcc"
-```
-
-Or run with:
-```bash
-PATH="/usr/bin:/bin:/usr/local/bin:$HOME/.cargo/bin" cargo test
-```
+- 变更从 `openspec/specs/` 与 `openspec/changes/` 出发，保持小而完整。
+- 若测试因 `__tunable_is_initialized@GLIBC_PRIVATE` 失败，参见 `CONTRIBUTING.md` 的 conda/glibc 处理方法。
+- 合并前对非平凡 AI 改动运行 `/review`。

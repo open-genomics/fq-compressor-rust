@@ -55,8 +55,6 @@
   --tag-text: #22d3ee;
 
   /* Academic Citation Styles */
-  --citation-color: #9CA3AF;
-  --citation-bg: #1F2937;
   --reference-indent: 2rem;
 
   /* Custom Spacing */
@@ -117,8 +115,6 @@
   --tag-bg: rgba(34, 211, 238, 0.1);
   --tag-text: #22d3ee;
 
-  --citation-color: #9CA3AF;
-  --citation-bg: #1F2937;
 }
 
 /* === Light Mode Override === */
@@ -139,8 +135,6 @@ html:not(.dark) {
   --tag-bg: rgba(6, 182, 212, 0.08);
   --tag-text: #0891b2;
 
-  --citation-color: #64748b;
-  --citation-bg: #f1f5f9;
 }
 
 /* === Hero Section Styling === */
@@ -936,25 +930,6 @@ html:not(.dark) .vp-doc [class*='language-'] {
   }
 }
 
-/* === Academic Citation Styles === */
-
-/* Inline Citation */
-.citation {
-  font-size: 0.75em;
-  color: var(--citation-color);
-  vertical-align: super;
-  line-height: 0;
-}
-
-.citation a {
-  color: inherit;
-  text-decoration: none;
-}
-
-.citation a:hover {
-  color: var(--vp-c-brand-1);
-}
-
 /* Reference List */
 .reference-list {
   list-style: none;
@@ -1108,109 +1083,4 @@ html:not(.dark) .vp-doc [class*='language-'] {
   line-height: 1.8;
   color: var(--vp-c-text-2);
   font-style: italic;
-}
-
-/* Section divider */
-.section-divider {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  margin: 3rem 0 1.5rem 0;
-}
-
-.section-divider::before,
-.section-divider::after {
-  content: '';
-  flex: 1;
-  height: 1px;
-  background: linear-gradient(90deg, transparent, var(--vp-c-border), transparent);
-}
-
-.section-divider-text {
-  font-size: 0.75rem;
-  text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--vp-c-text-3);
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-/* Architecture diagram card */
-.arch-card {
-  background: var(--vp-c-bg-alt);
-  border: 1px solid var(--vp-c-border);
-  border-radius: var(--radius-lg);
-  padding: 1.5rem;
-  margin: 1rem 0;
-}
-
-.arch-card-title {
-  font-size: 1rem;
-  font-weight: 600;
-  color: var(--vp-c-text-1);
-  margin-bottom: 0.75rem;
-}
-
-/* Highlight box */
-.highlight-box {
-  background: linear-gradient(135deg, rgba(6, 182, 212, 0.08), rgba(139, 92, 246, 0.08));
-  border: 1px solid var(--vp-c-border);
-  border-left: 3px solid var(--vp-c-brand-1);
-  border-radius: var(--radius-md);
-  padding: 1.25rem;
-  margin: 1.5rem 0;
-}
-
-/* Performance metric card */
-.metric-card {
-  display: flex;
-  align-items: center;
-  gap: 1rem;
-  padding: 1rem 1.25rem;
-  background: var(--vp-c-bg-alt);
-  border: 1px solid var(--vp-c-border);
-  border-radius: var(--radius-md);
-  margin: 0.5rem 0;
-}
-
-.metric-card-value {
-  font-size: 1.5rem;
-  font-weight: 700;
-  background: linear-gradient(135deg, var(--vp-c-brand-1), var(--vp-c-accent));
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  background-clip: text;
-  min-width: 80px;
-}
-
-.metric-card-label {
-  font-size: 0.875rem;
-  color: var(--vp-c-text-2);
-}
-
-/* Contribution callout */
-.contribution-box {
-  background: var(--vp-c-bg-soft);
-  border: 1px solid var(--vp-c-border);
-  border-radius: var(--radius-md);
-  padding: 1.25rem;
-  margin: 1.5rem 0;
-  text-align: center;
-}
-
-.contribution-box p {
-  margin: 0;
-  color: var(--vp-c-text-2);
-  font-size: 0.9rem;
-}
-
-/* Inline code in terminal style */
-.code-inline {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 0.875em;
-  color: #22d3ee;
-  background: rgba(6, 182, 212, 0.08);
-  padding: 0.15em 0.4em;
-  border-radius: 4px;
-  border: 1px solid rgba(6, 182, 212, 0.2);
 }
