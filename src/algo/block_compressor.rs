@@ -18,7 +18,7 @@ use crate::algo::quality_compressor::{
     ContextOrder, QualityCompressor as ScmQualityCompressor, QualityCompressorConfig,
 };
 use crate::algo::zstd_sequence::ZstdSequenceCompressor;
-use crate::archive_traits::BlockData;
+use crate::archive::traits::BlockData;
 use crate::error::Result;
 use crate::types::*;
 use xxhash_rust::xxh64::Xxh64;
@@ -337,7 +337,7 @@ pub fn compute_block_checksum(reads: &[ReadRecord]) -> u64 {
 }
 
 // =============================================================================
-// Varint helpers for reorder map (used by fqc_writer/fqc_reader)
+// Varint helpers for reorder map (used by archive::writer/archive::reader)
 // =============================================================================
 
 pub fn encode_varint(mut value: u64) -> Vec<u8> {

@@ -10,13 +10,13 @@ use std::io::BufReader;
 use flate2::write::GzEncoder;
 use flate2::Compression;
 use fqc::algo::block_compressor::{BlockCompressor, BlockCompressorConfig};
+use fqc::archive::format::*;
+use fqc::archive::reader::FqcReader;
+use fqc::archive::writer::FqcWriter;
 use fqc::commands::compress::{CompressCommand, CompressOptions};
 use fqc::commands::decompress::{DecompressCommand, DecompressOptions};
 use fqc::error::ExitCode;
 use fqc::fastq::parser::{FastqParser, ParserOptions};
-use fqc::format::*;
-use fqc::fqc_reader::FqcReader;
-use fqc::fqc_writer::FqcWriter;
 use fqc::io::compressed_stream::*;
 use fqc::types::*;
 
@@ -382,7 +382,7 @@ fn test_e2e_exit_codes() {
 
 #[test]
 fn test_e2e_memory_budget() {
-    use fqc::common::memory_budget::*;
+    use fqc::memory_budget::*;
 
     let avail = get_available_memory_mb();
     assert!(avail > 0, "System memory detection failed");
@@ -396,7 +396,7 @@ fn test_e2e_memory_budget() {
 
 #[test]
 fn test_e2e_chunking_strategy() {
-    use fqc::common::memory_budget::ChunkingStrategy;
+    use fqc::memory_budget::ChunkingStrategy;
 
     // Small dataset: should not require chunking
     let strat = ChunkingStrategy::compute(100_000, 150, 50_000, 4, 8192);

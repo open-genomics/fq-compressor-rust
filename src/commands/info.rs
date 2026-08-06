@@ -2,8 +2,8 @@
 // fqc-rust - Info Command
 // =============================================================================
 
+use crate::archive::reader::{ArchiveInfo, FqcReader};
 use crate::error::Result;
-use crate::fqc_reader::{ArchiveInfo, FqcReader};
 use crate::types::decode_codec_family;
 
 // =============================================================================

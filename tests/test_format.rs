@@ -2,7 +2,7 @@
 // fqc-rust - Format Unit Tests
 // =============================================================================
 
-use fqc::format::*;
+use fqc::archive::format::*;
 use fqc::types::*;
 use std::io::Cursor;
 

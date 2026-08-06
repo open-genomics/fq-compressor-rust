@@ -30,15 +30,13 @@
 #![allow(dead_code)]
 
 pub mod algo;
-pub mod archive_traits;
+pub mod archive;
 pub mod commands;
-pub mod common;
+pub mod engine;
 pub mod error;
 pub mod fastq;
-pub mod format;
-pub mod fqc_reader;
-pub mod fqc_writer;
 pub mod io;
+pub mod memory_budget;
 pub mod pipeline;
 pub mod types;
 

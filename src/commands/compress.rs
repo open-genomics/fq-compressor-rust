@@ -3,7 +3,7 @@
 // =============================================================================
 
 use crate::algo::block_compressor::BlockCompressorConfig;
-use crate::commands::compression_request::{CompressionExecutionMode, CompressionInputTopology, CompressionRequest};
+use crate::engine::compression_request::{CompressionExecutionMode, CompressionInputTopology, CompressionRequest};
 use crate::error::{FqcError, Result};
 use crate::pipeline::compression::CompressionPipelineConfig;
 use crate::types::*;
@@ -174,7 +174,7 @@ impl CompressOptions {
 // CompressStats
 // =============================================================================
 
-use crate::commands::compression_engine::ProcessingStats;
+use crate::engine::compression_engine::ProcessingStats;
 
 #[derive(Debug, Default)]
 struct CompressStats {
@@ -239,7 +239,7 @@ impl CompressCommand {
         self.validate_options()?;
 
         // All modes now route through the engine
-        use crate::commands::compression_engine::CompressionEngine;
+        use crate::engine::compression_engine::CompressionEngine;
         let request = self.opts.to_request();
         let outcome = CompressionEngine::new().run(request)?;
 

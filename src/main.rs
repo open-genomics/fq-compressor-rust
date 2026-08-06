@@ -9,15 +9,13 @@
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
 mod algo;
-mod archive_traits;
+mod archive;
 mod commands;
-mod common;
+mod engine;
 mod error;
 mod fastq;
-mod format;
-mod fqc_reader;
-mod fqc_writer;
 mod io;
+mod memory_budget;
 mod pipeline;
 mod types;
 

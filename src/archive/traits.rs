@@ -10,7 +10,7 @@
 //! ## Usage
 //!
 //! ```ignore
-//! use fqc::archive_traits::{ArchiveWriter, ArchiveReader};
+//! use fqc::archive::traits::{ArchiveWriter, ArchiveReader};
 //!
 //! fn compress_to_writer<W: ArchiveWriter>(writer: &mut W, reads: &[ReadRecord]) -> Result<()> {
 //!     writer.write_global_header(&header)?;
@@ -20,8 +20,8 @@
 //! ```
 
 use crate::algo::block_compressor::CompressedBlockData;
+use crate::archive::format::{BlockHeader, GlobalHeader};
 use crate::error::Result;
-use crate::format::{BlockHeader, GlobalHeader};
 
 // =============================================================================
 // ArchiveWriter Trait
@@ -114,8 +114,8 @@ pub struct BlockData {
 pub mod testing {
     use super::*;
     use crate::algo::block_compressor::delta_encode_ids;
+    use crate::archive::format::*;
     use crate::error::{FqcError, Result};
-    use crate::format::*;
     use xxhash_rust::xxh64::Xxh64;
 
     /// In-memory archive writer for testing.

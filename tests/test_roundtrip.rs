@@ -3,9 +3,9 @@
 // =============================================================================
 
 use fqc::algo::block_compressor::*;
-use fqc::format::*;
-use fqc::fqc_reader::FqcReader;
-use fqc::fqc_writer::FqcWriter;
+use fqc::archive::format::*;
+use fqc::archive::reader::FqcReader;
+use fqc::archive::writer::FqcWriter;
 use fqc::types::*;
 
 fn make_reads(n: usize, length: usize) -> Vec<ReadRecord> {

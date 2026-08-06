@@ -3,9 +3,9 @@
 // =============================================================================
 
 use crate::algo::block_compressor::delta_decode_ids;
-use crate::archive_traits::{ArchiveReader, BlockData};
+use crate::archive::format::*;
+use crate::archive::traits::{ArchiveReader, BlockData};
 use crate::error::{FqcError, Result};
-use crate::format::*;
 use crate::types::{IdMode, PeLayout, QualityMode, ReadLengthClass};
 use byteorder::ReadBytesExt;
 use std::fs::File;

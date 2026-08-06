@@ -8,11 +8,11 @@
 
 use crate::algo::block_compressor::{BlockCompressor, BlockCompressorConfig, CompressedBlockData};
 use crate::algo::global_analyzer::{GlobalAnalyzer, GlobalAnalyzerConfig};
-use crate::commands::compression_request::{CompressionExecutionMode, CompressionRequest};
+use crate::archive::format::{build_flags, GlobalHeader};
+use crate::archive::writer::FqcWriter;
+use crate::engine::compression_request::{CompressionExecutionMode, CompressionRequest};
 use crate::error::{FqcError, Result};
 use crate::fastq::parser::{open_fastq, open_fastq_interleaved, open_fastq_paired, open_fastq_stdin};
-use crate::format::{build_flags, GlobalHeader};
-use crate::fqc_writer::FqcWriter;
 use crate::types::*;
 use rayon::prelude::*;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -1124,7 +1124,7 @@ impl CompressionEngine {
         threads: usize,
         memory_limit_mb: usize,
     ) -> usize {
-        use crate::common::memory_budget::{auto_memory_budget, MemoryEstimator};
+        use crate::memory_budget::{auto_memory_budget, MemoryEstimator};
 
         if requested_block_size > 0 {
             return requested_block_size;
@@ -1150,7 +1150,7 @@ impl CompressionEngine {
     }
 
     fn effective_in_flight_blocks(block_size: usize, stats: &LengthStats, memory_limit_mb: usize) -> usize {
-        use crate::common::memory_budget::auto_memory_budget;
+        use crate::memory_budget::auto_memory_budget;
         use crate::pipeline::DEFAULT_MAX_IN_FLIGHT_BLOCKS;
 
         let budget = auto_memory_budget(memory_limit_mb);

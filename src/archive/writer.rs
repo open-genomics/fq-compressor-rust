@@ -3,9 +3,9 @@
 // =============================================================================
 
 use crate::algo::block_compressor::{delta_encode_ids, CompressedBlockData};
-use crate::archive_traits::ArchiveWriter;
+use crate::archive::format::*;
+use crate::archive::traits::ArchiveWriter;
 use crate::error::{FqcError, Result};
-use crate::format::*;
 use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
 use std::fs::File;

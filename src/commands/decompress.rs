@@ -3,11 +3,11 @@
 // =============================================================================
 
 use crate::algo::block_compressor::{BlockCompressor, BlockCompressorConfig, DecompressedBlockData};
-use crate::archive_traits::BlockData;
+use crate::archive::format::{flags, get_id_mode, get_pe_layout, get_quality_mode, get_read_length_class};
+use crate::archive::reader::FqcReader;
+use crate::archive::traits::BlockData;
 use crate::error::{FqcError, Result};
 use crate::fastq::parser::write_record as write_fastq_record;
-use crate::format::{flags, get_id_mode, get_pe_layout, get_quality_mode, get_read_length_class};
-use crate::fqc_reader::FqcReader;
 use crate::pipeline::decompression::{DecompressionPipeline, DecompressionPipelineConfig};
 use crate::types::*;
 use rayon::prelude::*;

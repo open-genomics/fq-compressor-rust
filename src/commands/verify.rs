@@ -3,9 +3,9 @@
 // =============================================================================
 
 use crate::algo::block_compressor::BlockCompressor;
+use crate::archive::format::{get_id_mode, get_quality_mode, get_read_length_class};
+use crate::archive::reader::FqcReader;
 use crate::error::{FqcError, Result};
-use crate::format::{get_id_mode, get_quality_mode, get_read_length_class};
-use crate::fqc_reader::FqcReader;
 use xxhash_rust::xxh64::Xxh64;
 
 // =============================================================================

@@ -1,9 +1,9 @@
 use std::io::BufWriter;
 use std::path::{Path, PathBuf};
 
+use fqc::archive::reader::FqcReader;
 use fqc::commands::compress::{CompressCommand, CompressOptions};
 use fqc::fastq::parser::write_record;
-use fqc::fqc_reader::FqcReader;
 use fqc::types::{PeLayout, ReadRecord};
 use tempfile::tempdir;
 
@@ -40,7 +40,7 @@ fn base_paired_options(output_path: &Path) -> CompressOptions {
     }
 }
 
-fn run_and_read_info(opts: &CompressOptions) -> fqc::fqc_reader::ArchiveInfo {
+fn run_and_read_info(opts: &CompressOptions) -> fqc::archive::reader::ArchiveInfo {
     let exit_code = CompressCommand::new(opts.clone()).execute();
     assert_eq!(exit_code, 0, "compression should succeed");
     FqcReader::open(&opts.output_path).unwrap().info()

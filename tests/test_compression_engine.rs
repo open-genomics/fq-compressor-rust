@@ -3,8 +3,8 @@
 // =============================================================================
 
 use fqc::commands::compress::CompressOptions;
-use fqc::commands::compression_engine::{CompressionEngine, CompressionOutcome};
-use fqc::commands::compression_request::{CompressionExecutionMode, CompressionInputTopology, CompressionRequest};
+use fqc::engine::compression_engine::{CompressionEngine, CompressionOutcome};
+use fqc::engine::compression_request::{CompressionExecutionMode, CompressionInputTopology, CompressionRequest};
 use fqc::fastq::parser::open_fastq;
 use fqc::types::{IdMode, PeLayout, QualityMode, ReadLengthClass};
 
@@ -110,8 +110,8 @@ fn stdin_normalization_stays_streaming() {
 
 #[test]
 fn archive_execution_returns_outcome_metadata() {
-    use fqc::commands::compression_engine::CompressionEngine;
-    use fqc::fqc_reader::FqcReader;
+    use fqc::archive::reader::FqcReader;
+    use fqc::engine::compression_engine::CompressionEngine;
 
     let output = tempfile::NamedTempFile::new().unwrap();
     let opts = CompressOptions {
@@ -240,5 +240,5 @@ fn archive_execution_accepts_non_utf8_output_path() {
     CompressionEngine::new().run(request).unwrap();
 
     let bytes = std::fs::read(&output_path).unwrap();
-    assert!(bytes.starts_with(&fqc::format::MAGIC_BYTES));
+    assert!(bytes.starts_with(&fqc::archive::format::MAGIC_BYTES));
 }

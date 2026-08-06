@@ -14,10 +14,10 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 
 use crate::algo::block_compressor::{BlockCompressor, BlockCompressorConfig, CompressedBlockData};
 use crate::algo::global_analyzer::{GlobalAnalyzer, GlobalAnalyzerConfig};
+use crate::archive::format::{build_flags, GlobalHeader};
+use crate::archive::writer::FqcWriter;
 use crate::error::{FqcError, Result};
 use crate::fastq::parser::{open_fastq, open_fastq_interleaved, open_fastq_paired, open_fastq_stdin};
-use crate::format::{build_flags, GlobalHeader};
-use crate::fqc_writer::FqcWriter;
 use crate::types::*;
 
 use super::{PipelineControl, PipelineStats, ReadChunk, DEFAULT_MAX_IN_FLIGHT_BLOCKS};

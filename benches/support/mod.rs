@@ -4,10 +4,10 @@ use std::io::BufReader;
 use std::path::{Path, PathBuf};
 
 use fqc::algo::block_compressor::{compute_block_checksum, BlockCompressor, BlockCompressorConfig};
+use fqc::archive::format::{build_flags, get_id_mode, get_quality_mode, get_read_length_class, GlobalHeader};
+use fqc::archive::reader::FqcReader;
+use fqc::archive::writer::FqcWriter;
 use fqc::fastq::parser::FastqParser;
-use fqc::format::{build_flags, get_id_mode, get_quality_mode, get_read_length_class, GlobalHeader};
-use fqc::fqc_reader::FqcReader;
-use fqc::fqc_writer::FqcWriter;
 use fqc::types::{recommended_block_size, IdMode, PeLayout, QualityMode, ReadLengthClass, ReadRecord};
 use xxhash_rust::xxh64::Xxh64;
 
