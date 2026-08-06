@@ -281,4 +281,4 @@ flowchart TD
 ---
 
 **报告生成:** 2026-05-01
-**仓库:** https://github.com/LessUp/fq-compressor-rust
+**仓库:** https://github.com/open-genomics/fq-compressor-rust

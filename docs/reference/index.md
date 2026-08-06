@@ -19,13 +19,13 @@ FASTQ 压缩领域的学术参考文献和相关工具。本页为 fqc 的设计
 
 </div>
 
-::: tip 图例
+> [!TIP]
+> **图例
 - <span class="feature-check">&#10003;</span> 完全支持
 - <span class="feature-partial">&#9651;</span> 部分/有限支持
 - <span class="feature-cross">&#10007;</span> 不支持
-- <span class="feature-na">&mdash;</span> 不适用（通用工具）
-:::
-
+- <span class="feature-na">&mdash;</span> 不适用（通用工具）**
+>
 ## 学术参考文献
 
 ### FASTQ 格式
@@ -188,4 +188,4 @@ fqc 在 FASTQ 压缩领域占据独特位置：
 
 6. **内存安全**：Rust 的编译时保证消除了生物信息学 C/C++ 工具中常见的内存漏洞类别。
 
-详细的竞争分析请参阅<a href="../comparison">竞品深度对比</a>。
+详细的竞争分析请参阅[竞品深度对比](../comparison.md)。

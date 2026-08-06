@@ -43,13 +43,13 @@ FASTQ 压缩领域涵盖通用工具（gzip、zstd）、领域特定无参考压
 
 </div>
 
-::: tip 图例
+> [!TIP]
+> **图例
 - <span class="feature-check">&#10003;</span> 完全支持
 - <span class="feature-partial">&#9651;</span> 部分/有限支持
 - <span class="feature-cross">&#10007;</span> 不支持
-- <span class="feature-na">&mdash;</span> 不适用
-:::
-
+- <span class="feature-na">&mdash;</span> 不适用**
+>
 ## 压缩比比较
 
 压缩比因读长、覆盖深度和参考可用性而显著变化。
