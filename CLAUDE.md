@@ -4,6 +4,4 @@
 
 补充说明：
 
-- 变更从 `openspec/specs/` 与 `openspec/changes/` 出发，保持小而完整。
-- 若测试因 `__tunable_is_initialized@GLIBC_PRIVATE` 失败，参见 `CONTRIBUTING.md` 的 conda/glibc 处理方法。
-- 合并前对非平凡 AI 改动运行 `/review`。
+- 若测试或 bench 因 `__tunable_is_initialized@GLIBC_PRIVATE` 失败，这是 conda/glibc 冲突，参见 `AGENTS.md` 的 Troubleshooting 一节。

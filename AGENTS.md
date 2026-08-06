@@ -2,25 +2,26 @@
 
 Use this file as the **canonical AI contributor guide** for this repository.
 
-## Project mode
+## Project positioning
 
-`fqc` is in **stabilization and close-out mode**:
+`fqc` is an amateur-maintained FASTQ compressor. It optimizes for being
+lightweight, nimble, and low-maintenance:
 
-- Prefer fixing drift, simplifying structure, and tightening release quality
-- Avoid speculative features unless an OpenSpec change explicitly requires them
-- Delete or rewrite stale material instead of preserving low-value legacy content
+- Prefer fixing drift and simplifying structure over speculative features
+- No heavy process: no spec-driven change management, no CI, no docs-site build
+- Breaking changes are allowed; backward compatibility is not guaranteed
 
 ## Source of truth
 
 | Source | Purpose |
 |--------|---------|
-| `openspec/specs/` | Living specifications |
-| `openspec/changes/` | Active change proposals |
+| `src/` | Implementation (wins over any document when they disagree) |
 | `CONTEXT.md` | Domain language and concepts |
-| `docs/` | User-facing documentation |
-| `src/` | Implementation |
+| `docs/` | Plain-Markdown technical docs (whitepaper, architecture, algorithms, format spec) |
+| `CHANGELOG.md` | Single-file change history |
 
-Do not treat old chat context or outdated documents as authoritative when they disagree with code or `openspec/`.
+Do not treat old chat context or outdated documents as authoritative when they
+disagree with the code.
 
 ## Architecture overview
 
@@ -63,21 +64,13 @@ Read length classification:
 └── Long (>10 KB) → Zstd with large-block settings
 ```
 
-## Required workflow
-
-1. Read the relevant spec in `openspec/specs/`.
-2. If behavior, structure, or process must change, create an OpenSpec change in `openspec/changes/` first.
-3. Implement the smallest complete diff that satisfies the spec.
-4. Update tests and public docs for any CLI, workflow, or repository-behavior change.
-5. Validate with the existing commands before considering the task complete.
-
 ## Repository facts
 
 - **Binary name**: `fqc`
 - **Archive format**: block-indexed `.fqc` with global header, blocks, reorder map, footer
 - **Commands**: `compress`, `decompress`, `info`, `verify`
-- **MSRV**: 1.75.0
-- **Safety rule**: no new `unsafe`
+- **MSRV**: 1.75.0 (declared via `rust-version` in `Cargo.toml`)
+- **Safety rule**: no new `unsafe` (enforced by `[lints.rust] unsafe_code = "deny"`)
 
 ## Validation commands
 
@@ -86,28 +79,17 @@ cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test --lib --tests
 cargo doc --no-deps
-npm run docs:build
 ```
 
 ## Editing guardrails
 
-- Keep workflows minimal: CI, Pages, release, and Copilot setup should each have a clear reason to exist
-- Prefer high-signal docs over breadth
-- When changing CLI defaults or behavior, sync:
-  - `openspec/specs/cli-surface/spec.md`
-  - `README.md`
-  - `docs/guide/cli.md`
+- Keep changes small and complete; delete or rewrite stale material instead of
+  preserving low-value legacy content
+- When changing CLI defaults or behavior, sync `README.md` and `docs/guide/cli.md`
 - Use `log` crate for status logging; keep `stdout`/`stderr` user-facing
 
-## Tooling guidance
+## Troubleshooting
 
-- Use `/review` before merge for non-trivial AI-assisted changes
-- Avoid `/fleet` unless parallel sub-agents are genuinely needed
-- Only use autopilot after OpenSpec tasks are clear and bounded
-- Prefer built-in GitHub integration over new MCP servers
-
-## Agent skills
-
-- **Issue tracker**: GitHub Issues with `gh` CLI
-- **Triage labels**: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`
-- **Domain docs**: Single-context layout in `CONTEXT.md`
+- If tests or benches fail with `__tunable_is_initialized@GLIBC_PRIVATE`, it is a
+  conda/glibc conflict. Prefix the command with
+  `PATH="/usr/bin:/bin:/usr/local/bin:$HOME/.cargo/bin"`.

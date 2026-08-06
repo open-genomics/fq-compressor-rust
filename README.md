@@ -70,11 +70,7 @@ fqc verify -i reads.fqc --quick
 
 ## 开发
 
-本仓库使用 **OpenSpec** 作为规划与变更管理层。
-
-- living specs：[`openspec/specs/`](openspec/specs/)
-- 活跃变更目录：[`openspec/changes/`](openspec/changes/)
-- AI 贡献指南：[`AGENTS.md`](AGENTS.md)
+AI 贡献指南见 [`AGENTS.md`](AGENTS.md)，领域语言见 [`CONTEXT.md`](CONTEXT.md)。
 
 校验命令：
 
