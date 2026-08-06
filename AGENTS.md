@@ -30,18 +30,26 @@ src/
 ├── main.rs              # CLI entry point
 ├── commands/            # CLI command implementations
 │   ├── compress.rs      # Compression CLI orchestration
-│   ├── compression_engine.rs   # Core compression engine (ExecutionMode routing)
-│   ├── compression_request.rs  # Normalized request types
-│   └── decompress.rs    # Decompression CLI
+│   ├── decompress.rs    # Decompression CLI
+│   ├── info.rs          # Archive metadata display
+│   └── verify.rs        # Integrity verification
+├── engine/              # Core compression engine
+│   ├── compression_engine.rs   # ExecutionMode routing (archive/streaming/pipeline)
+│   └── compression_request.rs  # Normalized request types
 ├── algo/                # Compression algorithms
 │   ├── abc.rs           # Anchor-Based Compression (short reads)
 │   ├── block_compressor.rs  # Block-level compression coordinator
 │   ├── quality_compressor.rs  # SCM quality compression
 │   └── global_analyzer.rs  # Minimizer extraction, reordering
+├── archive/             # .fqc archive format
+│   ├── format.rs        # Binary layout (headers, blocks, footer)
+│   ├── reader.rs        # Archive reader
+│   ├── writer.rs        # Archive writer
+│   └── traits.rs        # Shared reader/writer traits
 ├── pipeline/            # Parallel processing stages
-├── format.rs            # Binary archive format
-├── fqc_writer.rs        # Archive writer
-├── fqc_reader.rs        # Archive reader
+├── fastq/               # FASTQ parser
+├── io/                  # Compressed input streams
+├── memory_budget.rs     # Memory budget estimation
 └── types.rs             # Public types and defaults
 ```
 

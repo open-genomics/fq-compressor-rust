@@ -1,9 +1,6 @@
 # fqc
 
-[![CI](https://github.com/LessUp/fq-compressor-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/LessUp/fq-compressor-rust/actions/workflows/ci.yml)
-[![Release](https://img.shields.io/github/v/release/LessUp/fq-compressor-rust?label=release)](https://github.com/LessUp/fq-compressor-rust/releases)
 [![License](https://img.shields.io/badge/license-GPL--3.0-green)](https://www.gnu.org/licenses/gpl-3.0.en.html)
-[![Docs](https://img.shields.io/badge/docs-live-4f46e5)](https://lessup.github.io/fq-compressor-rust/)
 
 `fqc` 是一个用 Rust 编写的 FASTQ 压缩工具，围绕块索引的 `.fqc` 归档格式构建。
 它将短读 ABC 路径、Zstd 支撑的中/长读压缩与质量分编码整合进单一 CLI，支持压缩、解压、检视与校验。
@@ -17,20 +14,19 @@
 
 ## 安装
 
-从 [GitHub Releases](https://github.com/LessUp/fq-compressor-rust/releases) 下载预编译二进制，或本地构建：
+从源码构建（需要 Rust 1.75.0+）：
 
 ```bash
+git clone https://github.com/open-genomics/fq-compressor-rust.git
+cd fq-compressor-rust
 cargo build --release
+# 或安装到 ~/.cargo/bin
 cargo install --path .
 ```
 
 ## 快速开始
 
 ```bash
-git clone https://github.com/LessUp/fq-compressor-rust.git
-cd fq-compressor-rust
-cargo build --release
-
 ./target/release/fqc compress -i tests/data/test_se.fastq -o sample.fqc
 ./target/release/fqc info -i sample.fqc
 ./target/release/fqc verify -i sample.fqc
@@ -41,10 +37,8 @@ cargo build --release
 
 ```bash
 fqc compress -i reads.fastq -o reads.fqc
-fqc compress -i reads.fastq -o reads.fqc --memory-limit 0
 fqc compress -i reads.fastq -o reads.fqc --pipeline
 fqc compress -i reads.fastq -o reads.fqc --streaming
-fqc compress -i reads.fastq -o reads.fqc --streaming --memory-limit 1024
 fqc compress -i reads_R1.fastq -2 reads_R2.fastq -o paired.fqc
 
 fqc decompress -i reads.fqc -o reads.fastq
@@ -57,20 +51,29 @@ fqc verify -i reads.fqc
 fqc verify -i reads.fqc --quick
 ```
 
+`--memory-limit` 是全局参数（必须位于子命令之前），`0` 保留默认的自动内存选择行为。
+低内存场景建议使用 `--streaming`；pipeline 模式为分阶段执行路径，archive 模式仍会全量读入以做全局分析：
+
+```bash
+fqc --memory-limit 1024 compress -i reads.fastq -o reads.fqc --streaming
+```
+
 ## 文档
 
-- **项目站点：** <https://lessup.github.io/fq-compressor-rust/>
-- **快速开始：** [docs/guide/quick-start.md](docs/guide/quick-start.md)
-- **CLI 参考：** [docs/guide/cli.md](docs/guide/cli.md)
-- **架构概述：** [docs/architecture/index.md](docs/architecture/index.md)
-- **性能路线图：** [docs/architecture/performance-roadmap.md](docs/architecture/performance-roadmap.md)
-- **算法：** [docs/algorithms/index.md](docs/algorithms/index.md)
+技术文档位于 [docs/](docs/README.md)（纯 Markdown）：
 
-`--memory-limit 0` 保留默认的自动内存选择行为。低内存场景建议使用 `--streaming`；pipeline 模式为分阶段执行路径，archive 模式仍会全量读入以做全局分析。
+- [技术白皮书](docs/whitepaper.md)与[理论基础](docs/theory.md)
+- [快速开始](docs/guide/quick-start.md)与 [CLI 参考](docs/guide/cli.md)
+- [架构总览](docs/architecture/index.md)与[决策记录](docs/architecture/decisions/index.md)
+- [算法与 ABC 详解](docs/algorithms/index.md)
+- [.fqc 格式规范](docs/reference/format-spec.md)
+- [基准测试报告](docs/benchmarks/performance-report.md)
 
 ## 开发
 
-AI 贡献指南见 [`AGENTS.md`](AGENTS.md)，领域语言见 [`CONTEXT.md`](CONTEXT.md)。
+- AI 贡献指南：[`AGENTS.md`](AGENTS.md)
+- 领域语言：[`CONTEXT.md`](CONTEXT.md)
+- 变更历史：[`CHANGELOG.md`](CHANGELOG.md)
 
 校验命令：
 
@@ -79,11 +82,8 @@ cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test --lib --tests
 cargo doc --no-deps
-npm run docs:build
 ```
 
-启用本地 Git 钩子：
+## 许可证
 
-```bash
-bash scripts/setup-hooks.sh
-```
+GPL-3.0-or-later，见 [LICENSE](LICENSE)。
