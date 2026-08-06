@@ -2,13 +2,8 @@
 /target/
 **/*.rs.bk
 
-# Cargo lock (binary project - keep it)
-# Cargo.lock
-
 # IDE
 .idea/
-.vscode/*
-!.vscode/extensions.json
 .windsurf/
 *.swp
 *.swo
@@ -38,11 +33,3 @@ flamegraph.svg
 lcov.info
 *.gcno
 *.gcda
-
-# Documentation build (Honkit)
-docs/.site/
-docs/.vitepress/dist/
-docs/.vitepress/cache/
-node_modules/
-.omc/
-.worktrees/
