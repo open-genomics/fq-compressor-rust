@@ -11,12 +11,6 @@ pub type ReadId = u64;
 /// Compression level (1-9)
 pub type CompressionLevel = u8;
 
-/// File offset type
-pub type FileOffset = u64;
-
-/// Checksum value type
-pub type Checksum = u64;
-
 /// Invalid block ID sentinel
 pub const INVALID_BLOCK_ID: BlockId = u32::MAX;
 
@@ -50,9 +44,6 @@ pub const MEDIUM_READ_THRESHOLD: usize = 1_024;
 /// Long read threshold (bytes)
 pub const LONG_READ_THRESHOLD: usize = 10_240;
 
-/// Ultra-long read threshold (bytes)
-pub const ULTRA_LONG_READ_THRESHOLD: usize = 102_400;
-
 /// Default placeholder quality character for discard mode
 pub const DEFAULT_PLACEHOLDER_QUAL: char = '!';
 
@@ -83,27 +74,6 @@ impl LengthStats {
         let max_length = *sorted.last().unwrap_or(&0);
         let median_length = sorted[sample_size / 2];
         let avg_length = sorted.iter().sum::<usize>() / sample_size;
-
-        Self {
-            sample_size,
-            avg_length,
-            median_length,
-            max_length,
-        }
-    }
-
-    /// Compute length statistics from an iterator, sorting in-place.
-    pub fn from_sorted_lengths(mut lengths: Vec<usize>) -> Self {
-        if lengths.is_empty() {
-            return Self::default();
-        }
-
-        lengths.sort_unstable();
-
-        let sample_size = lengths.len();
-        let max_length = *lengths.last().unwrap_or(&0);
-        let median_length = lengths[sample_size / 2];
-        let avg_length = lengths.iter().sum::<usize>() / sample_size;
 
         Self {
             sample_size,

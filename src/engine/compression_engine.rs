@@ -55,14 +55,6 @@ impl ProcessingStats {
         }
         (self.output_bytes as f64 * 8.0) / self.total_bases as f64
     }
-
-    /// Compute throughput in MB/s.
-    pub fn throughput_mbps(&self) -> f64 {
-        if self.elapsed_seconds == 0.0 {
-            return 0.0;
-        }
-        (self.input_bytes as f64 / 1_048_576.0) / self.elapsed_seconds
-    }
 }
 
 /// Outcome of a compression operation.
@@ -257,7 +249,6 @@ impl CompressionEngine {
         // Block compressor config
         let block_config = std::sync::Arc::new(BlockCompressorConfig {
             read_length_class: effective_length_class,
-            compression_level: request.level,
             quality_mode: request.quality_mode,
             id_mode: request.id_mode,
             zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(request.level),
@@ -535,7 +526,6 @@ impl CompressionEngine {
             save_reorder_map: request.enable_reorder && !input.is_paired,
             streaming_mode: false,
             pe_layout: input.archive_layout,
-            memory_limit_mb: request.memory_limit_mb,
         };
 
         let mut pipeline = CompressionPipeline::new(pipeline_config);
@@ -643,11 +633,6 @@ impl CompressionEngine {
             PeLayout::Interleaved => parser.collect_all_interleaved(),
             PeLayout::Consecutive => parser.collect_all_consecutive(),
         }
-    }
-
-    fn length_stats_from_records(records: &[ReadRecord]) -> LengthStats {
-        let lengths: Vec<usize> = records.iter().map(|r| r.sequence.len()).collect();
-        LengthStats::from_lengths(&lengths)
     }
 
     fn length_stats_from_records_sampled(records: &[ReadRecord], scan_all: bool) -> LengthStats {
@@ -766,7 +751,6 @@ impl CompressionEngine {
 
         let block_config = BlockCompressorConfig {
             read_length_class: effective_length_class,
-            compression_level: request.level,
             quality_mode: request.quality_mode,
             id_mode: request.id_mode,
             zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(request.level),
@@ -872,7 +856,6 @@ impl CompressionEngine {
 
         let block_config = BlockCompressorConfig {
             read_length_class: effective_length_class,
-            compression_level: request.level,
             quality_mode: request.quality_mode,
             id_mode: request.id_mode,
             zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(request.level),
@@ -989,7 +972,6 @@ impl CompressionEngine {
 
         let block_config = BlockCompressorConfig {
             read_length_class: effective_length_class,
-            compression_level: request.level,
             quality_mode: request.quality_mode,
             id_mode: request.id_mode,
             zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(request.level),

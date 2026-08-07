@@ -32,16 +32,6 @@ impl CompressionFormat {
             Self::Zstd => "zstd",
         }
     }
-
-    pub fn extension(self) -> &'static str {
-        match self {
-            Self::Plain => "",
-            Self::Gzip => ".gz",
-            Self::Bzip2 => ".bz2",
-            Self::Xz => ".xz",
-            Self::Zstd => ".zst",
-        }
-    }
 }
 
 // =============================================================================
@@ -148,11 +138,6 @@ pub fn supported_formats() -> Vec<CompressionFormat> {
     formats
 }
 
-/// Get list of supported file extensions
-pub fn supported_extensions() -> Vec<&'static str> {
-    vec![".fastq", ".fq", ".gz", ".gzip", ".bz2", ".xz", ".zst", ".zstd"]
-}
-
 // =============================================================================
 // Stream Opening
 // =============================================================================
@@ -203,15 +188,4 @@ pub fn open_buffered_reader(path: &str) -> Result<BufReader<Box<dyn Read + Send>
 /// Open stdin as a reader (plain text only)
 pub fn open_stdin_reader() -> Box<dyn Read + Send> {
     Box::new(std::io::stdin())
-}
-
-/// Strip compression extension from a filename to get the base name
-pub fn strip_compression_extension(path: &str) -> &str {
-    let lower = path.to_lowercase();
-    for ext in &[".gz", ".gzip", ".bz2", ".xz", ".zst", ".zstd"] {
-        if lower.ends_with(ext) {
-            return &path[..path.len() - ext.len()];
-        }
-    }
-    path
 }

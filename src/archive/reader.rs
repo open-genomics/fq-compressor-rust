@@ -4,7 +4,7 @@
 
 use crate::algo::block_compressor::delta_decode_ids;
 use crate::archive::format::*;
-use crate::archive::traits::{ArchiveReader, BlockData};
+use crate::archive::traits::BlockData;
 use crate::error::{FqcError, Result};
 use crate::types::{IdMode, PeLayout, QualityMode, ReadLengthClass};
 use byteorder::ReadBytesExt;
@@ -399,37 +399,3 @@ impl FqcReader {
 // =============================================================================
 // ArchiveReader Implementation
 // =============================================================================
-
-impl ArchiveReader for FqcReader {
-    fn global_header(&self) -> &GlobalHeader {
-        &self.global_header
-    }
-
-    fn block_count(&self) -> usize {
-        self.block_index.entries.len()
-    }
-
-    fn total_read_count(&self) -> u64 {
-        self.global_header.total_read_count
-    }
-
-    fn has_reorder_map(&self) -> bool {
-        self.footer.has_reorder_map()
-    }
-
-    fn load_reorder_map(&mut self) -> Result<()> {
-        self.load_reorder_map()
-    }
-
-    fn lookup_original_id(&self, archive_id: u64) -> Option<u64> {
-        self.lookup_original_id(archive_id)
-    }
-
-    fn read_block(&mut self, block_id: u32) -> Result<BlockData> {
-        self.read_block(block_id)
-    }
-
-    fn read_block_header(&mut self, block_id: u32) -> Result<BlockHeader> {
-        self.read_block_header(block_id)
-    }
-}

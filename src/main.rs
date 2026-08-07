@@ -1,7 +1,9 @@
 // =============================================================================
 // fqc - High-performance FASTQ compressor with random access support
 // =============================================================================
-// Public API fields may not be used internally but are available to consumers
+// The bin re-declares the crate's module tree, so lib-level public API used by
+// integration tests (e.g. dna helpers, parser stats) is "unused" from the bin
+// perspective. Keep this allow scoped to the bin only.
 #![allow(dead_code)]
 
 #[cfg(target_env = "musl")]
@@ -32,8 +34,9 @@ use types::*;
 
 /// fqc: High-performance FASTQ compressor with random access support.
 ///
-/// The .fqc format achieves 0.4-0.6 bits/base using the ABC algorithm
-/// for short reads and Zstd for medium/long reads.
+/// The .fqc format combines the ABC algorithm for short reads with Zstd
+/// for medium/long reads, targeting competitive compression on similar
+/// short-read data.
 #[derive(Parser, Debug)]
 #[command(
     name = "fqc",
@@ -100,7 +103,7 @@ enum Commands {
         #[arg(long)]
         streaming: bool,
 
-        /// Lossy quality mode: none, illumina8, qvz, discard
+        /// Quality mode: none (lossless), illumina8 (8-bin lossy), qvz (alias of lossless, not yet implemented), discard
         #[arg(long, default_value = "none",
               value_parser = clap::builder::PossibleValuesParser::new(["none", "illumina8", "qvz", "discard"]))]
         lossy_quality: String,

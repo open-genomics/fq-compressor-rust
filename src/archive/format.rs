@@ -50,7 +50,6 @@ const MAX_FORWARD_COMPAT_PADDING: usize = 1 << 20;
 pub mod flags {
     pub const IS_PAIRED: u64 = 1 << 0;
     pub const PRESERVE_ORDER: u64 = 1 << 1;
-    pub const LEGACY_LONG_READ_MODE: u64 = 1 << 2;
     pub const QUALITY_MODE_MASK: u64 = 0x3 << 3;
     pub const QUALITY_MODE_SHIFT: u8 = 3;
     pub const ID_MODE_MASK: u64 = 0x3 << 5;
@@ -145,7 +144,6 @@ const MAX_GLOBAL_HEADER_SIZE: usize = GLOBAL_HEADER_MIN_SIZE + MAX_FORWARD_COMPA
 
 #[derive(Debug, Clone, Default)]
 pub struct GlobalHeader {
-    pub header_size: u32,
     pub flags: u64,
     pub compression_algo: u8,
     pub checksum_type: u8,
@@ -157,10 +155,7 @@ pub struct GlobalHeader {
 
 impl GlobalHeader {
     pub fn new(flags: u64, total_read_count: u64, original_filename: &str, timestamp: u64) -> Self {
-        let fname_bytes = original_filename.len();
-        let header_size = (GLOBAL_HEADER_MIN_SIZE + fname_bytes) as u32;
         Self {
-            header_size,
             flags,
             compression_algo: 0,
             checksum_type: ChecksumType::XxHash64 as u8,
@@ -229,7 +224,6 @@ impl GlobalHeader {
         }
 
         Ok(Self {
-            header_size,
             flags,
             compression_algo,
             checksum_type,

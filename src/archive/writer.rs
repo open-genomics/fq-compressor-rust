@@ -4,7 +4,6 @@
 
 use crate::algo::block_compressor::{delta_encode_ids, CompressedBlockData};
 use crate::archive::format::*;
-use crate::archive::traits::ArchiveWriter;
 use crate::error::{FqcError, Result};
 use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
@@ -193,29 +192,3 @@ impl FqcWriter {
 // =============================================================================
 // ArchiveWriter Implementation
 // =============================================================================
-
-impl ArchiveWriter for FqcWriter {
-    fn write_global_header(&mut self, header: &GlobalHeader) -> Result<()> {
-        self.write_global_header(header)
-    }
-
-    fn write_block(&mut self, block: &CompressedBlockData) -> Result<u64> {
-        self.write_block(block)
-    }
-
-    fn write_block_with_id(&mut self, block: &CompressedBlockData, archive_id_start: u64) -> Result<u64> {
-        self.write_block_with_id(block, archive_id_start)
-    }
-
-    fn write_reorder_map(&mut self, forward_map: &[u64], reverse_map: &[u64]) -> Result<u64> {
-        self.write_reorder_map(forward_map, reverse_map)
-    }
-
-    fn patch_total_read_count(&mut self, total_read_count: u64) -> Result<()> {
-        self.patch_total_read_count(total_read_count)
-    }
-
-    fn finalize(self) -> Result<()> {
-        self.finalize()
-    }
-}

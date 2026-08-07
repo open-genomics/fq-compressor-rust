@@ -271,7 +271,6 @@ impl<'a> ArithmeticDecoder<'a> {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ContextOrder {
-    Order0,
     Order1,
     Order2,
 }
@@ -297,7 +296,6 @@ impl QualityContextModel {
 
     fn compute_num_contexts(order: ContextOrder, num_position_bins: usize) -> usize {
         let qual_contexts = match order {
-            ContextOrder::Order0 => 1,
             ContextOrder::Order1 => NUM_QUALITY_SYMBOLS,
             ContextOrder::Order2 => NUM_QUALITY_SYMBOLS * NUM_QUALITY_SYMBOLS,
         };
@@ -306,7 +304,6 @@ impl QualityContextModel {
 
     fn context_index(&self, prev1: usize, prev2: usize, pos_bin: usize) -> usize {
         let qual_ctx = match self.order {
-            ContextOrder::Order0 => 0,
             ContextOrder::Order1 => prev1,
             ContextOrder::Order2 => prev1 * NUM_QUALITY_SYMBOLS + prev2,
         };
@@ -529,7 +526,7 @@ impl QualityCompressorTrait for QualityCompressor {
         match self.config.quality_mode {
             QualityMode::Discard => encode_codec(CodecFamily::Raw, 0),
             QualityMode::Lossless | QualityMode::Illumina8 | QualityMode::Qvz => match self.config.context_order {
-                ContextOrder::Order0 | ContextOrder::Order1 => encode_codec(CodecFamily::ScmOrder1, 0),
+                ContextOrder::Order1 => encode_codec(CodecFamily::ScmOrder1, 0),
                 ContextOrder::Order2 => encode_codec(CodecFamily::ScmV1, 0),
             },
         }

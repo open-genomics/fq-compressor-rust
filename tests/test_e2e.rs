@@ -976,7 +976,6 @@ fn test_e2e_pipeline_roundtrip() {
         save_reorder_map: false,
         streaming_mode: false,
         pe_layout: PeLayout::Interleaved,
-        memory_limit_mb: 1024,
         ..Default::default()
     };
 
@@ -1012,7 +1011,6 @@ fn test_e2e_pipeline_respects_save_reorder_map_flag() {
         save_reorder_map: false,
         streaming_mode: false,
         pe_layout: PeLayout::Interleaved,
-        memory_limit_mb: 1024,
         ..Default::default()
     };
 

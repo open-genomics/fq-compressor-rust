@@ -47,14 +47,6 @@ impl ParserStats {
         }
     }
 
-    pub fn n_fraction(&self) -> f64 {
-        if self.total_bases == 0 {
-            0.0
-        } else {
-            self.total_n_count as f64 / self.total_bases as f64
-        }
-    }
-
     fn update(&mut self, record: &ReadRecord, raw_bytes: usize) {
         self.total_records += 1;
         let len = record.sequence.len();
@@ -293,18 +285,6 @@ impl<R: BufRead> FastqParser<R> {
         Ok(records)
     }
 
-    /// Sample up to `n` records evenly spaced from the input.
-    /// Reads all records but only keeps sampled ones.
-    pub fn sample_records(&mut self, n: usize) -> Result<Vec<ReadRecord>> {
-        let all = self.collect_all()?;
-        if all.len() <= n {
-            return Ok(all);
-        }
-        let step = all.len() as f64 / n as f64;
-        let sampled: Vec<ReadRecord> = (0..n).map(|i| all[(i as f64 * step) as usize].clone()).collect();
-        Ok(sampled)
-    }
-
     /// Apply a callback to each record (avoids collecting all into memory)
     pub fn for_each<F>(&mut self, mut f: F) -> Result<u64>
     where
@@ -480,27 +460,6 @@ pub fn validate_pe_pair_ids(id1: &str, id2: &str) -> bool {
         }
     }
     false
-}
-
-/// Detect if a FASTQ file is in interleaved paired-end format by checking the first few records.
-pub fn detect_interleaved_format(path: &str) -> Result<bool> {
-    let mut parser = open_fastq(path)?;
-    let mut pairs_checked = 0;
-    for _ in 0..4 {
-        let r1 = match parser.next_record()? {
-            Some(r) => r,
-            None => break,
-        };
-        let r2 = match parser.next_record()? {
-            Some(r) => r,
-            None => return Ok(false), // Odd number of reads
-        };
-        if !validate_pe_pair_ids(&r1.id, &r2.id) {
-            return Ok(false);
-        }
-        pairs_checked += 1;
-    }
-    Ok(pairs_checked > 0)
 }
 
 /// Write a single FASTQ record to a writer

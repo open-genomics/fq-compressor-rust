@@ -30,7 +30,6 @@ use xxhash_rust::xxh64::Xxh64;
 #[derive(Debug, Clone)]
 pub struct BlockCompressorConfig {
     pub read_length_class: ReadLengthClass,
-    pub compression_level: CompressionLevel,
     pub quality_mode: QualityMode,
     pub id_mode: IdMode,
     pub max_shift: usize,
@@ -44,7 +43,6 @@ impl Default for BlockCompressorConfig {
     fn default() -> Self {
         Self {
             read_length_class: ReadLengthClass::Short,
-            compression_level: DEFAULT_COMPRESSION_LEVEL,
             quality_mode: QualityMode::Lossless,
             id_mode: IdMode::Exact,
             max_shift: 32,
@@ -125,7 +123,6 @@ impl CompressedBlockData {
 
 #[derive(Debug, Default)]
 pub struct DecompressedBlockData {
-    pub block_id: BlockId,
     pub reads: Vec<ReadRecord>,
 }
 
@@ -139,7 +136,6 @@ pub struct DecompressedBlockData {
 /// - [`BlockCompressor::for_short_reads`] — uses ABC for sequences
 /// - [`BlockCompressor::for_long_reads`] — uses Zstd for sequences
 pub struct BlockCompressor {
-    sequence: Box<dyn SequenceCompressor>,
     quality: Box<dyn QualityCompressor>,
     id: Box<dyn IdCompressor>,
     aux: Box<dyn AuxCompressor>,
@@ -150,7 +146,6 @@ impl BlockCompressor {
     /// Create a compressor for short reads (uses ABC algorithm).
     pub fn for_short_reads(config: BlockCompressorConfig) -> Self {
         Self {
-            sequence: Box::new(AbcCompressor::new(config.to_abc_config())),
             quality: Box::new(ScmQualityCompressor::new(config.to_quality_config())),
             id: Box::new(DeltaZstdIdCompressor::new(
                 config.zstd_level,
@@ -165,7 +160,6 @@ impl BlockCompressor {
     /// Create a compressor for medium/long reads (uses Zstd).
     pub fn for_long_reads(config: BlockCompressorConfig) -> Self {
         Self {
-            sequence: Box::new(ZstdSequenceCompressor::new(config.zstd_level)),
             quality: Box::new(ScmQualityCompressor::new(config.to_quality_config())),
             id: Box::new(DeltaZstdIdCompressor::new(
                 config.zstd_level,
@@ -183,10 +177,6 @@ impl BlockCompressor {
             ReadLengthClass::Short => Self::for_short_reads(config),
             ReadLengthClass::Medium | ReadLengthClass::Long => Self::for_long_reads(config),
         }
-    }
-
-    pub fn config(&self) -> &BlockCompressorConfig {
-        &self.config
     }
 
     pub fn compress(&mut self, reads: &[ReadRecord], block_id: BlockId) -> Result<CompressedBlockData> {
@@ -253,7 +243,7 @@ impl BlockCompressor {
     #[allow(clippy::too_many_arguments)]
     pub fn decompress_raw(
         &mut self,
-        block_id: BlockId,
+        _block_id: BlockId,
         read_count: u32,
         uniform_read_length: u32,
         codec_seq: u8,
@@ -263,7 +253,6 @@ impl BlockCompressor {
         aux_stream: &[u8],
     ) -> Result<DecompressedBlockData> {
         let mut result = DecompressedBlockData {
-            block_id,
             reads: vec![ReadRecord::default(); read_count as usize],
         };
 

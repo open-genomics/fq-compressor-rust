@@ -639,7 +639,6 @@ impl DecompressCommand {
             header_only: self.opts.header_only,
             skip_corrupted: self.opts.skip_corrupted,
             corrupted_placeholder: self.opts.corrupted_placeholder.clone(),
-            split_pe: false,
             ..Default::default()
         };
 

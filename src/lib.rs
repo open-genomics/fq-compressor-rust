@@ -27,7 +27,6 @@
 
 #![allow(missing_docs)]
 // Public API fields may not be used internally but are available to consumers
-#![allow(dead_code)]
 
 pub mod algo;
 pub mod archive;

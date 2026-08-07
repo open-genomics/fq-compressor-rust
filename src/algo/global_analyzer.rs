@@ -15,8 +15,6 @@ use std::collections::HashMap;
 #[derive(Debug, Clone)]
 pub struct Minimizer {
     pub hash: u64,
-    pub position: u32,
-    pub is_rc: bool,
 }
 
 fn compute_kmer_hash(seq: &[u8]) -> u64 {
@@ -57,17 +55,7 @@ pub fn extract_minimizers(seq: &[u8], k: usize, w: usize) -> Vec<Minimizer> {
         }
 
         if min_pos != prev_min_pos {
-            let mut fwd_hash: u64 = 0;
-            for i in 0..k {
-                let base = BASE_TO_INDEX[seq[min_pos + i] as usize] as u64;
-                fwd_hash = (fwd_hash << 2) | base;
-            }
-            let is_rc = min_hash != fwd_hash;
-            minimizers.push(Minimizer {
-                hash: min_hash,
-                position: min_pos as u32,
-                is_rc,
-            });
+            minimizers.push(Minimizer { hash: min_hash });
             prev_min_pos = min_pos;
         }
     }
@@ -85,7 +73,6 @@ pub struct GlobalAnalyzerConfig {
     pub minimizer_k: usize,
     pub minimizer_w: usize,
     pub enable_reorder: bool,
-    pub memory_limit: usize,
     pub max_search_reorder: usize,
     pub read_length_class: Option<ReadLengthClass>,
 }
@@ -97,7 +84,6 @@ impl Default for GlobalAnalyzerConfig {
             minimizer_k: 15,
             minimizer_w: 10,
             enable_reorder: true,
-            memory_limit: 0,
             max_search_reorder: 64,
             read_length_class: None,
         }
@@ -121,7 +107,6 @@ pub struct BlockBoundary {
 
 #[derive(Debug, Default)]
 pub struct GlobalAnalysisResult {
-    pub total_reads: u64,
     pub max_read_length: usize,
     pub length_class: ReadLengthClass,
     pub reordering_performed: bool,
@@ -129,23 +114,6 @@ pub struct GlobalAnalysisResult {
     pub reverse_map: Vec<ReadId>,
     pub block_boundaries: Vec<BlockBoundary>,
     pub num_blocks: usize,
-}
-
-impl GlobalAnalysisResult {
-    pub fn find_block(&self, archive_id: ReadId) -> Option<BlockId> {
-        let idx = self
-            .block_boundaries
-            .partition_point(|b| b.archive_id_start <= archive_id);
-        if idx == 0 {
-            return None;
-        }
-        let b = &self.block_boundaries[idx - 1];
-        if archive_id >= b.archive_id_start && archive_id < b.archive_id_end {
-            Some(b.block_id)
-        } else {
-            None
-        }
-    }
 }
 
 // =============================================================================
@@ -164,10 +132,7 @@ impl GlobalAnalyzer {
     pub fn analyze(&self, sequences: &[String]) -> Result<GlobalAnalysisResult> {
         let total_reads = sequences.len() as u64;
 
-        let mut result = GlobalAnalysisResult {
-            total_reads,
-            ..Default::default()
-        };
+        let mut result = GlobalAnalysisResult::default();
 
         if sequences.is_empty() {
             return Ok(result);

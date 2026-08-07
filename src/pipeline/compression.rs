@@ -40,7 +40,6 @@ pub struct CompressionPipelineConfig {
     pub save_reorder_map: bool,
     pub streaming_mode: bool,
     pub pe_layout: PeLayout,
-    pub memory_limit_mb: usize,
 }
 
 impl Default for CompressionPipelineConfig {
@@ -57,7 +56,6 @@ impl Default for CompressionPipelineConfig {
             save_reorder_map: true,
             streaming_mode: false,
             pe_layout: PeLayout::Interleaved,
-            memory_limit_mb: 0,
         }
     }
 }
@@ -109,7 +107,6 @@ fn num_cpus() -> usize {
 struct OrderedBlock {
     chunk_id: u32,
     compressed: CompressedBlockData,
-    is_last: bool,
 }
 
 // =============================================================================
@@ -129,10 +126,6 @@ impl CompressionPipeline {
             control: PipelineControl::new(),
             stats: PipelineStats::default(),
         }
-    }
-
-    pub fn control(&self) -> &PipelineControl {
-        &self.control
     }
 
     pub fn stats(&self) -> &PipelineStats {
@@ -210,7 +203,6 @@ impl CompressionPipeline {
 
         let compressor_config = BlockCompressorConfig {
             read_length_class: self.config.read_length_class,
-            compression_level: self.config.compression_level,
             quality_mode: self.config.quality_mode,
             id_mode: self.config.id_mode,
             zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(self.config.compression_level),
@@ -232,7 +224,6 @@ impl CompressionPipeline {
         // ---- Reader thread: send chunks ----
         let reader_control = control.clone();
         let reader_handle = thread::spawn(move || -> Result<()> {
-            let mut start_read_id: u64 = 0;
             for (i, chunk_reads) in chunks.into_iter().enumerate() {
                 if reader_control.is_cancelled() {
                     break;
@@ -240,10 +231,7 @@ impl CompressionPipeline {
                 let chunk = ReadChunk {
                     reads: chunk_reads,
                     chunk_id: i as u32,
-                    start_read_id,
-                    is_last: i + 1 == num_chunks,
                 };
-                start_read_id += chunk.size() as u64;
                 chunk_tx
                     .send(chunk)
                     .map_err(|_| FqcError::Compression("Reader: channel closed".to_string()))?;
@@ -274,7 +262,6 @@ impl CompressionPipeline {
                     tx.send(OrderedBlock {
                         chunk_id: chunk.chunk_id,
                         compressed,
-                        is_last: chunk.is_last,
                     })
                     .map_err(|_| FqcError::Compression("Compressor: channel closed".to_string()))?;
                 }
@@ -364,8 +351,6 @@ impl CompressionPipeline {
             input_bytes: input_bytes as u64,
             output_bytes,
             processing_time_ms: elapsed.as_millis() as u64,
-            peak_memory_bytes: 0,
-            threads_used: threads,
             reorder_map_written,
         };
 
@@ -417,7 +402,6 @@ impl CompressionPipeline {
             )
         });
         let block_size = self.config.effective_block_size();
-        let threads = self.config.effective_threads();
 
         let (ordered_reads, forward_map, reverse_map) = if self.config.enable_reorder && !self.config.streaming_mode {
             let ga_config = GlobalAnalyzerConfig {
@@ -451,7 +435,6 @@ impl CompressionPipeline {
 
         let compressor_config = BlockCompressorConfig {
             read_length_class: self.config.read_length_class,
-            compression_level: self.config.compression_level,
             quality_mode: self.config.quality_mode,
             id_mode: self.config.id_mode,
             zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(self.config.compression_level),
@@ -498,8 +481,6 @@ impl CompressionPipeline {
             input_bytes: input_bytes as u64,
             output_bytes,
             processing_time_ms: elapsed.as_millis() as u64,
-            peak_memory_bytes: 0,
-            threads_used: threads,
             reorder_map_written,
         };
 
@@ -541,7 +522,6 @@ impl CompressionPipeline {
             )
         });
         let block_size = self.config.effective_block_size();
-        let threads = self.config.effective_threads();
 
         let (ordered_reads, forward_map, reverse_map) = if self.config.enable_reorder && !self.config.streaming_mode {
             let ga_config = GlobalAnalyzerConfig {
@@ -575,7 +555,6 @@ impl CompressionPipeline {
 
         let compressor_config = BlockCompressorConfig {
             read_length_class: self.config.read_length_class,
-            compression_level: self.config.compression_level,
             quality_mode: self.config.quality_mode,
             id_mode: self.config.id_mode,
             zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(self.config.compression_level),
@@ -622,19 +601,9 @@ impl CompressionPipeline {
             input_bytes: input_bytes as u64,
             output_bytes,
             processing_time_ms: elapsed.as_millis() as u64,
-            peak_memory_bytes: 0,
-            threads_used: threads,
             reorder_map_written,
         };
 
         Ok(())
-    }
-
-    pub fn cancel(&self) {
-        self.control.cancel();
-    }
-
-    pub fn is_cancelled(&self) -> bool {
-        self.control.is_cancelled()
     }
 }

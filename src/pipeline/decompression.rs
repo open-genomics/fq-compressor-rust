@@ -33,10 +33,8 @@ pub struct DecompressionPipelineConfig {
     pub range_end: u64,
     pub original_order: bool,
     pub header_only: bool,
-    pub verify_checksums: bool,
     pub skip_corrupted: bool,
     pub corrupted_placeholder: Option<String>,
-    pub split_pe: bool,
 }
 
 impl Default for DecompressionPipelineConfig {
@@ -48,10 +46,8 @@ impl Default for DecompressionPipelineConfig {
             range_end: 0,
             original_order: false,
             header_only: false,
-            verify_checksums: true,
             skip_corrupted: false,
             corrupted_placeholder: None,
-            split_pe: false,
         }
     }
 }
@@ -80,13 +76,11 @@ impl DecompressionPipelineConfig {
 struct BlockTask {
     block_id: u32,
     block_data: BlockData,
-    is_last: bool,
 }
 
 struct DecompressedResult {
     block_id: u32,
     result: std::result::Result<DecompressedBlockData, FqcError>,
-    is_last: bool,
     expected_read_count: u32,
 }
 
@@ -140,10 +134,6 @@ impl DecompressionPipeline {
             control: PipelineControl::new(),
             stats: PipelineStats::default(),
         }
-    }
-
-    pub fn control(&self) -> &PipelineControl {
-        &self.control
     }
 
     pub fn stats(&self) -> &PipelineStats {
@@ -223,13 +213,11 @@ impl DecompressionPipeline {
                     .get(block_id)
                     .map(|entry| entry.read_count)
                     .unwrap_or(0);
-                let is_last = block_id + 1 == end_block;
                 match reader.read_block(block_id as u32) {
                     Ok(block_data) => task_tx
                         .send(BlockTask {
                             block_id: block_id as u32,
                             block_data,
-                            is_last,
                         })
                         .map_err(|_| FqcError::Decompression("Reader: channel closed".to_string()))?,
                     Err(e) => {
@@ -238,7 +226,6 @@ impl DecompressionPipeline {
                                 .send(DecompressedResult {
                                     block_id: block_id as u32,
                                     result: Err(e),
-                                    is_last,
                                     expected_read_count,
                                 })
                                 .map_err(|_| FqcError::Decompression("Reader: result channel closed".to_string()))?;
@@ -277,7 +264,6 @@ impl DecompressionPipeline {
                     tx.send(DecompressedResult {
                         block_id: task.block_id,
                         result: decomp_result,
-                        is_last: task.is_last,
                         expected_read_count: bh.uncompressed_count,
                     })
                     .map_err(|_| FqcError::Decompression("Decompressor: channel closed".to_string()))?;
@@ -393,8 +379,6 @@ impl DecompressionPipeline {
             input_bytes: file_size,
             output_bytes,
             processing_time_ms: elapsed.as_millis() as u64,
-            peak_memory_bytes: 0,
-            threads_used: threads,
             reorder_map_written: false,
         };
 
@@ -436,13 +420,5 @@ impl DecompressionPipeline {
         }
 
         (start_block, end_block)
-    }
-
-    pub fn cancel(&self) {
-        self.control.cancel();
-    }
-
-    pub fn is_cancelled(&self) -> bool {
-        self.control.is_cancelled()
     }
 }

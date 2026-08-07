@@ -2,14 +2,10 @@
 // fqc-rust - Compress Command
 // =============================================================================
 
-use crate::algo::block_compressor::BlockCompressorConfig;
 use crate::engine::compression_request::{CompressionExecutionMode, CompressionInputTopology, CompressionRequest};
 use crate::error::{FqcError, Result};
-use crate::pipeline::compression::CompressionPipelineConfig;
 use crate::types::*;
 use std::path::PathBuf;
-
-const DEFAULT_LENGTH_SAMPLE_READS: usize = 4_096;
 
 // =============================================================================
 // CompressOptions
@@ -67,42 +63,6 @@ impl Default for CompressOptions {
 }
 
 impl CompressOptions {
-    /// Create a BlockCompressorConfig from these options.
-    pub fn to_block_config(&self, read_length_class: ReadLengthClass) -> BlockCompressorConfig {
-        BlockCompressorConfig {
-            read_length_class,
-            compression_level: self.level,
-            quality_mode: self.quality_mode,
-            id_mode: self.id_mode,
-            zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(self.level),
-            ..Default::default()
-        }
-    }
-
-    /// Create a CompressionPipelineConfig from these options.
-    pub fn to_pipeline_config(
-        &self,
-        read_length_class: ReadLengthClass,
-        block_size: usize,
-        max_in_flight_blocks: usize,
-        is_paired: bool,
-    ) -> CompressionPipelineConfig {
-        CompressionPipelineConfig {
-            num_threads: self.threads,
-            max_in_flight_blocks,
-            block_size,
-            read_length_class,
-            quality_mode: self.quality_mode,
-            id_mode: self.id_mode,
-            compression_level: self.level,
-            enable_reorder: self.enable_reorder && !is_paired,
-            save_reorder_map: self.enable_reorder && !is_paired,
-            streaming_mode: false,
-            pe_layout: self.pe_layout,
-            memory_limit_mb: self.memory_limit_mb,
-        }
-    }
-
     /// Normalize CompressOptions into a CompressionRequest.
     ///
     /// This method converts the CLI-facing compression options into the
