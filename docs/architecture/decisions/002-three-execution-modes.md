@@ -201,7 +201,7 @@ flowchart TD
 模式选择在 `CompressionEngine` 中实现：
 
 ```rust
-// src/commands/compression_engine.rs
+// src/engine/compression_engine.rs
 pub enum ExecutionMode {
     Archive,    // 默认
     Streaming,  // --streaming

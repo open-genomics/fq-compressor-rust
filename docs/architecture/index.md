@@ -45,9 +45,9 @@ flowchart TD
 | --- | --- | --- |
 | CLI | `src/main.rs`, `src/commands/*` | 解析参数并分发命令行为 |
 | FASTQ I/O | `src/fastq/parser.rs`, `src/io/*` | 读取 FASTQ 输入和压缩流变体 |
-| 归档格式 | `src/format.rs`, `src/fqc_writer.rs`, `src/fqc_reader.rs` | 编码和解码 `.fqc` 容器 |
+| 归档格式 | `src/archive/format.rs`, `src/archive/writer.rs`, `src/archive/reader.rs` | 编码和解码 `.fqc` 容器 |
 | 压缩逻辑 | `src/algo/*` | 序列、质量、ID、重排和双端逻辑 |
-| 压缩编排 | `src/commands/compression_engine.rs`, `src/commands/compression_request.rs` | 规范请求、路由执行模式并捕获结果 |
+| 压缩编排 | `src/engine/compression_engine.rs`, `src/engine/compression_request.rs` | 规范请求、路由执行模式并捕获结果 |
 | 流水线 | `src/pipeline/*` | 读取器/压缩器/写入器并行流（pipeline 模式） |
 | 共享类型 | `src/types.rs`, `src/error.rs` | 公共类型、默认值和退出码映射 |
 

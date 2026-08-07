@@ -29,7 +29,7 @@ fqc compress -i INPUT -o OUTPUT [OPTIONS]
 | `-l, --level` | 压缩级别 `1..9`（默认：`5`） |
 | `--reorder <true|false>` | 启用或禁用全局读段重排 |
 | `--streaming` | 禁用重排，增量处理输入 |
-| `--lossy-quality` | `none`、`illumina8`、`qvz` 或 `discard` |
+| `--lossy-quality` | `none`、`illumina8`、`qvz`（无损别名，真 QVZ 未实现）或 `discard` |
 | `--long-read-mode` | `auto`、`short`、`medium` 或 `long` |
 | `--interleaved` | 将输入视为交错双端 FASTQ |
 | `--max-block-bases` | 限制中长读每块碱基数 |

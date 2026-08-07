@@ -134,18 +134,19 @@ The codebase is organized into layers:
 
 1. **Commands** (`src/commands/`): CLI orchestration
    - `compress`, `decompress`, `info`, `verify`: CLI entry points
-   - `compression_engine`: Normalized compression execution with mode dispatch
+2. **Engine** (`src/engine/`): Normalized compression orchestration
+   - `compression_engine`: Mode dispatch (archive/streaming/pipeline)
    - `compression_request`: Request types for compression orchestration
-2. **Pipeline** (`src/pipeline/`): Parallel processing stages
-3. **Algorithms** (`src/algo/`): Compression algorithms
+3. **Pipeline** (`src/pipeline/`): Parallel processing stages
+4. **Algorithms** (`src/algo/`): Compression algorithms
    - `abc`: Anchor-Based Compression
    - `block_compressor`: Block-level orchestration
    - `quality_compressor`: SCM for quality scores
    - `id_compressor`: ID tokenization/encoding
    - `global_analyzer`: Minimizer extraction, reordering
-4. **Format** (`src/format.rs`): Binary format definitions
-5. **I/O** (`src/io/`): Async I/O, compressed stream detection
-6. **FASTQ** (`src/fastq/`): Parsing and validation
+5. **Format** (`src/archive/format.rs`): Binary format definitions
+6. **I/O** (`src/io/`): Async I/O, compressed stream detection
+7. **FASTQ** (`src/fastq/`): Parsing and validation
 
 ## Compression Orchestration
 
