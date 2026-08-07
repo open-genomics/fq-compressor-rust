@@ -184,7 +184,8 @@ impl CompressionEngine {
             &length_stats,
             request.max_block_bases,
         );
-        let enable_reorder = !input.is_paired && effective_length_class == ReadLengthClass::Short;
+        let enable_reorder =
+            request.enable_reorder && !input.is_paired && effective_length_class == ReadLengthClass::Short;
 
         Self::enforce_archive_mode_memory_limit(records.len(), block_size, &length_stats, request.memory_limit_mb)?;
 
@@ -530,8 +531,8 @@ impl CompressionEngine {
             quality_mode: request.quality_mode,
             id_mode: request.id_mode,
             compression_level: request.level,
-            enable_reorder: !input.is_paired,
-            save_reorder_map: !input.is_paired,
+            enable_reorder: request.enable_reorder && !input.is_paired,
+            save_reorder_map: request.enable_reorder && !input.is_paired,
             streaming_mode: false,
             pe_layout: input.archive_layout,
             memory_limit_mb: request.memory_limit_mb,

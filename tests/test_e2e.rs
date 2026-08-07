@@ -15,6 +15,7 @@ use fqc::archive::reader::FqcReader;
 use fqc::archive::writer::FqcWriter;
 use fqc::commands::compress::{CompressCommand, CompressOptions};
 use fqc::commands::decompress::{DecompressCommand, DecompressOptions};
+use fqc::engine::compression_request::CompressionInputTopology;
 use fqc::error::ExitCode;
 use fqc::fastq::parser::{FastqParser, ParserOptions};
 use fqc::io::compressed_stream::*;
@@ -1113,4 +1114,42 @@ fn test_e2e_multiblock_roundtrip() {
     decompress_file(compressed.path(), decompressed.path());
     let restored = read_fastq_records(decompressed.path());
     assert_roundtrip_match(&records, &restored);
+}
+
+// =============================================================================
+// E2E: --reorder flag is honored in archive mode (regression)
+// =============================================================================
+
+#[test]
+fn test_e2e_archive_mode_honors_reorder_flag() {
+    use fqc::engine::compression_engine::CompressionEngine;
+    use fqc::engine::compression_request::CompressionRequest;
+
+    let input = test_data_dir().join("test_se.fastq").to_string_lossy().to_string();
+    let reordered = TempFile::new("e2e_reorder_on.fqc");
+    let plain = TempFile::new("e2e_reorder_off.fqc");
+
+    let mut req_on = CompressionRequest::for_tests();
+    req_on.input = CompressionInputTopology::SingleFile {
+        input_path: input.clone().into(),
+    };
+    req_on.output_path = reordered.path().into();
+    req_on.force_overwrite = true;
+    req_on.enable_reorder = true;
+    let outcome_on = CompressionEngine::new().run(req_on).unwrap();
+    assert!(outcome_on.reorder_map_written);
+
+    let mut req_off = CompressionRequest::for_tests();
+    req_off.input = CompressionInputTopology::SingleFile {
+        input_path: input.clone().into(),
+    };
+    req_off.output_path = plain.path().into();
+    req_off.force_overwrite = true;
+    req_off.enable_reorder = false;
+    let outcome_off = CompressionEngine::new().run(req_off).unwrap();
+    assert!(!outcome_off.reorder_map_written);
+
+    let reader = FqcReader::open(plain.path()).unwrap();
+    assert!(!reader.has_reorder_map());
+    assert!(reader.info().preserve_order);
 }

@@ -114,6 +114,8 @@ pub struct CompressionRequest {
     pub quality_mode: QualityMode,
     /// ID encoding mode
     pub id_mode: IdMode,
+    /// Enable global read reordering (short single-end reads)
+    pub enable_reorder: bool,
     /// Requested read length class (None = auto-detect)
     pub requested_read_length_class: Option<ReadLengthClass>,
     /// Number of threads (0 = auto)
@@ -147,6 +149,7 @@ impl CompressionRequest {
             level: crate::types::DEFAULT_COMPRESSION_LEVEL,
             quality_mode: QualityMode::Lossless,
             id_mode: IdMode::Exact,
+            enable_reorder: true,
             requested_read_length_class: None,
             threads: 1,
             memory_limit_mb: 0,

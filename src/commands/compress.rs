@@ -158,6 +158,7 @@ impl CompressOptions {
             level: self.level,
             quality_mode: self.quality_mode,
             id_mode: self.id_mode,
+            enable_reorder: self.enable_reorder,
             requested_read_length_class: self.read_length_class,
             threads: self.threads,
             memory_limit_mb: self.memory_limit_mb,
