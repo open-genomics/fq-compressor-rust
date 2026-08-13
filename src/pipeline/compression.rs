@@ -15,9 +15,9 @@ use crossbeam_channel::{bounded, Receiver, Sender};
 use crate::algo::block_compressor::{BlockCompressor, BlockCompressorConfig, CompressedBlockData};
 use crate::algo::global_analyzer::{GlobalAnalyzer, GlobalAnalyzerConfig};
 use crate::archive::format::{build_flags, GlobalHeader};
-use crate::archive::writer::FqcWriter;
 use crate::error::{FqcError, Result};
 use crate::fastq::parser::{open_fastq, open_fastq_interleaved, open_fastq_paired, open_fastq_stdin};
+use crate::io::begin_fqc_writer;
 use crate::types::*;
 
 use super::{PipelineControl, PipelineStats, ReadChunk, DEFAULT_MAX_IN_FLIGHT_BLOCKS};
@@ -40,6 +40,7 @@ pub struct CompressionPipelineConfig {
     pub save_reorder_map: bool,
     pub streaming_mode: bool,
     pub pe_layout: PeLayout,
+    pub force_overwrite: bool,
 }
 
 impl Default for CompressionPipelineConfig {
@@ -56,6 +57,7 @@ impl Default for CompressionPipelineConfig {
             save_reorder_map: true,
             streaming_mode: false,
             pe_layout: PeLayout::Interleaved,
+            force_overwrite: false,
         }
     }
 }
@@ -275,8 +277,9 @@ impl CompressionPipeline {
 
         // ---- Writer thread: receive and write in order ----
         let writer_control = control.clone();
+        let force_overwrite = self.config.force_overwrite;
         let writer_handle = thread::spawn(move || -> Result<u64> {
-            let mut writer = FqcWriter::create(&output_path_owned)?;
+            let (mut writer, output_tx) = begin_fqc_writer(&output_path_owned, force_overwrite)?;
 
             let gh = GlobalHeader::new(
                 flags,
@@ -327,6 +330,7 @@ impl CompressionPipeline {
             }
 
             writer.finalize()?;
+            output_tx.commit()?;
             Ok(total_output_bytes)
         });
 
@@ -442,7 +446,7 @@ impl CompressionPipeline {
         };
 
         let mut compressor = BlockCompressor::new(compressor_config);
-        let mut writer = FqcWriter::create(output_path)?;
+        let (mut writer, output_tx) = begin_fqc_writer(output_path, self.config.force_overwrite)?;
 
         let gh = GlobalHeader::new(
             flags,
@@ -472,6 +476,7 @@ impl CompressionPipeline {
         }
 
         writer.finalize()?;
+        output_tx.commit()?;
 
         let elapsed = start.elapsed();
         self.stats = PipelineStats {
@@ -562,7 +567,7 @@ impl CompressionPipeline {
         };
 
         let mut compressor = BlockCompressor::new(compressor_config);
-        let mut writer = FqcWriter::create(output_path)?;
+        let (mut writer, output_tx) = begin_fqc_writer(output_path, self.config.force_overwrite)?;
 
         let gh = GlobalHeader::new(
             flags,
@@ -592,6 +597,7 @@ impl CompressionPipeline {
         }
 
         writer.finalize()?;
+        output_tx.commit()?;
 
         let elapsed = start.elapsed();
         self.stats = PipelineStats {

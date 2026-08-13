@@ -4,6 +4,11 @@
 
 ### Added
 
+- Transactional ordinary-file output (`OutputTransaction`): compress and
+  decompress write same-directory temps and rename only after a successful
+  flush/close. Mid-run failure leaves a missing target absent, or keeps the
+  previous file when `-f/--force` was used. Stdout remains non-transactional;
+  `--split-pe` commits R1 then R2 (POSIX cannot atomically rename two paths).
 - Lightweight OpenSpec change workflow for high-risk changes (pure Markdown
   `openspec/` artifacts; no Node.js, CLI, or tool-specific configs)
 - Frozen indexed v2 decoder fixture (`tests/fixtures/indexed-v2/`) with

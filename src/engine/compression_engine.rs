@@ -9,10 +9,10 @@
 use crate::algo::block_compressor::{BlockCompressor, BlockCompressorConfig, CompressedBlockData};
 use crate::algo::global_analyzer::{GlobalAnalyzer, GlobalAnalyzerConfig};
 use crate::archive::format::{build_flags, GlobalHeader};
-use crate::archive::writer::FqcWriter;
 use crate::engine::compression_request::{CompressionExecutionMode, CompressionRequest};
 use crate::error::{FqcError, Result};
 use crate::fastq::parser::{open_fastq, open_fastq_interleaved, open_fastq_paired, open_fastq_stdin};
+use crate::io::begin_fqc_writer;
 use crate::types::*;
 use rayon::prelude::*;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -211,15 +211,8 @@ impl CompressionEngine {
             analysis.reordering_performed
         );
 
-        // Phase 2: Write FQC archive
-        if !request.force_overwrite && std::path::Path::new(&request.output_path).exists() {
-            return Err(FqcError::InvalidArgument(format!(
-                "Output file already exists: {} (use -f to overwrite)",
-                request.output_path.display()
-            )));
-        }
-
-        let mut writer = FqcWriter::create(&request.output_path)?;
+        // Phase 2: Write FQC archive (temp file; commit after finalize)
+        let (mut writer, output_tx) = begin_fqc_writer(&request.output_path, request.force_overwrite)?;
 
         // Build flags
         let flags = build_flags(
@@ -331,8 +324,9 @@ impl CompressionEngine {
             log::info!("Reorder map written: {} reads", analysis.forward_map.len());
         }
 
-        // Finalize
+        // Finalize then atomically replace the destination
         writer.finalize()?;
+        output_tx.commit()?;
 
         log::info!("Compression complete! {} blocks written.", blocks_written);
 
@@ -374,14 +368,6 @@ impl CompressionEngine {
     #[allow(clippy::needless_pass_by_value)]
     fn run_streaming(&self, request: CompressionRequest) -> Result<CompressionOutcome> {
         log::info!("Streaming compression mode");
-
-        // Force overwrite check
-        if !request.force_overwrite && request.output_path.exists() {
-            return Err(FqcError::InvalidArgument(format!(
-                "Output file already exists: {} (use -f to overwrite)",
-                request.output_path.display()
-            )));
-        }
 
         let input = request.input.resolve();
 
@@ -453,14 +439,6 @@ impl CompressionEngine {
 
         log::info!("Pipeline compression mode");
 
-        // Force overwrite check
-        if !request.force_overwrite && request.output_path.exists() {
-            return Err(FqcError::InvalidArgument(format!(
-                "Output file already exists: {} (use -f to overwrite)",
-                request.output_path.display()
-            )));
-        }
-
         let input = request.input.resolve();
 
         // Inspect input lengths
@@ -526,6 +504,7 @@ impl CompressionEngine {
             save_reorder_map: request.enable_reorder && !input.is_paired,
             streaming_mode: false,
             pe_layout: input.archive_layout,
+            force_overwrite: request.force_overwrite,
         };
 
         let mut pipeline = CompressionPipeline::new(pipeline_config);
@@ -725,8 +704,7 @@ impl CompressionEngine {
             open_fastq(input_path)?
         };
 
-        // Open writer
-        let mut writer = FqcWriter::create(&request.output_path)?;
+        let (mut writer, output_tx) = begin_fqc_writer(&request.output_path, request.force_overwrite)?;
 
         let flags = build_flags(
             false,
@@ -792,6 +770,7 @@ impl CompressionEngine {
 
         writer.patch_total_read_count(total_reads)?;
         writer.finalize()?;
+        output_tx.commit()?;
         log::info!("Streaming compression complete! {} blocks written.", blocks_written);
 
         let stats = ProcessingStats {
@@ -831,7 +810,7 @@ impl CompressionEngine {
         log::info!("Streaming compression mode (paired-end)");
 
         let mut pe_reader = open_fastq_paired(input_path, input2_path)?;
-        let mut writer = FqcWriter::create(&request.output_path)?;
+        let (mut writer, output_tx) = begin_fqc_writer(&request.output_path, request.force_overwrite)?;
 
         let flags = build_flags(
             true,
@@ -904,6 +883,7 @@ impl CompressionEngine {
 
         writer.patch_total_read_count(total_reads)?;
         writer.finalize()?;
+        output_tx.commit()?;
         log::info!("Streaming compression complete! {} blocks written.", blocks_written);
 
         let stats = ProcessingStats {
@@ -947,7 +927,7 @@ impl CompressionEngine {
             open_fastq_interleaved(input_path)?
         };
 
-        let mut writer = FqcWriter::create(&request.output_path)?;
+        let (mut writer, output_tx) = begin_fqc_writer(&request.output_path, request.force_overwrite)?;
 
         let flags = build_flags(
             true,
@@ -1020,6 +1000,7 @@ impl CompressionEngine {
 
         writer.patch_total_read_count(total_reads)?;
         writer.finalize()?;
+        output_tx.commit()?;
         log::info!("Streaming compression complete! {} blocks written.", blocks_written);
 
         let stats = ProcessingStats {

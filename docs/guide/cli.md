@@ -36,7 +36,7 @@ fqc compress -i INPUT -o OUTPUT [OPTIONS]
 | `--scan-all-lengths` | 检查完整输入而非采样检测长度 |
 | `--pipeline` | 使用分段压缩流水线 |
 | `--pe-layout` | 双端归档元数据 `interleaved` 或 `consecutive` |
-| `-f, --force` | 覆盖已存在的输出 |
+| `-f, --force` | 覆盖已存在的输出（仅在成功完成后原子替换；失败时保留旧文件） |
 
 说明：
 
@@ -44,6 +44,7 @@ fqc compress -i INPUT -o OUTPUT [OPTIONS]
 - `--memory-limit 0` 根据可用系统内存自动选择
 - 明确的低内存运行建议使用 `--streaming`
 - pipeline 模式是分段执行路径，非严格低内存摄入模式
+- 普通文件输出先写同目录临时文件，成功后再 rename；stdout（`-`）不走事务
 
 ## `decompress`
 
@@ -58,9 +59,9 @@ fqc decompress -i INPUT -o OUTPUT [OPTIONS]
 | `--original-order` | 如存在重排元数据则还原原始顺序 |
 | `--skip-corrupted` | 块完整性检查失败时继续 |
 | `--corrupted-placeholder` | 跳过块的占位序列 |
-| `--split-pe` | 双端输出写入独立文件 |
+| `--split-pe` | 双端输出写入独立文件（两路均经临时文件；按 R1→R2 提交，POSIX 无法双路径原子 rename） |
 | `--pipeline` | 使用分段解压流水线 |
-| `-f, --force` | 覆盖已存在的输出 |
+| `-f, --force` | 覆盖已存在的输出（仅在成功完成后原子替换；失败时保留旧文件） |
 
 ## `info`
 

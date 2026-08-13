@@ -8,10 +8,10 @@ use crate::archive::reader::FqcReader;
 use crate::archive::traits::BlockData;
 use crate::error::{FqcError, Result};
 use crate::fastq::parser::write_record as write_fastq_record;
+use crate::io::{commit_split, OutputTransaction};
 use crate::pipeline::decompression::{DecompressionPipeline, DecompressionPipelineConfig};
 use crate::types::*;
 use rayon::prelude::*;
-use std::fs::File;
 use std::io::{BufWriter, Write};
 use std::sync::Arc;
 
@@ -64,10 +64,15 @@ struct DecompressStats {
 }
 
 enum OutputWriters {
-    Single(Box<dyn Write>),
+    Single {
+        writer: Box<dyn Write>,
+        tx: Option<OutputTransaction>,
+    },
     Split {
         r1: Box<dyn Write>,
         r2: Box<dyn Write>,
+        r1_tx: OutputTransaction,
+        r2_tx: OutputTransaction,
         pe_layout: PeLayout,
         streaming_block_layout: bool,
     },
@@ -83,12 +88,13 @@ impl OutputWriters {
         block_local_idx: Option<(u64, u64)>,
     ) -> Result<u64> {
         match self {
-            Self::Single(output) => write_to_target(output.as_mut(), read, header_only),
+            Self::Single { writer, .. } => write_to_target(writer.as_mut(), read, header_only),
             Self::Split {
                 r1,
                 r2,
                 pe_layout,
                 streaming_block_layout,
+                ..
             } => {
                 let to_r1 = match (pe_layout, *streaming_block_layout, block_local_idx) {
                     (PeLayout::Consecutive, true, Some((local_idx, block_reads))) => local_idx < (block_reads / 2),
@@ -107,10 +113,32 @@ impl OutputWriters {
 
     fn flush(&mut self) -> Result<()> {
         match self {
-            Self::Single(output) => output.flush().map_err(FqcError::Io),
+            Self::Single { writer, .. } => writer.flush().map_err(FqcError::Io),
             Self::Split { r1, r2, .. } => {
                 r1.flush().map_err(FqcError::Io)?;
                 r2.flush().map_err(FqcError::Io)
+            }
+        }
+    }
+
+    /// Flush, drop writers, then rename temps onto final paths.
+    fn commit(mut self) -> Result<()> {
+        self.flush()?;
+        match self {
+            Self::Single { writer, tx } => {
+                drop(writer);
+                if let Some(tx) = tx {
+                    tx.commit()?;
+                }
+                Ok(())
+            }
+            Self::Split {
+                r1, r2, r1_tx, r2_tx, ..
+            } => {
+                drop(r1);
+                drop(r2);
+                // POSIX cannot atomically rename two paths; R1 then R2.
+                commit_split(r1_tx, r2_tx)
             }
         }
     }
@@ -236,39 +264,28 @@ impl DecompressCommand {
             }
 
             let (r1_path, r2_path) = derive_split_output_paths(&self.opts.output_path);
-            if !self.opts.force_overwrite {
-                if std::path::Path::new(&r1_path).exists() {
-                    return Err(FqcError::InvalidArgument(format!(
-                        "Output file already exists: {} (use -f to overwrite)",
-                        r1_path
-                    )));
-                }
-                if std::path::Path::new(&r2_path).exists() {
-                    return Err(FqcError::InvalidArgument(format!(
-                        "Output file already exists: {} (use -f to overwrite)",
-                        r2_path
-                    )));
-                }
-            }
-
+            let mut r1_tx = OutputTransaction::begin(&r1_path, self.opts.force_overwrite)?;
+            let mut r2_tx = OutputTransaction::begin(&r2_path, self.opts.force_overwrite)?;
             let pe_layout = get_pe_layout(flags);
             OutputWriters::Split {
-                r1: Box::new(BufWriter::new(File::create(&r1_path)?)),
-                r2: Box::new(BufWriter::new(File::create(&r2_path)?)),
+                r1: Box::new(BufWriter::new(r1_tx.take_file()?)),
+                r2: Box::new(BufWriter::new(r2_tx.take_file()?)),
+                r1_tx,
+                r2_tx,
                 pe_layout,
                 streaming_block_layout: (flags & flags::STREAMING_MODE) != 0 && pe_layout == PeLayout::Consecutive,
             }
         } else if self.opts.output_path == "-" {
-            OutputWriters::Single(Box::new(std::io::stdout()))
-        } else {
-            if !self.opts.force_overwrite && std::path::Path::new(&self.opts.output_path).exists() {
-                return Err(FqcError::InvalidArgument(format!(
-                    "Output file already exists: {} (use -f to overwrite)",
-                    self.opts.output_path
-                )));
+            OutputWriters::Single {
+                writer: Box::new(std::io::stdout()),
+                tx: None,
             }
-            let f = File::create(&self.opts.output_path)?;
-            OutputWriters::Single(Box::new(BufWriter::new(f)))
+        } else {
+            let mut tx = OutputTransaction::begin(&self.opts.output_path, self.opts.force_overwrite)?;
+            OutputWriters::Single {
+                writer: Box::new(BufWriter::new(tx.take_file()?)),
+                tx: Some(tx),
+            }
         };
 
         // Process blocks
@@ -335,7 +352,7 @@ impl DecompressCommand {
             self.stats.input_bytes = meta.len();
         }
 
-        output.flush()?;
+        output.commit()?;
 
         log::info!(
             "Decompression complete: {} reads, {} blocks",
@@ -621,16 +638,6 @@ impl DecompressCommand {
     fn run_pipeline(&mut self) -> Result<()> {
         log::info!("Using pipeline decompression mode");
 
-        if self.opts.output_path != "-"
-            && !self.opts.force_overwrite
-            && std::path::Path::new(&self.opts.output_path).exists()
-        {
-            return Err(FqcError::InvalidArgument(format!(
-                "Output file already exists: {} (use -f to overwrite)",
-                self.opts.output_path
-            )));
-        }
-
         let pipeline_config = DecompressionPipelineConfig {
             num_threads: self.opts.threads,
             range_start: self.opts.range_start,
@@ -639,6 +646,7 @@ impl DecompressCommand {
             header_only: self.opts.header_only,
             skip_corrupted: self.opts.skip_corrupted,
             corrupted_placeholder: self.opts.corrupted_placeholder.clone(),
+            force_overwrite: self.opts.force_overwrite,
             ..Default::default()
         };
 

@@ -27,7 +27,12 @@ pub struct FqcWriter {
 
 impl FqcWriter {
     pub fn create(path: impl AsRef<Path>) -> Result<Self> {
-        let file = File::create(path).map_err(|e| FqcError::Io(e))?;
+        let file = File::create(path).map_err(FqcError::Io)?;
+        Self::from_file(file)
+    }
+
+    /// Build a writer on an already-opened file (used by output transactions).
+    pub fn from_file(file: File) -> Result<Self> {
         let mut writer = BufWriter::new(file);
 
         // Write magic header (8 bytes) + version byte

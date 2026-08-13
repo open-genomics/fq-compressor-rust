@@ -16,6 +16,7 @@
 | Capability | Path | Description |
 |---|---|---|
 | `archive-format` | `openspec/specs/archive-format/` | Binary `.fqc` indexed v2 layout |
+| `file-output` | `openspec/specs/file-output/` | Transactional ordinary-file outputs |
 
 ## External boundaries
 

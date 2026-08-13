@@ -18,6 +18,7 @@ use crate::archive::traits::BlockData;
 use crate::error::{FqcError, Result};
 use crate::fastq::parser::write_record;
 use crate::io::async_io::AsyncWriter;
+use crate::io::OutputTransaction;
 
 use super::{PipelineControl, PipelineStats, DEFAULT_MAX_IN_FLIGHT_BLOCKS};
 
@@ -35,6 +36,7 @@ pub struct DecompressionPipelineConfig {
     pub header_only: bool,
     pub skip_corrupted: bool,
     pub corrupted_placeholder: Option<String>,
+    pub force_overwrite: bool,
 }
 
 impl Default for DecompressionPipelineConfig {
@@ -48,6 +50,7 @@ impl Default for DecompressionPipelineConfig {
             header_only: false,
             skip_corrupted: false,
             corrupted_placeholder: None,
+            force_overwrite: false,
         }
     }
 }
@@ -287,16 +290,22 @@ impl DecompressionPipeline {
         let range_start = self.config.range_start;
         let range_end = self.config.range_end;
         let has_range = self.config.has_range();
+        let force_overwrite = self.config.force_overwrite;
         let writer_handle = thread::spawn(move || -> Result<(u64, u64)> {
             const ASYNC_WRITE_BUF: usize = 4 * 1024 * 1024; // 4 MB write-behind buffer
             const ASYNC_WRITE_DEPTH: usize = 4;
 
-            let mut output: Box<dyn std::io::Write> = if output_path_owned == "-" {
-                Box::new(std::io::BufWriter::new(std::io::stdout()))
-            } else {
-                let file = std::fs::File::create(&output_path_owned).map_err(FqcError::Io)?;
-                Box::new(AsyncWriter::new(file, ASYNC_WRITE_DEPTH, ASYNC_WRITE_BUF))
-            };
+            let (mut output, output_tx): (Box<dyn std::io::Write>, Option<OutputTransaction>) =
+                if output_path_owned == "-" {
+                    (Box::new(std::io::BufWriter::new(std::io::stdout())), None)
+                } else {
+                    let mut tx = OutputTransaction::begin(&output_path_owned, force_overwrite)?;
+                    let file = tx.take_file()?;
+                    (
+                        Box::new(AsyncWriter::new(file, ASYNC_WRITE_DEPTH, ASYNC_WRITE_BUF)),
+                        Some(tx),
+                    )
+                };
 
             let mut pending: std::collections::BTreeMap<u32, DecompressedResult> = std::collections::BTreeMap::new();
             let mut next_expected: u32 = start_block as u32;
@@ -356,6 +365,10 @@ impl DecompressionPipeline {
             }
 
             output.flush().map_err(FqcError::Io)?;
+            drop(output);
+            if let Some(tx) = output_tx {
+                tx.commit()?;
+            }
             Ok((total_reads_written, total_output_bytes))
         });
 
