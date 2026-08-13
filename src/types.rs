@@ -343,6 +343,39 @@ impl CodecFamily {
             _ => Self::Reserved,
         }
     }
+
+    /// Strict parse for archive decode: unknown and Reserved are rejected.
+    pub fn try_from_nibble(v: u8) -> Option<Self> {
+        match v {
+            0x0 => Some(Self::Raw),
+            0x1 => Some(Self::AbcV1),
+            0x2 => Some(Self::ScmV1),
+            0x3 => Some(Self::DeltaLzma),
+            0x4 => Some(Self::DeltaZstd),
+            0x5 => Some(Self::DeltaVarint),
+            0x6 => Some(Self::OverlapV1),
+            0x7 => Some(Self::ZstdPlain),
+            0x8 => Some(Self::ScmOrder1),
+            0xE => Some(Self::External),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Raw => "Raw",
+            Self::AbcV1 => "AbcV1",
+            Self::ScmV1 => "ScmV1",
+            Self::DeltaLzma => "DeltaLzma",
+            Self::DeltaZstd => "DeltaZstd",
+            Self::DeltaVarint => "DeltaVarint",
+            Self::OverlapV1 => "OverlapV1",
+            Self::ZstdPlain => "ZstdPlain",
+            Self::ScmOrder1 => "ScmOrder1",
+            Self::External => "External",
+            Self::Reserved => "Reserved",
+        }
+    }
 }
 
 /// Encode codec as (family:4bit, version:4bit)
@@ -350,9 +383,14 @@ pub fn encode_codec(family: CodecFamily, version: u8) -> u8 {
     ((family as u8) << 4) | (version & 0x0F)
 }
 
-/// Decode codec family from codec byte
+/// Decode codec family from codec byte (lenient; maps unknown to Reserved).
 pub fn decode_codec_family(codec: u8) -> CodecFamily {
     CodecFamily::from_u8(codec >> 4)
+}
+
+/// Decode codec version nibble (low 4 bits).
+pub fn decode_codec_version(codec: u8) -> u8 {
+    codec & 0x0F
 }
 
 // =============================================================================

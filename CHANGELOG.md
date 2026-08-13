@@ -4,6 +4,10 @@
 
 ### Added
 
+- Header-driven per-stream codec dispatch on decompress: IDs/seq/qual/aux each
+  validate their block-header codec byte against an allow-list (unknown family,
+  wrong stream, and non-v0 versions fail closed); global quality/id mode must
+  not contradict the declared families.
 - Transactional ordinary-file output (`OutputTransaction`): compress and
   decompress write same-directory temps and rename only after a successful
   flush/close. Mid-run failure leaves a missing target absent, or keeps the

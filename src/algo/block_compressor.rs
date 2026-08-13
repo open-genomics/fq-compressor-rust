@@ -19,9 +19,42 @@ use crate::algo::quality_compressor::{
 };
 use crate::algo::zstd_sequence::ZstdSequenceCompressor;
 use crate::archive::traits::BlockData;
-use crate::error::Result;
+use crate::error::{FqcError, Result};
 use crate::types::*;
 use xxhash_rust::xxh64::Xxh64;
+
+fn unsupported_stream_codec(block_id: BlockId, stream: &str, codec: u8, reason: &str) -> FqcError {
+    FqcError::UnsupportedFormat(format!("block {block_id} {stream} codec 0x{codec:02x}: {reason}"))
+}
+
+/// Parse a stream codec byte: known family, allowed for this stream, version 0 only.
+fn parse_stream_codec(block_id: BlockId, stream: &str, codec: u8, allowed: &[CodecFamily]) -> Result<CodecFamily> {
+    let family_nibble = codec >> 4;
+    let version = decode_codec_version(codec);
+    let family = CodecFamily::try_from_nibble(family_nibble)
+        .ok_or_else(|| unsupported_stream_codec(block_id, stream, codec, "unknown or reserved codec family"))?;
+    if !allowed.contains(&family) {
+        return Err(unsupported_stream_codec(
+            block_id,
+            stream,
+            codec,
+            &format!(
+                "family {} is not valid for this stream (allowed: {})",
+                family.as_str(),
+                allowed.iter().map(|f| f.as_str()).collect::<Vec<_>>().join(", ")
+            ),
+        ));
+    }
+    if version != 0 {
+        return Err(unsupported_stream_codec(
+            block_id,
+            stream,
+            codec,
+            &format!("unsupported codec version {version} (only v0 is implemented)"),
+        ));
+    }
+    Ok(family)
+}
 
 // =============================================================================
 // BlockCompressorConfig
@@ -232,7 +265,10 @@ impl BlockCompressor {
             bh.block_id,
             bh.uncompressed_count,
             bh.uniform_read_length,
+            bh.codec_ids,
             bh.codec_seq,
+            bh.codec_qual,
+            bh.codec_aux,
             &block.ids_data,
             &block.seq_data,
             &block.qual_data,
@@ -240,13 +276,17 @@ impl BlockCompressor {
         )
     }
 
+    /// Decompress streams using the four per-stream codec IDs from the block header.
     #[allow(clippy::too_many_arguments)]
     pub fn decompress_raw(
         &mut self,
-        _block_id: BlockId,
+        block_id: BlockId,
         read_count: u32,
         uniform_read_length: u32,
+        codec_ids: u8,
         codec_seq: u8,
+        codec_qual: u8,
+        codec_aux: u8,
         id_stream: &[u8],
         seq_stream: &[u8],
         qual_stream: &[u8],
@@ -260,29 +300,57 @@ impl BlockCompressor {
             return Ok(result);
         }
 
-        // Decompress aux (lengths) first
+        let id_family = parse_stream_codec(block_id, "ids", codec_ids, &[CodecFamily::Raw, CodecFamily::DeltaZstd])?;
+        let seq_family = parse_stream_codec(
+            block_id,
+            "seq",
+            codec_seq,
+            &[CodecFamily::AbcV1, CodecFamily::ZstdPlain],
+        )?;
+        let qual_family = parse_stream_codec(
+            block_id,
+            "qual",
+            codec_qual,
+            &[CodecFamily::Raw, CodecFamily::ScmV1, CodecFamily::ScmOrder1],
+        )?;
+        let _aux_family = parse_stream_codec(block_id, "aux", codec_aux, &[CodecFamily::DeltaVarint])?;
+
+        self.check_flag_codec_consistency(block_id, id_family, qual_family, codec_ids, codec_qual)?;
+
+        // Aux (lengths) — always DeltaVarint v0 after validation above.
         let lengths = self.aux.decompress(aux_stream, read_count)?;
 
-        // Decompress sequences - select based on codec
-        let sequences = if decode_codec_family(codec_seq) == CodecFamily::AbcV1 {
-            // Use ABC decompressor for ABC-encoded data
-            let abc = AbcCompressor::new(self.config.to_abc_config());
-            abc.decompress(seq_stream, read_count)?
-        } else {
-            // Use Zstd decompressor for Zstd-encoded data
-            let zstd = ZstdSequenceCompressor::new(self.config.zstd_level);
-            zstd.decompress(seq_stream, read_count, uniform_read_length, &lengths)?
+        let sequences = match seq_family {
+            CodecFamily::AbcV1 => {
+                let abc = AbcCompressor::new(self.config.to_abc_config());
+                abc.decompress(seq_stream, read_count)?
+            }
+            CodecFamily::ZstdPlain => {
+                let zstd = ZstdSequenceCompressor::new(self.config.zstd_level);
+                zstd.decompress(seq_stream, read_count, uniform_read_length, &lengths)?
+            }
+            other => {
+                return Err(unsupported_stream_codec(
+                    block_id,
+                    "seq",
+                    codec_seq,
+                    &format!("internal: unexpected family {}", other.as_str()),
+                ));
+            }
         };
 
-        // Decompress quality
-        let qualities = self
-            .quality
-            .decompress(qual_stream, read_count, uniform_read_length, &lengths)?;
+        let qualities = self.decompress_quality_stream(
+            block_id,
+            qual_family,
+            codec_qual,
+            qual_stream,
+            read_count,
+            uniform_read_length,
+            &lengths,
+        )?;
 
-        // Decompress IDs
-        let ids = self.id.decompress(id_stream, read_count)?;
+        let ids = self.decompress_id_stream(block_id, id_family, codec_ids, id_stream, read_count)?;
 
-        // Assemble reads
         for i in 0..read_count as usize {
             let full_header = ids.get(i).cloned().unwrap_or_default();
             if let Some(space_pos) = full_header.find(' ') {
@@ -296,6 +364,101 @@ impl BlockCompressor {
         }
 
         Ok(result)
+    }
+
+    fn check_flag_codec_consistency(
+        &self,
+        block_id: BlockId,
+        id_family: CodecFamily,
+        qual_family: CodecFamily,
+        codec_ids: u8,
+        codec_qual: u8,
+    ) -> Result<()> {
+        let id_discard = id_family == CodecFamily::Raw;
+        let flags_id_discard = self.config.id_mode == IdMode::Discard;
+        if id_discard != flags_id_discard {
+            return Err(FqcError::Format(format!(
+                "block {block_id} ids codec 0x{codec_ids:02x} ({}) contradicts global id_mode {:?}",
+                id_family.as_str(),
+                self.config.id_mode
+            )));
+        }
+
+        let qual_discard = qual_family == CodecFamily::Raw;
+        let flags_qual_discard = self.config.quality_mode == QualityMode::Discard;
+        if qual_discard != flags_qual_discard {
+            return Err(FqcError::Format(format!(
+                "block {block_id} qual codec 0x{codec_qual:02x} ({}) contradicts global quality_mode {:?}",
+                qual_family.as_str(),
+                self.config.quality_mode
+            )));
+        }
+        Ok(())
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn decompress_quality_stream(
+        &self,
+        block_id: BlockId,
+        family: CodecFamily,
+        codec: u8,
+        data: &[u8],
+        read_count: u32,
+        uniform_read_length: u32,
+        lengths: &[u32],
+    ) -> Result<Vec<String>> {
+        let mut qcfg = self.config.to_quality_config();
+        match family {
+            CodecFamily::Raw => {
+                qcfg.quality_mode = QualityMode::Discard;
+            }
+            CodecFamily::ScmV1 => {
+                qcfg.context_order = ContextOrder::Order2;
+                if qcfg.quality_mode == QualityMode::Discard {
+                    qcfg.quality_mode = QualityMode::Lossless;
+                }
+            }
+            CodecFamily::ScmOrder1 => {
+                qcfg.context_order = ContextOrder::Order1;
+                if qcfg.quality_mode == QualityMode::Discard {
+                    qcfg.quality_mode = QualityMode::Lossless;
+                }
+            }
+            other => {
+                return Err(unsupported_stream_codec(
+                    block_id,
+                    "qual",
+                    codec,
+                    &format!("internal: unexpected family {}", other.as_str()),
+                ));
+            }
+        }
+        let mut quality: Box<dyn QualityCompressor> = Box::new(ScmQualityCompressor::new(qcfg));
+        quality.decompress(data, read_count, uniform_read_length, lengths)
+    }
+
+    fn decompress_id_stream(
+        &self,
+        block_id: BlockId,
+        family: CodecFamily,
+        codec: u8,
+        data: &[u8],
+        read_count: u32,
+    ) -> Result<Vec<String>> {
+        let discard = match family {
+            CodecFamily::Raw => true,
+            CodecFamily::DeltaZstd => false,
+            other => {
+                return Err(unsupported_stream_codec(
+                    block_id,
+                    "ids",
+                    codec,
+                    &format!("internal: unexpected family {}", other.as_str()),
+                ));
+            }
+        };
+        let id = DeltaZstdIdCompressor::new(self.config.zstd_level, discard, self.config.id_prefix.clone());
+        id.decompress(data, read_count)
     }
 }
 
