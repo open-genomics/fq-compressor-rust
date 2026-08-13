@@ -14,7 +14,7 @@
 | `-t, --threads` | 线程数（`0` 表示自动） |
 | `-v, --verbose` | 增加日志详细度 |
 | `-q, --quiet` | 抑制非错误输出 |
-| `--memory-limit` | 内存预算 MB（`0` 表示自动选择） |
+| `--memory-limit` | 内存预算 MB（`0` = 自动有限预算，非无限；对 compress/decompress/verify 均生效） |
 | `--no-progress` | 禁用进度摘要 |
 
 ## `compress`
@@ -41,7 +41,7 @@ fqc compress -i INPUT -o OUTPUT [OPTIONS]
 说明：
 
 - archive 模式将完整读段集保留在内存中进行全局分析和可选重排
-- `--memory-limit 0` 根据可用系统内存自动选择
+- `--memory-limit 0` 根据可用系统内存自动选择有限预算（约 75%，带硬性结构上限），不是无限内存
 - 明确的低内存运行建议使用 `--streaming`
 - pipeline 模式是分段执行路径，非严格低内存摄入模式
 - 普通文件输出先写同目录临时文件，成功后再 rename；stdout（`-`）不走事务
@@ -73,11 +73,15 @@ fqc info -i INPUT [--json] [--detailed] [--show-codecs]
 - `--detailed` 显示块索引条目
 - `--show-codecs` 报告每块编解码器字节
 
+完整解压与 `--original-order` 受同一 `--memory-limit` 约束；超预算会在创建输出前失败。
+
 ## `verify`
 
 ```bash
 fqc verify -i INPUT [--quick] [--fail-fast] [--verbose]
 ```
+
+完整 verify 与解压共享 decode 预算；`--quick` 跳过块解压但仍受 archive 结构预算约束。
 
 - `--quick` 仅检查归档框架和全局校验和，不解压块
 - `--fail-fast` 在首个失败块停止

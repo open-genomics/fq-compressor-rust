@@ -6,6 +6,7 @@ use crate::algo::block_compressor::delta_decode_ids;
 use crate::archive::format::*;
 use crate::archive::traits::BlockData;
 use crate::error::{FqcError, Result};
+use crate::memory_budget::{zstd_decompress_bounded, DecodeBudget};
 use crate::types::{IdMode, PeLayout, QualityMode, ReadLengthClass};
 use byteorder::ReadBytesExt;
 use std::fs::File;
@@ -47,11 +48,16 @@ pub struct FqcReader {
     pub file_size: u64,
     pub reorder_forward: Option<Vec<u64>>,
     pub reorder_reverse: Option<Vec<u64>>,
+    budget: DecodeBudget,
 }
 
 impl FqcReader {
     pub fn open(path: &str) -> Result<Self> {
-        let file = File::open(path).map_err(|e| FqcError::Io(e))?;
+        Self::open_with_budget(path, DecodeBudget::automatic())
+    }
+
+    pub fn open_with_budget(path: &str, budget: DecodeBudget) -> Result<Self> {
+        let file = File::open(path).map_err(FqcError::Io)?;
         let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
         let mut reader = BufReader::new(file);
 
@@ -83,10 +89,12 @@ impl FqcReader {
         let header_end = reader.stream_position()?;
 
         Self::validate_footer_offsets(&footer, header_end, footer_pos)?;
+        budget.check_total_reads(global_header.total_read_count, "global_header.total_read_count")?;
 
-        // Read block index
+        // Read block index with budget + file-region caps
+        let index_region = footer_pos.saturating_sub(footer.index_offset);
         reader.seek(SeekFrom::Start(footer.index_offset))?;
-        let block_index = BlockIndex::read(&mut reader)?;
+        let block_index = BlockIndex::read_with_budget(&mut reader, &budget, index_region)?;
         Self::validate_block_index(&block_index, header_end, &footer, global_header.total_read_count)?;
         Self::validate_block_headers(&mut reader, &block_index, &footer)?;
 
@@ -99,7 +107,12 @@ impl FqcReader {
             file_size,
             reorder_forward: None,
             reorder_reverse: None,
+            budget,
         })
+    }
+
+    pub fn budget(&self) -> &DecodeBudget {
+        &self.budget
     }
 
     fn validate_footer_offsets(footer: &FileFooter, header_end: u64, footer_pos: u64) -> Result<()> {
@@ -218,15 +231,14 @@ impl FqcReader {
             let block_end = entry
                 .offset
                 .checked_add(entry.compressed_size)
-                .ok_or_else(|| FqcError::Format(format!("Block {} overflows archive offsets", idx)))?;
+                .ok_or_else(|| FqcError::Format(format!("Block {idx} overflows archive offsets")))?;
             let payload_start = entry
                 .offset
                 .checked_add(header.header_size as u64)
-                .ok_or_else(|| FqcError::Format(format!("Block {} header overflows archive offsets", idx)))?;
+                .ok_or_else(|| FqcError::Format(format!("Block {idx} header overflows archive offsets")))?;
             if payload_start > block_end {
                 return Err(FqcError::Format(format!(
-                    "Block {} stream extent exceeds block payload bounds",
-                    idx
+                    "Block {idx} stream extent exceeds block payload bounds"
                 )));
             }
 
@@ -239,22 +251,20 @@ impl FqcReader {
             .into_iter()
             .flatten()
             .max()
-            .ok_or_else(|| FqcError::Format(format!("Block {} stream extent overflows block payload", idx)))?;
+            .ok_or_else(|| FqcError::Format(format!("Block {idx} stream extent overflows block payload")))?;
 
             if declared_stream_end > header.compressed_size {
                 return Err(FqcError::Format(format!(
-                    "Block {} stream extent exceeds declared block payload",
-                    idx
+                    "Block {idx} stream extent exceeds declared block payload"
                 )));
             }
 
             let declared_block_end = payload_start
                 .checked_add(header.compressed_size)
-                .ok_or_else(|| FqcError::Format(format!("Block {} payload overflows archive offsets", idx)))?;
+                .ok_or_else(|| FqcError::Format(format!("Block {idx} payload overflows archive offsets")))?;
             if declared_block_end > block_end || declared_block_end > block_region_end {
                 return Err(FqcError::Format(format!(
-                    "Block {} stream extent exceeds block payload bounds",
-                    idx
+                    "Block {idx} stream extent exceeds block payload bounds"
                 )));
             }
         }
@@ -268,6 +278,16 @@ impl FqcReader {
 
     pub fn total_read_count(&self) -> u64 {
         self.global_header.total_read_count
+    }
+
+    /// Largest compressed block size in the index (for peak estimates).
+    pub fn max_block_compressed_size(&self) -> u64 {
+        self.block_index
+            .entries
+            .iter()
+            .map(|e| e.compressed_size)
+            .max()
+            .unwrap_or(0)
     }
 
     /// Get structured information about this archive.
@@ -305,22 +325,56 @@ impl FqcReader {
         self.reader.seek(SeekFrom::Start(self.footer.reorder_map_offset))?;
         let rmh = ReorderMapHeader::read(&mut self.reader)?;
 
-        let mut forward_compressed = vec![0u8; rmh.forward_map_size as usize];
+        if rmh.total_reads != self.global_header.total_read_count {
+            return Err(FqcError::Format(format!(
+                "reorder map total_reads {} != global header {}",
+                rmh.total_reads, self.global_header.total_read_count
+            )));
+        }
+        self.budget
+            .check_total_reads(rmh.total_reads, "reorder_map.total_reads")?;
+        self.budget
+            .check_alloc(rmh.forward_map_size, "reorder_map.forward_compressed")?;
+        self.budget
+            .check_alloc(rmh.reverse_map_size, "reorder_map.reverse_compressed")?;
+
+        let fwd_len = self
+            .budget
+            .checked_usize(rmh.forward_map_size, "reorder_map.forward_compressed")?;
+        let rev_len = self
+            .budget
+            .checked_usize(rmh.reverse_map_size, "reorder_map.reverse_compressed")?;
+
+        let mut forward_compressed = vec![0u8; fwd_len];
         self.reader.read_exact(&mut forward_compressed)?;
 
-        let mut reverse_compressed = vec![0u8; rmh.reverse_map_size as usize];
+        let mut reverse_compressed = vec![0u8; rev_len];
         self.reader.read_exact(&mut reverse_compressed)?;
 
-        // Decompress and decode
-        let forward_raw = zstd::stream::decode_all(forward_compressed.as_slice())
-            .map_err(|e| FqcError::Decompression(format!("Reorder map decompress: {e}")))?;
-        let reverse_raw = zstd::stream::decode_all(reverse_compressed.as_slice())
-            .map_err(|e| FqcError::Decompression(format!("Reorder map decompress: {e}")))?;
+        // Bound zstd output by total_reads * 16 (generous varint/delta room).
+        let max_raw = self
+            .budget
+            .checked_usize(rmh.total_reads.saturating_mul(16).max(64), "reorder_map.decompressed")?
+            .min(self.budget.max_alloc_bytes as usize);
+
+        let forward_raw = zstd_decompress_bounded(&forward_compressed, max_raw, "reorder_map.forward")?;
+        let reverse_raw = zstd_decompress_bounded(&reverse_compressed, max_raw, "reorder_map.reverse")?;
 
         self.reorder_forward = Some(delta_decode_ids(&forward_raw, rmh.total_reads)?);
         self.reorder_reverse = Some(delta_decode_ids(&reverse_raw, rmh.total_reads)?);
 
         Ok(())
+    }
+
+    fn alloc_stream(&self, size: u64, location: &str, payload_extent: u64) -> Result<Vec<u8>> {
+        if size > payload_extent {
+            return Err(FqcError::Format(format!(
+                "{location}: stream size {size} exceeds block payload extent {payload_extent}"
+            )));
+        }
+        self.budget.check_alloc(size, location)?;
+        let n = self.budget.checked_usize(size, location)?;
+        Ok(vec![0u8; n])
     }
 
     /// Read a block by its block_id. Loads all streams.
@@ -332,45 +386,48 @@ impl FqcReader {
             .ok_or_else(|| FqcError::Format(format!("Block {block_id} not in index")))?
             .clone();
 
-        // Seek to block start
+        // Peak for this block (compressed streams + rough decode room) must fit budget.
+        let peak = entry.compressed_size.saturating_mul(3);
+        if peak > self.budget.limit_bytes {
+            return Err(FqcError::ResourceLimit {
+                location: format!("block {block_id} decode peak"),
+                declared: peak,
+                allowed: self.budget.limit_bytes,
+            });
+        }
+
         self.reader.seek(SeekFrom::Start(entry.offset))?;
-
-        // Read block header
         let bh = BlockHeader::read(&mut self.reader)?;
-
-        // Payload starts right after the block header (use actual header_size for forward compat)
         let payload_start = entry.offset + bh.header_size as u64;
+        let payload_extent = bh.compressed_size;
 
         let mut block_data = BlockData {
             header: bh.clone(),
             ..Default::default()
         };
 
-        // Read IDs stream
         if bh.size_ids > 0 {
             self.reader.seek(SeekFrom::Start(payload_start + bh.offset_ids))?;
-            block_data.ids_data = vec![0u8; bh.size_ids as usize];
+            block_data.ids_data = self.alloc_stream(bh.size_ids, &format!("block {block_id} ids"), payload_extent)?;
             self.reader.read_exact(&mut block_data.ids_data)?;
         }
 
-        // Read sequence stream
         if bh.size_seq > 0 {
             self.reader.seek(SeekFrom::Start(payload_start + bh.offset_seq))?;
-            block_data.seq_data = vec![0u8; bh.size_seq as usize];
+            block_data.seq_data = self.alloc_stream(bh.size_seq, &format!("block {block_id} seq"), payload_extent)?;
             self.reader.read_exact(&mut block_data.seq_data)?;
         }
 
-        // Read quality stream
         if bh.size_qual > 0 {
             self.reader.seek(SeekFrom::Start(payload_start + bh.offset_qual))?;
-            block_data.qual_data = vec![0u8; bh.size_qual as usize];
+            block_data.qual_data =
+                self.alloc_stream(bh.size_qual, &format!("block {block_id} qual"), payload_extent)?;
             self.reader.read_exact(&mut block_data.qual_data)?;
         }
 
-        // Read aux stream
         if bh.size_aux > 0 {
             self.reader.seek(SeekFrom::Start(payload_start + bh.offset_aux))?;
-            block_data.aux_data = vec![0u8; bh.size_aux as usize];
+            block_data.aux_data = self.alloc_stream(bh.size_aux, &format!("block {block_id} aux"), payload_extent)?;
             self.reader.read_exact(&mut block_data.aux_data)?;
         }
 
@@ -395,7 +452,3 @@ impl FqcReader {
             .and_then(|m| m.get(archive_id as usize).copied())
     }
 }
-
-// =============================================================================
-// ArchiveReader Implementation
-// =============================================================================

@@ -51,11 +51,14 @@ fqc verify -i reads.fqc
 fqc verify -i reads.fqc --quick
 ```
 
-`--memory-limit` 是全局参数（必须位于子命令之前），`0` 保留默认的自动内存选择行为。
-低内存场景建议使用 `--streaming`；pipeline 模式为分阶段执行路径，archive 模式仍会全量读入以做全局分析：
+`--memory-limit` 是全局参数（必须位于子命令之前），对 `compress` / `decompress` / `verify` 均生效。
+`0` 表示自动选择有限预算（约可用内存的 75%，并受硬性结构上限约束），**并非无限内存**。
+低内存压缩建议使用 `--streaming`；pipeline 模式为分阶段执行路径，archive 模式仍会全量读入以做全局分析：
 
 ```bash
 fqc --memory-limit 1024 compress -i reads.fastq -o reads.fqc --streaming
+fqc --memory-limit 512 decompress -i reads.fqc -o reads.fastq
+fqc --memory-limit 512 verify -i reads.fqc
 ```
 
 ## 文档

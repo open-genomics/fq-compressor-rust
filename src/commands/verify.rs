@@ -6,6 +6,7 @@ use crate::algo::block_compressor::BlockCompressor;
 use crate::archive::format::{get_id_mode, get_quality_mode, get_read_length_class};
 use crate::archive::reader::FqcReader;
 use crate::error::{FqcError, Result};
+use crate::memory_budget::DecodeBudget;
 use xxhash_rust::xxh64::Xxh64;
 
 // =============================================================================
@@ -19,6 +20,8 @@ pub struct VerifyOptions {
     pub verbose: bool,
     /// Quick verification: only check magic header + footer (skip block decompression)
     pub quick_mode: bool,
+    /// Memory limit in MB (`0` = automatic, still finite). Full verify shares decode limits.
+    pub memory_limit_mb: usize,
 }
 
 // =============================================================================
@@ -82,7 +85,8 @@ impl VerifyCommand {
             )));
         }
 
-        let mut reader = FqcReader::open(&self.opts.input_path)?;
+        let budget = DecodeBudget::resolve(self.opts.memory_limit_mb);
+        let mut reader = FqcReader::open_with_budget(&self.opts.input_path, budget)?;
 
         // Verify footer magic
         if !reader.footer.is_valid() {

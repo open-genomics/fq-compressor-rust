@@ -67,8 +67,9 @@ impl AuxCompressor for DeltaVarintAuxCompressor {
             return Ok(Vec::new());
         }
 
-        let buf = zstd::stream::decode_all(data)
-            .map_err(|e| FqcError::Decompression(format!("Aux Zstd decompress failed: {e}")))?;
+        // Zigzag varints are at most 5 bytes each.
+        let max_out = (read_count as usize).saturating_mul(5).saturating_add(64);
+        let buf = crate::memory_budget::zstd_decompress_bounded(data, max_out, "aux lengths")?;
 
         let mut lengths = Vec::with_capacity(read_count as usize);
         let mut i = 0usize;

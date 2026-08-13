@@ -512,8 +512,9 @@ impl AbcCompressor {
             return Ok(vec![String::new(); read_count as usize]);
         }
 
-        let buf = zstd::stream::decode_all(data)
-            .map_err(|e| FqcError::Decompression(format!("ABC Zstd decompress failed: {e}")))?;
+        // Short-read ABC payload: conservative bound of 512 B/read + framing.
+        let max_out = (read_count as usize).saturating_mul(512).saturating_add(4096).max(256);
+        let buf = crate::memory_budget::zstd_decompress_bounded(data, max_out, "abc sequences")?;
 
         let mut sequences = vec![String::new(); read_count as usize];
         let mut cur = Cursor::new(&buf);

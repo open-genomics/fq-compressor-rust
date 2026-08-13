@@ -9,6 +9,7 @@ use crate::archive::traits::BlockData;
 use crate::error::{FqcError, Result};
 use crate::fastq::parser::write_record as write_fastq_record;
 use crate::io::{commit_split, OutputTransaction};
+use crate::memory_budget::DecodeBudget;
 use crate::pipeline::decompression::{DecompressionPipeline, DecompressionPipelineConfig};
 use crate::types::*;
 use rayon::prelude::*;
@@ -34,6 +35,8 @@ pub struct DecompressOptions {
     pub show_progress: bool,
     pub force_overwrite: bool,
     pub use_pipeline: bool,
+    /// Memory limit in MB (`0` = automatic, still finite).
+    pub memory_limit_mb: usize,
 }
 
 impl DecompressOptions {
@@ -216,8 +219,18 @@ impl DecompressCommand {
             return self.run_pipeline();
         }
 
+        let budget = DecodeBudget::resolve(self.opts.memory_limit_mb);
+        if budget.automatic {
+            log::info!(
+                "Decode memory budget: automatic {} MB (not unlimited)",
+                budget.limit_bytes / (1024 * 1024)
+            );
+        } else {
+            log::info!("Decode memory budget: {} MB", budget.limit_bytes / (1024 * 1024));
+        }
+
         // Open archive
-        let mut reader = FqcReader::open(&self.opts.input_path)?;
+        let mut reader = FqcReader::open_with_budget(&self.opts.input_path, budget.clone())?;
 
         log::info!(
             "Archive: {} reads, {} blocks",
@@ -232,6 +245,8 @@ impl DecompressCommand {
                     "Original order requested but no reorder map present".to_string(),
                 ));
             }
+            // Fail before creating outputs if peak estimate exceeds budget.
+            budget.check_original_order_peak(reader.total_read_count(), reader.max_block_compressed_size(), 256)?;
             reader.load_reorder_map()?;
             log::info!("Reorder map loaded");
         }
@@ -373,7 +388,12 @@ impl DecompressCommand {
     ) -> Result<()> {
         log::info!("Using parallel decompression ({} blocks)", block_count);
 
-        let batch_size = (self.opts.threads.max(1) * 2).max(4).min(block_count);
+        let block_hint = reader.max_block_compressed_size();
+        let batch_size = reader
+            .budget()
+            .parallel_batch_size(self.opts.threads, block_hint)?
+            .min(block_count)
+            .max(1);
         let config = Arc::new(block_config.clone());
         let skip_corrupted = self.opts.skip_corrupted;
 
@@ -647,6 +667,7 @@ impl DecompressCommand {
             skip_corrupted: self.opts.skip_corrupted,
             corrupted_placeholder: self.opts.corrupted_placeholder.clone(),
             force_overwrite: self.opts.force_overwrite,
+            memory_limit_mb: self.opts.memory_limit_mb,
             ..Default::default()
         };
 

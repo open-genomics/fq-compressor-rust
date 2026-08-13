@@ -35,6 +35,14 @@ pub enum FqcError {
 
     #[error("Unsupported format: {0}")]
     UnsupportedFormat(String),
+
+    /// Declared archive/user size exceeds the operation resource budget.
+    #[error("resource limit at {location}: declared {declared} bytes, allowed {allowed} bytes")]
+    ResourceLimit {
+        location: String,
+        declared: u64,
+        allowed: u64,
+    },
 }
 
 pub type Result<T> = std::result::Result<T, FqcError>;
@@ -75,6 +83,7 @@ impl FqcError {
             FqcError::UnsupportedVersion { .. } => ExitCode::UnsupportedError,
             FqcError::Parse(_) => ExitCode::FormatError,
             FqcError::UnsupportedFormat(_) => ExitCode::UnsupportedError,
+            FqcError::ResourceLimit { .. } => ExitCode::Usage,
         }
     }
 

@@ -454,9 +454,10 @@ impl QualityCompressor {
             return Ok(lengths.iter().map(|&l| "!".repeat(l as usize)).collect());
         }
 
-        // Decompress Zstd layer first
-        let decoded = zstd::stream::decode_all(data)
-            .map_err(|e| FqcError::Decompression(format!("Zstd decompression failed: {e}")))?;
+        // Arithmetic-coded stream after zstd; bound by total quality bytes * 2 + overhead.
+        let total_q: usize = lengths.iter().map(|&l| l as usize).fold(0usize, usize::saturating_add);
+        let max_out = total_q.saturating_mul(2).saturating_add(1024).max(64);
+        let decoded = crate::memory_budget::zstd_decompress_bounded(data, max_out, "quality")?;
 
         self.ctx_model.reset();
         let mut decoder = ArithmeticDecoder::new(&decoded);

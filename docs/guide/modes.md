@@ -53,7 +53,7 @@ fqc compress -i reads.fastq -o reads.fqc
 **内存行为**：
 - 随输入大小扩展
 - 使用 `--memory-limit` 限制内存
-- `--memory-limit 0` 启用自动内存选择
+- `--memory-limit 0` 启用自动有限预算（非无限内存）
 
 ## Streaming 模式
 

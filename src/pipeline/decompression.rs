@@ -19,6 +19,7 @@ use crate::error::{FqcError, Result};
 use crate::fastq::parser::write_record;
 use crate::io::async_io::AsyncWriter;
 use crate::io::OutputTransaction;
+use crate::memory_budget::DecodeBudget;
 
 use super::{PipelineControl, PipelineStats, DEFAULT_MAX_IN_FLIGHT_BLOCKS};
 
@@ -37,6 +38,8 @@ pub struct DecompressionPipelineConfig {
     pub skip_corrupted: bool,
     pub corrupted_placeholder: Option<String>,
     pub force_overwrite: bool,
+    /// Memory limit in MB (`0` = automatic, still finite).
+    pub memory_limit_mb: usize,
 }
 
 impl Default for DecompressionPipelineConfig {
@@ -51,6 +54,7 @@ impl Default for DecompressionPipelineConfig {
             skip_corrupted: false,
             corrupted_placeholder: None,
             force_overwrite: false,
+            memory_limit_mb: 0,
         }
     }
 }
@@ -149,7 +153,8 @@ impl DecompressionPipeline {
         let start = Instant::now();
         let threads = self.config.effective_threads();
 
-        let mut reader = FqcReader::open(input_path)?;
+        let budget = DecodeBudget::resolve(self.config.memory_limit_mb);
+        let mut reader = FqcReader::open_with_budget(input_path, budget)?;
         let block_count = reader.block_count();
         let _total_reads = reader.total_read_count();
         let file_size = reader.file_size;
@@ -163,8 +168,13 @@ impl DecompressionPipeline {
 
         let output_path_owned = output_path.to_string();
 
-        // Load reorder map if needed
+        // Load reorder map if needed (peak check before creating outputs)
         if self.config.original_order && reader.has_reorder_map() {
+            reader.budget().check_original_order_peak(
+                reader.total_read_count(),
+                reader.max_block_compressed_size(),
+                256,
+            )?;
             reader.load_reorder_map()?;
         }
 
@@ -194,7 +204,9 @@ impl DecompressionPipeline {
             ..Default::default()
         });
 
-        let max_inflight = self.config.max_in_flight_blocks;
+        let block_hint = reader.max_block_compressed_size();
+        let budget_batch = reader.budget().parallel_batch_size(threads, block_hint)?.max(1);
+        let max_inflight = self.config.max_in_flight_blocks.min(budget_batch).max(1);
         let (task_tx, task_rx): (Sender<BlockTask>, Receiver<BlockTask>) = bounded(max_inflight);
         let (result_tx, result_rx): (Sender<DecompressedResult>, Receiver<DecompressedResult>) = bounded(max_inflight);
 

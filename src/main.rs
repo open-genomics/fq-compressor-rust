@@ -57,7 +57,7 @@ struct Cli {
     #[arg(short = 'q', long)]
     quiet: bool,
 
-    /// Memory limit in MB (0 = automatic memory selection)
+    /// Memory limit in MB (0 = automatic finite selection; not unlimited)
     #[arg(long, default_value_t = 0)]
     memory_limit: usize,
 
@@ -351,6 +351,7 @@ fn main() {
                 show_progress,
                 force_overwrite: force,
                 use_pipeline: pipeline,
+                memory_limit_mb: cli.memory_limit,
                 ..DecompressOptions::default()
             };
 
@@ -393,6 +394,7 @@ fn main() {
             fail_fast,
             verbose,
             quick_mode: quick,
+            memory_limit_mb: cli.memory_limit,
         })
         .execute(),
     };

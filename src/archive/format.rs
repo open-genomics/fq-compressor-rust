@@ -438,6 +438,16 @@ impl BlockIndex {
     }
 
     pub fn read<R: Read>(r: &mut R) -> Result<Self> {
+        use crate::memory_budget::DecodeBudget;
+        Self::read_with_budget(r, &DecodeBudget::automatic(), u64::MAX)
+    }
+
+    /// Read the block index, rejecting oversized `num_blocks` before allocation.
+    pub fn read_with_budget<R: Read>(
+        r: &mut R,
+        budget: &crate::memory_budget::DecodeBudget,
+        index_region_bytes: u64,
+    ) -> Result<Self> {
         let header_size = r.read_u32::<LittleEndian>()? as usize;
         let entry_size = r.read_u32::<LittleEndian>()? as usize;
         let num_blocks = r.read_u64::<LittleEndian>()?;
@@ -458,11 +468,8 @@ impl BlockIndex {
                 "BlockIndex entry size {entry_size} > allowed {MAX_BLOCK_INDEX_ENTRY_SIZE}"
             )));
         }
-        if usize::try_from(num_blocks).is_err() {
-            return Err(FqcError::Format(format!(
-                "BlockIndex block count {num_blocks} does not fit in memory on this platform"
-            )));
-        }
+        budget.check_index_entries(num_blocks, index_region_bytes, entry_size as u64)?;
+        let n_entries = budget.checked_usize(num_blocks, "block_index.num_blocks")?;
 
         // Skip extra header bytes
         if header_size > BLOCK_INDEX_HEADER_SIZE {
@@ -470,8 +477,8 @@ impl BlockIndex {
             skip_extra_bytes(r, extra)?;
         }
 
-        let mut entries = Vec::new();
-        for _ in 0..num_blocks {
+        let mut entries = Vec::with_capacity(n_entries);
+        for _ in 0..n_entries {
             let entry = IndexEntry::read(r)?;
             // Skip extra entry bytes for forward compatibility
             if entry_size > INDEX_ENTRY_SIZE {

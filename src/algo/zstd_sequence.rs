@@ -5,6 +5,7 @@
 
 use crate::algo::compressor_traits::SequenceCompressor;
 use crate::error::{FqcError, Result};
+use crate::memory_budget::zstd_decompress_bounded;
 use crate::types::{encode_codec, CodecFamily, ReadRecord};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read};
@@ -37,13 +38,22 @@ impl SequenceCompressor for ZstdSequenceCompressor {
             .map_err(|e| FqcError::Compression(format!("Zstd sequence compress failed: {e}")))
     }
 
-    fn decompress(&self, data: &[u8], read_count: u32, _uniform_length: u32, _lengths: &[u32]) -> Result<Vec<String>> {
+    fn decompress(&self, data: &[u8], read_count: u32, uniform_length: u32, lengths: &[u32]) -> Result<Vec<String>> {
         if data.is_empty() {
             return Ok(vec![String::new(); read_count as usize]);
         }
 
-        let buf = zstd::stream::decode_all(data)
-            .map_err(|e| FqcError::Decompression(format!("Zstd sequence decompress failed: {e}")))?;
+        let bases: u64 = if uniform_length > 0 {
+            u64::from(uniform_length).saturating_mul(u64::from(read_count))
+        } else {
+            lengths.iter().map(|&l| u64::from(l)).fold(0u64, u64::saturating_add)
+        };
+        // Each record: u32 length prefix + bases.
+        let max_out = bases
+            .saturating_add(u64::from(read_count).saturating_mul(4))
+            .saturating_add(64)
+            .min(usize::MAX as u64) as usize;
+        let buf = zstd_decompress_bounded(data, max_out, "zstd sequence")?;
 
         let mut sequences = Vec::with_capacity(read_count as usize);
         let mut cur = Cursor::new(&buf);

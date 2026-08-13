@@ -4,6 +4,10 @@
 
 ### Added
 
+- Operation-scoped decode/verify memory budget (`DecodeBudget`): `--memory-limit`
+  applies to decompress and full verify; archive-declared sizes and zstd output
+  are capped before allocation; automatic (`0`) remains finite with hard
+  structural ceilings (not unlimited).
 - Header-driven per-stream codec dispatch on decompress: IDs/seq/qual/aux each
   validate their block-header codec byte against an allow-list (unknown family,
   wrong stream, and non-v0 versions fail closed); global quality/id mode must

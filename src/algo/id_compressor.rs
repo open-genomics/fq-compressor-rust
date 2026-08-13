@@ -316,10 +316,11 @@ fn decompress_exact(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
     }
     let mut pos = 0;
     let uncompressed_size = uvarint_decode(data, &mut pos) as usize;
-    let _ = uncompressed_size;
-
-    let uncompressed = zstd::stream::decode_all(&data[pos..])
-        .map_err(|e| FqcError::Decompression(format!("ID Zstd decompress failed: {e}")))?;
+    // Cap runaway declarations: at most 64 KiB per ID on average.
+    let max_out = uncompressed_size
+        .max(64)
+        .min((num_ids as usize).saturating_mul(64 * 1024).saturating_add(1024));
+    let uncompressed = crate::memory_budget::zstd_decompress_bounded(&data[pos..], max_out, "id exact")?;
 
     let mut ids = Vec::with_capacity(num_ids as usize);
     let mut offset = 0;
@@ -436,10 +437,11 @@ fn decompress_tokenize(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
     }
 
     let mut pos = 0;
-    let _uncompressed_size = uvarint_decode(data, &mut pos);
-
-    let uncompressed = zstd::stream::decode_all(&data[pos..])
-        .map_err(|e| FqcError::Decompression(format!("ID tokenize Zstd decompress failed: {e}")))?;
+    let uncompressed_size = uvarint_decode(data, &mut pos) as usize;
+    let max_out = uncompressed_size
+        .max(64)
+        .min((num_ids as usize).saturating_mul(64 * 1024).saturating_add(1024));
+    let uncompressed = crate::memory_budget::zstd_decompress_bounded(&data[pos..], max_out, "id tokenize")?;
 
     let mut offset = 0;
 
@@ -601,8 +603,8 @@ fn decompress_legacy(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
     use byteorder::{LittleEndian, ReadBytesExt};
     use std::io::{Cursor, Read};
 
-    let buf = zstd::stream::decode_all(data)
-        .map_err(|e| FqcError::Decompression(format!("ID Zstd decompress (legacy) failed: {e}")))?;
+    let max_out = (num_ids as usize).saturating_mul(64 * 1024).saturating_add(1024);
+    let buf = crate::memory_budget::zstd_decompress_bounded(data, max_out, "id legacy")?;
 
     let mut ids = Vec::with_capacity(num_ids as usize);
     let mut cur = Cursor::new(&buf);
