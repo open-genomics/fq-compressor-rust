@@ -5,6 +5,11 @@
 `fqc` 是一个用 Rust 编写的 FASTQ 压缩工具，围绕块索引的 `.fqc` 归档格式构建。
 它将短读 ABC 路径、Zstd 支撑的中/长读压缩与质量分编码整合进单一 CLI，支持压缩、解压、检视与校验。
 
+> **Format family**: `fqc-indexed/v2` — command `fqc`, extension `.fqc`,
+> magic `89 46 51 43 0D 0A 1A 0A`. Distinct from C++ `fqc-sequential/v2`
+> (magic `46 51 43 56 32 0D 0A 1A`); the other family's magic is rejected with an
+> explicit unsupported-format-family error. Extension alone cannot select a decoder.
+
 ## 为什么用它
 
 - **FASTQ 感知的归档格式**，而非通用的压缩数据块

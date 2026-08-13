@@ -4,6 +4,9 @@
 
 ### Added
 
+- Cross-family magic dispatch: reject C++ `fqc-sequential/v2` archives with an
+  explicit unsupported-format-family error pointing at
+  `open-genomics/fq-compressor` (unknown/truncated magics stay distinct).
 - Operation-scoped decode/verify memory budget (`DecodeBudget`): `--memory-limit`
   applies to decompress and full verify; archive-declared sizes and zstd output
   are capped before allocation; automatic (`0`) remains finite with hard

@@ -3,7 +3,7 @@
 // =============================================================================
 
 use crate::algo::block_compressor::delta_decode_ids;
-use crate::archive::format::*;
+use crate::archive::format::{self, *};
 use crate::archive::traits::BlockData;
 use crate::error::{FqcError, Result};
 use crate::memory_budget::{zstd_decompress_bounded, DecodeBudget};
@@ -61,14 +61,23 @@ impl FqcReader {
         let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
         let mut reader = BufReader::new(file);
 
-        // Read and validate magic + version
+        // Fixed 8-byte magic dispatch before version/header/checksum parsing.
+        if file_size < 8 {
+            return Err(FqcError::Format(
+                "truncated FQC magic header (need 8 bytes)".to_string(),
+            ));
+        }
         let mut magic = [0u8; 8];
         reader.read_exact(&mut magic)?;
-        if !validate_magic(&magic) {
-            return Err(FqcError::Format("Invalid .fqc magic header".to_string()));
-        }
+        format::magic_dispatch_error(magic)?;
 
-        let version = reader.read_u8()?;
+        let version = reader.read_u8().map_err(|e| {
+            if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                FqcError::Format("truncated FQC version byte".to_string())
+            } else {
+                FqcError::Io(e)
+            }
+        })?;
         if !is_version_compatible(version) {
             return Err(FqcError::UnsupportedVersion { major: version >> 4 });
         }

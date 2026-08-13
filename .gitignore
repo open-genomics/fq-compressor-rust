@@ -16,6 +16,7 @@ desktop.ini
 
 # Test artifacts
 *.fqc
+!tests/fixtures/**/*.fqc
 *_out.fastq
 *_split*.fastq
 *_range.fastq

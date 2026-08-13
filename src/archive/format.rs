@@ -32,8 +32,19 @@ use std::io::{Read, Write};
 // Magic Constants
 // =============================================================================
 
+/// Indexed family magic (`fqc-indexed/v2`) — this implementation.
 pub const MAGIC_BYTES: [u8; 8] = [0x89, b'F', b'Q', b'C', 0x0D, 0x0A, 0x1A, 0x0A];
+/// Sequential family magic (`fqc-sequential/v2`) — C++ `open-genomics/fq-compressor`.
+pub const SEQUENTIAL_MAGIC_BYTES: [u8; 8] = [0x46, 0x51, 0x43, 0x56, 0x32, 0x0D, 0x0A, 0x1A];
 pub const MAGIC_END: [u8; 8] = [b'F', b'Q', b'C', b'_', b'E', b'O', b'F', 0x00];
+
+/// Result of fixed 8-byte magic dispatch (before version/header parsing).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MagicFamily {
+    Indexed,
+    Sequential,
+    Unknown,
+}
 
 pub const FORMAT_VERSION_MAJOR: u8 = 2;
 pub const FORMAT_VERSION_MINOR: u8 = 0;
@@ -608,6 +619,32 @@ impl FileFooter {
 
 pub fn validate_magic(data: &[u8]) -> bool {
     data.len() >= 8 && data[..8] == MAGIC_BYTES
+}
+
+/// Classify the first 8 archive bytes. Caller must ensure `magic.len() == 8`.
+pub fn classify_magic(magic: &[u8]) -> MagicFamily {
+    if magic == MAGIC_BYTES {
+        MagicFamily::Indexed
+    } else if magic == SEQUENTIAL_MAGIC_BYTES {
+        MagicFamily::Sequential
+    } else {
+        MagicFamily::Unknown
+    }
+}
+
+/// Map a classified magic to a library error. Indexed magic is not an error.
+pub fn magic_dispatch_error(magic: [u8; 8]) -> Result<()> {
+    match classify_magic(&magic) {
+        MagicFamily::Indexed => Ok(()),
+        MagicFamily::Sequential => Err(FqcError::UnsupportedFormat(
+            "unsupported FQC format family: fqc-sequential/v2 \
+             (magic 46 51 43 56 32 0D 0A 1A); use open-genomics/fq-compressor"
+                .to_string(),
+        )),
+        MagicFamily::Unknown => Err(FqcError::Format(
+            "unknown FQC magic header (not an fqc-indexed/v2 archive)".to_string(),
+        )),
+    }
 }
 
 pub fn is_version_compatible(version: u8) -> bool {
