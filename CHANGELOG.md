@@ -4,6 +4,26 @@
 
 ### Added
 
+- Lightweight OpenSpec change workflow for high-risk changes (pure Markdown
+  `openspec/` artifacts; no Node.js, CLI, or tool-specific configs)
+- Frozen indexed v2 decoder fixture (`tests/fixtures/indexed-v2/`) with
+  MANIFEST.md documenting generator commit, command, and SHA-256 hashes
+- Format contract tests (`tests/test_format_contract.rs`) covering magic,
+  version, codec/checksum identifier encoding, frozen fixture round-trip,
+  and unknown-identifier rejection
+- `openspec/project.md` recording `fqc-indexed/v2` identity, decision
+  `FQC-DEC-001`, and external boundaries
+
+### Fixed
+
+- Format spec (`docs/reference/format-spec.md`) codec table: corrected from
+  flat enumeration to `(family << 4) | version` encoding with full family table
+- Format spec checksum table: ID 0 means XxHash64, not "none"
+- Format spec version compatibility: removed fictional v1 fallback; reader
+  accepts only major == 2
+- Format spec flags table: removed nonexistent `LEGACY_LONG_READ_MODE` at bit 2
+- Format spec stream types: replaced nonexistent QVZ with actual codec families
+
 - Benchmark foundation for parser and archive workflows (criterion-based)
 - Performance foundation architecture documentation
 

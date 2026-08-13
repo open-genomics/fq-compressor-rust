@@ -8,7 +8,11 @@ Use this file as the **canonical AI contributor guide** for this repository.
 lightweight, nimble, and low-maintenance:
 
 - Prefer fixing drift and simplifying structure over speculative features
-- No heavy process: no spec-driven change management, no CI, no docs-site build
+- No heavy process: no CI, no docs-site build
+- High-risk changes (format, compatibility, security/resource) use lightweight
+  pure-Markdown OpenSpec changes under `openspec/`; no Node.js, global CLI,
+  dashboard, or tool-specific configuration directories
+- Small low-risk fixes may follow the repository's existing process directly
 - Breaking changes are allowed; backward compatibility is not guaranteed
 
 ## Source of truth
