@@ -107,7 +107,7 @@ flowchart LR
 - **decompress / verify**：`DecodeBudget`
 - **compress archive**：摄入时估计峰值（含额外拷贝因子），超限失败并提示 `--streaming`
 - **compress streaming**：不走全量摄入检查
-- pipeline 仍会全量读入后再分阶段压缩，不是严格低内存模式
+- **compress pipeline**：与 archive 共用摄入峰值预算，超限同样失败；仍不是块级流式低内存路径
 
 ```bash
 # 显式限制 MB（archive 超预算会失败）

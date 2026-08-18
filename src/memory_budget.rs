@@ -333,6 +333,17 @@ pub fn account_archive_ingest(held_bytes: &mut u64, record: &ReadRecord, limit_b
     Ok(())
 }
 
+pub fn push_archive_record(
+    records: &mut Vec<ReadRecord>,
+    rec: ReadRecord,
+    held_bytes: &mut u64,
+    limit_bytes: u64,
+) -> Result<()> {
+    account_archive_ingest(held_bytes, &rec, limit_bytes)?;
+    records.push(rec);
+    Ok(())
+}
+
 // =============================================================================
 // System Memory Detection
 // =============================================================================

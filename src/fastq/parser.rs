@@ -3,7 +3,8 @@
 // =============================================================================
 
 use crate::error::{FqcError, Result};
-use crate::types::ReadRecord;
+use crate::memory_budget::{push_archive_record, resolve_compress_limit_bytes};
+use crate::types::{PeLayout, ReadRecord};
 use std::io::{BufRead, BufReader, Read};
 
 // =============================================================================
@@ -273,6 +274,17 @@ impl<R: BufRead> FastqParser<R> {
         Ok(records)
     }
 
+    /// Collect records while applying the archive ingest peak budget (`0` = automatic finite).
+    pub fn collect_all_within_archive_budget(&mut self, user_limit_mb: usize) -> Result<Vec<ReadRecord>> {
+        let limit_bytes = resolve_compress_limit_bytes(user_limit_mb);
+        let mut records = Vec::new();
+        let mut held_bytes = 0u64;
+        while let Some(record) = self.next_record()? {
+            push_archive_record(&mut records, record, &mut held_bytes, limit_bytes)?;
+        }
+        Ok(records)
+    }
+
     /// Read a chunk of up to `max_records` records
     pub fn read_chunk(&mut self, max_records: usize) -> Result<Vec<ReadRecord>> {
         let mut records = Vec::with_capacity(max_records);
@@ -354,14 +366,20 @@ impl<R1: BufRead, R2: BufRead> PairedFastqReader<R1, R2> {
     pub fn collect_all_consecutive(&mut self) -> Result<Vec<ReadRecord>> {
         let mut r1_reads = Vec::new();
         let mut r2_reads = Vec::new();
-
         while let Some((a, b)) = self.next_pair()? {
             r1_reads.push(a);
             r2_reads.push(b);
         }
-
         r1_reads.extend(r2_reads);
         Ok(r1_reads)
+    }
+
+    pub fn collect_pairs_within_archive_budget(
+        &mut self,
+        pe_layout: PeLayout,
+        user_limit_mb: usize,
+    ) -> Result<Vec<ReadRecord>> {
+        collect_pairs_within_budget(|| self.next_pair(), pe_layout, user_limit_mb)
     }
 }
 
@@ -424,6 +442,46 @@ impl<R: BufRead> InterleavedPeParser<R> {
         }
         r1_reads.extend(r2_reads);
         Ok(r1_reads)
+    }
+
+    pub fn collect_pairs_within_archive_budget(
+        &mut self,
+        pe_layout: PeLayout,
+        user_limit_mb: usize,
+    ) -> Result<Vec<ReadRecord>> {
+        collect_pairs_within_budget(|| self.next_pair(), pe_layout, user_limit_mb)
+    }
+}
+
+fn collect_pairs_within_budget<F>(
+    mut next_pair: F,
+    pe_layout: PeLayout,
+    user_limit_mb: usize,
+) -> Result<Vec<ReadRecord>>
+where
+    F: FnMut() -> Result<Option<(ReadRecord, ReadRecord)>>,
+{
+    let limit_bytes = resolve_compress_limit_bytes(user_limit_mb);
+    let mut held_bytes = 0u64;
+    match pe_layout {
+        PeLayout::Interleaved => {
+            let mut records = Vec::new();
+            while let Some((a, b)) = next_pair()? {
+                push_archive_record(&mut records, a, &mut held_bytes, limit_bytes)?;
+                push_archive_record(&mut records, b, &mut held_bytes, limit_bytes)?;
+            }
+            Ok(records)
+        }
+        PeLayout::Consecutive => {
+            let mut r1_reads = Vec::new();
+            let mut r2_reads = Vec::new();
+            while let Some((a, b)) = next_pair()? {
+                push_archive_record(&mut r1_reads, a, &mut held_bytes, limit_bytes)?;
+                push_archive_record(&mut r2_reads, b, &mut held_bytes, limit_bytes)?;
+            }
+            r1_reads.extend(r2_reads);
+            Ok(r1_reads)
+        }
     }
 }
 

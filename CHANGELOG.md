@@ -7,7 +7,8 @@
 - Archive compress ingest budget: `--memory-limit 0` resolves to a finite
   automatic cap (same 75% / hard-ceiling policy as decode); running peak
   estimate fails with `ResourceLimit` before the `.fqc` is created, and
-  `--streaming` skips this full-ingest check.
+  `--streaming` skips this full-ingest check. `--pipeline` uses the same
+  ingest check (it is still not a bounded-memory streaming path).
 - Cross-family magic dispatch: reject C++ `fqc-sequential/v2` archives with an
   explicit unsupported-format-family error pointing at
   `open-genomics/fq-compressor` (unknown/truncated magics stay distinct).

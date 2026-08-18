@@ -18,6 +18,7 @@
 | `archive-format` | `openspec/specs/archive-format/` | Binary `.fqc` indexed v2 layout, codec dispatch, family rejection |
 | `file-output` | `openspec/specs/file-output/` | Transactional ordinary-file outputs |
 | `decode-budget` | `openspec/specs/decode-budget/` | Operation-scoped decompress/verify memory budget |
+| `compress-budget` | `openspec/specs/compress-budget/` | Archive/pipeline ingest peak budget |
 
 ## External boundaries
 
@@ -62,3 +63,4 @@ Completed, merged, and moved under `openspec/changes/archive/`:
 | 2026-08-18 | `dispatch-all-stream-codecs` | `archive-format` |
 | 2026-08-18 | `enforce-decode-resource-budget` | `decode-budget` |
 | 2026-08-18 | `recognize-sequential-fqc-family` | `archive-format` |
+| 2026-08-18 | `enforce-compress-archive-budget` | `compress-budget` |

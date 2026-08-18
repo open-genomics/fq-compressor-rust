@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- Status: `Completed`
+- Status: `Archived`
 - Task IDs: `FQCR-LIMIT-002`
 - Prerequisites: `FQCR-LIMIT-001` (decode budget)
 

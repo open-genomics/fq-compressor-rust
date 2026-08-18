@@ -37,3 +37,13 @@ A valid minimal FASTQ SHALL compress under `--memory-limit 0` and `--memory-limi
 - **GIVEN** input that archive mode would reject at `--memory-limit 16`
 - **WHEN** compress runs with `--streaming --memory-limit 16`
 - **THEN** the command succeeds
+
+### Requirement: Pipeline full ingest uses the same budget
+`--pipeline` SHALL apply the same ingest peak check as archive mode. It SHALL
+NOT become a bounded-memory streaming path.
+
+#### Scenario: Pipeline over-budget
+- **GIVEN** input that archive mode rejects at `--memory-limit 16`
+- **WHEN** compress runs with `--pipeline --memory-limit 16`
+- **THEN** the command fails with `ResourceLimit`
+- **AND** the final output path is absent

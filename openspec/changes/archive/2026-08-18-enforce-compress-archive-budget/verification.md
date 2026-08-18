@@ -9,7 +9,7 @@
 | Over-budget fails | `archive_compress_rejects_over_budget_before_output` | passed |
 | Tiny + 0/16 | `archive_compress_accepts_tiny_fixture_under_auto_and_min` | passed |
 | Streaming exception | `streaming_compress_accepts_input_that_archive_rejects` | passed |
+| Pipeline over-budget | `pipeline_compress_rejects_over_budget_before_output` | passed |
+| Pipeline tiny | `pipeline_compress_accepts_tiny_fixture_under_min` | passed |
 
-Commands: `cargo fmt --check`, `clippy -D warnings`, `test --lib --tests`, `doc --no-deps` — exit 0.
-
-Criterion (repeated tiny fixture, 2026-08-18): parser 453 MiB/s; archive roundtrip 249 ms / 70 KiB/s; verify 144 ms. Not production throughput.
+Commands: `cargo fmt --check`, `clippy -D warnings`, `test --lib --tests`, `doc --no-deps`.

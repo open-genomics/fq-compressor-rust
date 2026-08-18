@@ -41,7 +41,7 @@ fqc compress -i INPUT -o OUTPUT [OPTIONS]
 说明：
 
 - archive 模式将完整读段集保留在内存中进行全局分析和可选重排
-- `--memory-limit 0` 在 compress / decompress / verify 上都是有限预算（约可用内存 75%，带硬性结构上限），不是无限内存。archive 压缩按摄入峰值估计拒绝超预算，并提示改 `--streaming`
+- `--memory-limit 0` 在 compress / decompress / verify 上都是有限预算（约可用内存 75%，带硬性结构上限），不是无限内存。archive 与 pipeline 压缩按摄入峰值估计拒绝超预算，并提示改 `--streaming`
 - 没有 `--id-mode`：ID 在非 discard 时由实现自动尝试 tokenize，失败则回退 exact。`IdMode::Tokenize` / `Discard` 不是 CLI 开关
 - pipeline 模式是分段执行路径，非严格低内存摄入模式
 - 普通文件输出先写同目录临时文件，成功后再 rename；stdout（`-`）不走事务

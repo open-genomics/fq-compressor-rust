@@ -21,11 +21,16 @@ fn write_reads(path: &Path, n_reads: usize, seq_len: usize) {
 }
 
 fn compress(input: &Path, output: &Path, memory_limit_mb: usize, streaming: bool) -> i32 {
+    compress_with(input, output, memory_limit_mb, streaming, false)
+}
+
+fn compress_with(input: &Path, output: &Path, memory_limit_mb: usize, streaming: bool, pipeline: bool) -> i32 {
     CompressCommand::new(CompressOptions {
         input_path: input.to_string_lossy().into_owned(),
         output_path: output.to_string_lossy().into_owned(),
         memory_limit_mb,
         streaming_mode: streaming,
+        use_pipeline: pipeline,
         enable_reorder: !streaming,
         force_overwrite: true,
         show_progress: false,
@@ -108,5 +113,26 @@ fn streaming_compress_accepts_input_that_archive_rejects() {
     assert_ne!(compress(&input, &output, MIN_COMPRESS_MEMORY_MB, false), 0);
     let code = compress(&input, &output, MIN_COMPRESS_MEMORY_MB, true);
     assert_eq!(code, 0);
+    assert!(output.exists());
+}
+
+#[test]
+fn pipeline_compress_rejects_over_budget_before_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("big.fastq");
+    let output = dir.path().join("out.fqc");
+    write_reads(&input, 600, 10_000);
+
+    let code = compress_with(&input, &output, MIN_COMPRESS_MEMORY_MB, false, true);
+    assert_ne!(code, 0);
+    assert!(!output.exists());
+}
+
+#[test]
+fn pipeline_compress_accepts_tiny_fixture_under_min() {
+    let input = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/data/test_se.fastq");
+    let dir = tempfile::tempdir().unwrap();
+    let output = dir.path().join("out.fqc");
+    assert_eq!(compress_with(&input, &output, MIN_COMPRESS_MEMORY_MB, false, true), 0);
     assert!(output.exists());
 }

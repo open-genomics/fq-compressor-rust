@@ -41,6 +41,7 @@ pub struct CompressionPipelineConfig {
     pub streaming_mode: bool,
     pub pe_layout: PeLayout,
     pub force_overwrite: bool,
+    pub memory_limit_mb: usize,
 }
 
 impl Default for CompressionPipelineConfig {
@@ -58,6 +59,7 @@ impl Default for CompressionPipelineConfig {
             streaming_mode: false,
             pe_layout: PeLayout::Interleaved,
             force_overwrite: false,
+            memory_limit_mb: 0,
         }
     }
 }
@@ -148,10 +150,10 @@ impl CompressionPipeline {
         // ---- Phase 1: Read all records (needed for global analysis) ----
         let all_reads = if input_path == "-" {
             let mut parser = open_fastq_stdin();
-            parser.collect_all()?
+            parser.collect_all_within_archive_budget(self.config.memory_limit_mb)?
         } else {
             let mut parser = open_fastq(input_path)?;
-            parser.collect_all()?
+            parser.collect_all_within_archive_budget(self.config.memory_limit_mb)?
         };
 
         if all_reads.is_empty() {
@@ -388,10 +390,7 @@ impl CompressionPipeline {
         log::info!("Reading paired-end files: {} + {}", input1_path, input2_path);
 
         let mut pe_reader = open_fastq_paired(input1_path, input2_path)?;
-        let all_reads = match pe_layout {
-            PeLayout::Interleaved => pe_reader.collect_all_interleaved()?,
-            PeLayout::Consecutive => pe_reader.collect_all_consecutive()?,
-        };
+        let all_reads = pe_reader.collect_pairs_within_archive_budget(pe_layout, self.config.memory_limit_mb)?;
 
         if all_reads.is_empty() {
             return Err(FqcError::InvalidArgument("Input files are empty".to_string()));
@@ -510,10 +509,7 @@ impl CompressionPipeline {
         } else {
             open_fastq_interleaved(input_path)?
         };
-        let all_reads = match pe_layout {
-            PeLayout::Interleaved => parser.collect_all_interleaved()?,
-            PeLayout::Consecutive => parser.collect_all_consecutive()?,
-        };
+        let all_reads = parser.collect_pairs_within_archive_budget(pe_layout, self.config.memory_limit_mb)?;
 
         if all_reads.is_empty() {
             return Err(FqcError::InvalidArgument("Input file is empty".to_string()));
