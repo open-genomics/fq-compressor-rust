@@ -15,8 +15,9 @@
 
 | Capability | Path | Description |
 |---|---|---|
-| `archive-format` | `openspec/specs/archive-format/` | Binary `.fqc` indexed v2 layout |
+| `archive-format` | `openspec/specs/archive-format/` | Binary `.fqc` indexed v2 layout, codec dispatch, family rejection |
 | `file-output` | `openspec/specs/file-output/` | Transactional ordinary-file outputs |
+| `decode-budget` | `openspec/specs/decode-budget/` | Operation-scoped decompress/verify memory budget |
 
 ## External boundaries
 
@@ -49,3 +50,15 @@ cargo doc --no-deps
 | ID | Decision |
 |---|---|
 | `FQC-DEC-001` | C++ and Rust both use `fqc` / `.fqc`; format family distinguished by magic, not suffix |
+
+## Archived changes
+
+Completed, merged, and moved under `openspec/changes/archive/`:
+
+| Date | Change | Capability |
+|---|---|---|
+| 2026-08-18 | `correct-indexed-v2-spec` | `archive-format` |
+| 2026-08-18 | `make-file-output-atomic` | `file-output` |
+| 2026-08-18 | `dispatch-all-stream-codecs` | `archive-format` |
+| 2026-08-18 | `enforce-decode-resource-budget` | `decode-budget` |
+| 2026-08-18 | `recognize-sequential-fqc-family` | `archive-format` |

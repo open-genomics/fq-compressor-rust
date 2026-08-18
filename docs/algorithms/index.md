@@ -59,6 +59,10 @@ flowchart LR
 | `qvz` | 当前为无损 SCM 的别名（真 QVZ 量化尚未实现） | 无损 |
 | `discard` | 解码时用占位符替换 | 丢弃 |
 
+## ID 路径
+
+读段 ID 由 `id_compressor` 处理：实现先尝试 tokenize（公共前缀 + 可变字段），模式不稳定则回退 exact + Zstd。CLI **没有** `--id-mode`；`discard` 只存在于内部 `IdMode`，不能从命令行选择。
+
 ## 重排管道
 
 对于非流式模式下的短单端归档，`fqc` 可以重排读段以提高局部性和压缩效率：

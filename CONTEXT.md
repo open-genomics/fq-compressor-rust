@@ -82,6 +82,12 @@ Compressed data for one aspect of a block:
 - `qual_stream`: Compressed quality scores
 - `aux_stream`: Compressed auxiliary data (lengths)
 
+### ID mode
+
+`IdMode` (`Exact`, `Tokenize`, `Discard`) is stored on archive flags. The
+compressor auto-tries tokenize and falls back to exact. There is no `--id-mode`
+CLI flag; `Discard` is programmatic only.
+
 ## Archive Concepts
 
 ### Global Header

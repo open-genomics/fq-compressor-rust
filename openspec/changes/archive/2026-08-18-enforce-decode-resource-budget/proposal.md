@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- Status: `Completed`
+- Status: `Archived`
 - Task IDs: `FQCR-LIMIT-001`
 - Prerequisites: `FQCR-SPEC-001`, `FQCR-CODEC-001`
 

@@ -4,6 +4,10 @@
 
 ### Added
 
+- Archive compress ingest budget: `--memory-limit 0` resolves to a finite
+  automatic cap (same 75% / hard-ceiling policy as decode); running peak
+  estimate fails with `ResourceLimit` before the `.fqc` is created, and
+  `--streaming` skips this full-ingest check.
 - Cross-family magic dispatch: reject C++ `fqc-sequential/v2` archives with an
   explicit unsupported-format-family error pointing at
   `open-genomics/fq-compressor` (unknown/truncated magics stay distinct).
@@ -45,6 +49,12 @@
 
 ### Changed
 
+- Archived five completed OpenSpec changes under
+  `openspec/changes/archive/2026-08-18-*` and merged their requirements into
+  `openspec/specs/` (`archive-format`, `file-output`, `decode-budget`)
+- Corrected stale module paths in the whitepaper and architecture diagram
+- Relabeled unverified ratio/throughput claims in `docs/comparison.md`;
+  documented that compress archive `--memory-limit 0` still allows full ingest
 - Regrouped `src/`: archive format files under `src/archive/`, core engine under
   `src/engine/`, `common/memory_budget` flattened to the top level
 - Docs converted to plain Markdown with a `docs/README.md` index

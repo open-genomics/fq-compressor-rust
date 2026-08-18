@@ -16,8 +16,12 @@ flowchart TD
     end
     
     subgraph FORMAT["格式层"]
-        FR[format.rs] --> FW[fqc_writer.rs]
-        FR --> FR2[fqc_reader.rs]
+        FR[archive/format.rs] --> FW[archive/writer.rs]
+        FR --> FR2[archive/reader.rs]
+    end
+    
+    subgraph ENGINE["编排层"]
+        CE[engine/compression_engine.rs]
     end
     
     subgraph ALGO["算法层"]
@@ -32,7 +36,10 @@ flowchart TD
         PL_DECOMP[pipeline/decompression.rs]
     end
     
-    CLI --> IO
+    CLI --> ENGINE
+    ENGINE --> IO
+    ENGINE --> ALGO
+    ENGINE --> FORMAT
     IO --> FORMAT
     ALGO --> FORMAT
     PIPELINE --> ALGO

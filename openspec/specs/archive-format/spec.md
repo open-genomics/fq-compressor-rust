@@ -1,6 +1,8 @@
-# Indexed Archive Format Change Specification
+# Indexed Archive Format
 
-## ADDED Requirements
+Baseline contract for `fqc-indexed/v2`.
+
+## Requirements
 
 ### Requirement: Indexed archive identity
 The implementation SHALL identify its archive contract as `fqc-indexed/v2`, while retaining command `fqc`, extension `.fqc`, and the existing 8-byte indexed magic.
@@ -47,3 +49,31 @@ The reader SHALL reject unknown codec, checksum, or incompatible version identif
 - **WHEN** the reader parses the relevant header
 - **THEN** it SHALL return a format/unsupported-codec error
 - **AND** it SHALL NOT silently use command-line defaults
+
+### Requirement: Block stream codecs drive decode
+The decoder SHALL select ID, sequence, quality and aux decoders from the four
+codec bytes in the block header, and SHALL reject unknown families, families
+not allowed for that stream, and unimplemented versions before interpreting
+payload bytes.
+
+#### Scenario: Inapplicable family on a stream
+- **GIVEN** a block whose one stream codec byte is a known family illegal for that stream
+- **WHEN** the block is decompressed
+- **THEN** decoding SHALL fail with an unsupported-format error naming the block ID, stream, and codec byte
+
+### Requirement: Global flags cannot override stream codecs
+When global quality or ID mode implies discard/exact semantics that contradict
+the block's declared stream family, the decoder SHALL return a format error.
+
+### Requirement: Cross-family magic is rejected
+The reader SHALL classify the first 8 bytes before version or header parsing.
+The C++ `fqc-sequential/v2` magic (`46 51 43 56 32 0D 0A 1A`) SHALL fail as a
+known unsupported family. Unknown and truncated magics SHALL remain distinct
+format errors. Sequential archives SHALL NOT be decoded.
+
+#### Scenario: Sequential family
+- **GIVEN** an archive beginning with `46 51 43 56 32 0D 0A 1A`
+- **WHEN** info, verify, or decompress opens it
+- **THEN** the command SHALL fail with an unsupported-format-family error
+  naming `fqc-sequential/v2` and `open-genomics/fq-compressor`
+- **AND** decompress SHALL NOT create the output path

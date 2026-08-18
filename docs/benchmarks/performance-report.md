@@ -144,6 +144,18 @@ ID 模式:           exact
 - **benches/parser_throughput.rs** - FASTQ 解析器性能
 - **benches/archive_workflow.rs** - 完整压缩/解压管道
 
+### 2026-08-18 Criterion 实测（重复微型夹具，非生产吞吐）
+
+平台：Linux x86_64 WSL2。输入是 `tests/data/test_se.fastq` 的重复副本（parser ×2048，archive ×8）。这些数字只描述热点路径的相对成本，不能外推到 100MB+ FASTQ。
+
+| 基准 | 时间（中位） | 吞吐 |
+|------|-------------|------|
+| `parser/parse_repeated_test_fixture` | 9.63 ms | 453 MiB/s |
+| `archive_workflow/compress_roundtrip` | 249 ms | 70 KiB/s |
+| `archive_workflow/verify_archive` | 144 ms | 8.7 KiB/s |
+
+读法：解析器本身很快；当前 archive 往返被启动/建档开销主导，因为夹具只有十几 KB。下一步若要谈 MB/s，必须换 ≥100MB 真实数据。
+
 ### 运行基准测试
 
 **标准执行：**

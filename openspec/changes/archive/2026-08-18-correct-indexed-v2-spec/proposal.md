@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- Status: `Applying`
+- Status: `Archived`
 - Repository: `open-genomics/fq-compressor-rust`
 - Audit base: `1a2a2161bed88df5e21ce6e83ac3b668a93a44b0`
 - Capability: `archive-format`

@@ -102,14 +102,19 @@ flowchart LR
 
 ## 内存限制
 
-所有模式都遵循 `--memory-limit` 选项：
+`--memory-limit` 对三种压缩模式都可用。`0` 一律解析为有限预算：
+
+- **decompress / verify**：`DecodeBudget`
+- **compress archive**：摄入时估计峰值（含额外拷贝因子），超限失败并提示 `--streaming`
+- **compress streaming**：不走全量摄入检查
+- pipeline 仍会全量读入后再分阶段压缩，不是严格低内存模式
 
 ```bash
-# 显式限制 MB
-fqc compress -i reads.fastq -o reads.fqc --memory-limit 1024
+# 显式限制 MB（archive 超预算会失败）
+fqc --memory-limit 1024 compress -i reads.fastq -o reads.fqc --streaming
 
-# 自动选择（默认）
-fqc compress -i reads.fastq -o reads.fqc --memory-limit 0
+# 自动有限预算（默认）
+fqc --memory-limit 0 compress -i reads.fastq -o reads.fqc
 ```
 
 ## 建议

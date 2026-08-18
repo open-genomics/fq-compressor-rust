@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- Status: `Completed`
+- Status: `Archived`
 - Task IDs: `FQC-FAMILY-001` (Rust)
 - Prerequisites: `FQCR-SPEC-001` / format family docs
 

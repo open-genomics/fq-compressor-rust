@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- Status: `Applying`
+- Status: `Archived`
 - Repository: `open-genomics/fq-compressor-rust`
 - Capability: `archive-format`
 - Task IDs: `FQCR-CODEC-001`

@@ -212,18 +212,22 @@ src/
   main.rs                 # CLI 入口点
   commands/               # 命令实现
     compress.rs
+    decompress.rs
+    info.rs
+    verify.rs
+  engine/                 # 压缩编排
     compression_engine.rs    # 执行模式路由
     compression_request.rs   # 请求规范化
-    decompress.rs
   algo/                   # 压缩算法
     abc.rs                # 锚定压缩
     block_compressor.rs   # 块级协调器
     quality_compressor.rs # SCM 质量压缩
     global_analyzer.rs    # 最小化器提取、重排
+  archive/                # .fqc 归档
+    format.rs             # 二进制布局
+    writer.rs
+    reader.rs
   pipeline/               # 并行处理阶段
-  format.rs               # 二进制归档格式
-  fqc_writer.rs           # 归档写入器
-  fqc_reader.rs           # 归档读取器
   types.rs                # 公共类型和默认值
 ```
 
@@ -234,7 +238,7 @@ src/
 项目强制执行：
 
 - `cargo clippy` 配 `-D warnings`
-- `cargo test` 含 80+ 单元和集成测试
+- `cargo test` 含约 190 个单元和集成测试
 - Criterion 基准测试用于性能回归检测
 - MSRV 1.75.0 以确保广泛的工具链兼容性
 
@@ -293,12 +297,11 @@ fqc 构建为单静态二进制文件，除 libc 外无运行时依赖。这支�
 
 fqc 证明了领域感知 FASTQ 压缩可以通过现代软件工程实践实现。其块索引格式提供了基于流的压缩器无法提供的运维能力（随机访问、验证、元数据检查）。组件级编码策略适应输入特征，而非强制一刀切的方法。内存安全的 Rust 实现消除了生物信息学工具中常见的安全漏洞类别。
 
-未来工作包括：
+近期工作与 [性能路线图](architecture/performance-roadmap.md) 对齐，而不是新编解码器或大规模重写：
 
-- 与参考基因组集成以实现可选的基于参考的压缩
-- SIMD 加速序列操作
-- GPU 卸载压缩阶段
-- 生产数据集上的大规模基准评估
+- archive 压缩的 `--memory-limit 0` 已与解压/校验对齐为有限预算
+- 在解析器、重排、管道和归档写入上测量热点
+- 在生产规模 FASTQ 上复测压缩比与吞吐量
 
 ## 参考文献
 

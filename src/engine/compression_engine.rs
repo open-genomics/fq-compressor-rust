@@ -148,11 +148,16 @@ impl CompressionEngine {
 
         log::info!("Reading input file: {}", input.primary_path);
         let records = if let Some(path2) = input.secondary_path.as_deref() {
-            Self::read_all_paired_records(&input.primary_path, path2, input.archive_layout)?
+            Self::read_all_paired_records(
+                &input.primary_path,
+                path2,
+                input.archive_layout,
+                request.memory_limit_mb,
+            )?
         } else if input.is_interleaved {
-            Self::read_all_interleaved_records(&input.primary_path, input.archive_layout)?
+            Self::read_all_interleaved_records(&input.primary_path, input.archive_layout, request.memory_limit_mb)?
         } else {
-            Self::read_all_records(&input.primary_path)?
+            Self::read_all_records(&input.primary_path, request.memory_limit_mb)?
         };
 
         if records.is_empty() {
@@ -178,8 +183,6 @@ impl CompressionEngine {
         );
         let enable_reorder =
             request.enable_reorder && !input.is_paired && effective_length_class == ReadLengthClass::Short;
-
-        Self::enforce_archive_mode_memory_limit(records.len(), block_size, &length_stats, request.memory_limit_mb)?;
 
         log::info!("Read length class: {}", effective_length_class.as_str());
         log::info!(
@@ -576,41 +579,106 @@ impl CompressionEngine {
     // Helper methods (extracted from CompressCommand)
     // =============================================================================
 
-    fn read_all_records(input_path: &str) -> Result<Vec<ReadRecord>> {
+    fn read_all_records(input_path: &str, memory_limit_mb: usize) -> Result<Vec<ReadRecord>> {
+        let limit_bytes = crate::memory_budget::resolve_compress_limit_bytes(memory_limit_mb);
+        let mut records = Vec::new();
+        let mut held_bytes = 0u64;
         if input_path == "-" {
             let mut parser = open_fastq_stdin();
-            let mut records = Vec::new();
             while let Some(rec) = parser.next_record()? {
-                records.push(rec);
+                Self::push_archive_record(&mut records, rec, &mut held_bytes, limit_bytes)?;
             }
-            Ok(records)
         } else {
             let mut parser = open_fastq(input_path)?;
-            let mut records = Vec::new();
             while let Some(rec) = parser.next_record()? {
-                records.push(rec);
+                Self::push_archive_record(&mut records, rec, &mut held_bytes, limit_bytes)?;
             }
-            Ok(records)
         }
+        Ok(records)
     }
 
-    fn read_all_paired_records(input_path: &str, input2_path: &str, pe_layout: PeLayout) -> Result<Vec<ReadRecord>> {
+    fn read_all_paired_records(
+        input_path: &str,
+        input2_path: &str,
+        pe_layout: PeLayout,
+        memory_limit_mb: usize,
+    ) -> Result<Vec<ReadRecord>> {
+        let limit_bytes = crate::memory_budget::resolve_compress_limit_bytes(memory_limit_mb);
         let mut pe_reader = open_fastq_paired(input_path, input2_path)?;
-        match pe_layout {
-            PeLayout::Interleaved => pe_reader.collect_all_interleaved(),
-            PeLayout::Consecutive => pe_reader.collect_all_consecutive(),
-        }
+        Self::collect_pairs_with_budget(&mut pe_reader, pe_layout, limit_bytes)
     }
 
-    fn read_all_interleaved_records(input_path: &str, pe_layout: PeLayout) -> Result<Vec<ReadRecord>> {
+    fn read_all_interleaved_records(
+        input_path: &str,
+        pe_layout: PeLayout,
+        memory_limit_mb: usize,
+    ) -> Result<Vec<ReadRecord>> {
+        let limit_bytes = crate::memory_budget::resolve_compress_limit_bytes(memory_limit_mb);
         let mut parser = if input_path == "-" {
             crate::fastq::parser::InterleavedPeParser::new(open_fastq_stdin())
         } else {
             open_fastq_interleaved(input_path)?
         };
+        Self::collect_interleaved_with_budget(&mut parser, pe_layout, limit_bytes)
+    }
+
+    fn collect_pairs_with_budget<R1, R2>(
+        pe_reader: &mut crate::fastq::parser::PairedFastqReader<R1, R2>,
+        pe_layout: PeLayout,
+        limit_bytes: u64,
+    ) -> Result<Vec<ReadRecord>>
+    where
+        R1: std::io::BufRead,
+        R2: std::io::BufRead,
+    {
+        let mut held_bytes = 0u64;
         match pe_layout {
-            PeLayout::Interleaved => parser.collect_all_interleaved(),
-            PeLayout::Consecutive => parser.collect_all_consecutive(),
+            PeLayout::Interleaved => {
+                let mut records = Vec::new();
+                while let Some((a, b)) = pe_reader.next_pair()? {
+                    Self::push_archive_record(&mut records, a, &mut held_bytes, limit_bytes)?;
+                    Self::push_archive_record(&mut records, b, &mut held_bytes, limit_bytes)?;
+                }
+                Ok(records)
+            }
+            PeLayout::Consecutive => {
+                let mut r1_reads = Vec::new();
+                let mut r2_reads = Vec::new();
+                while let Some((a, b)) = pe_reader.next_pair()? {
+                    Self::push_archive_record(&mut r1_reads, a, &mut held_bytes, limit_bytes)?;
+                    Self::push_archive_record(&mut r2_reads, b, &mut held_bytes, limit_bytes)?;
+                }
+                r1_reads.extend(r2_reads);
+                Ok(r1_reads)
+            }
+        }
+    }
+
+    fn collect_interleaved_with_budget<R: std::io::BufRead>(
+        parser: &mut crate::fastq::parser::InterleavedPeParser<R>,
+        pe_layout: PeLayout,
+        limit_bytes: u64,
+    ) -> Result<Vec<ReadRecord>> {
+        let mut held_bytes = 0u64;
+        match pe_layout {
+            PeLayout::Interleaved => {
+                let mut records = Vec::new();
+                while let Some((r1, r2)) = parser.next_pair()? {
+                    Self::push_archive_record(&mut records, r1, &mut held_bytes, limit_bytes)?;
+                    Self::push_archive_record(&mut records, r2, &mut held_bytes, limit_bytes)?;
+                }
+                Ok(records)
+            }
+            PeLayout::Consecutive => {
+                let mut r1_reads = Vec::new();
+                let mut r2_reads = Vec::new();
+                while let Some((r1, r2)) = parser.next_pair()? {
+                    Self::push_archive_record(&mut r1_reads, r1, &mut held_bytes, limit_bytes)?;
+                    Self::push_archive_record(&mut r2_reads, r2, &mut held_bytes, limit_bytes)?;
+                }
+                r1_reads.extend(r2_reads);
+                Ok(r1_reads)
+            }
         }
     }
 
@@ -663,27 +731,14 @@ impl CompressionEngine {
         block_size.max(1)
     }
 
-    fn enforce_archive_mode_memory_limit(
-        num_reads: usize,
-        _block_size: usize,
-        stats: &LengthStats,
-        memory_limit_mb: usize,
+    fn push_archive_record(
+        records: &mut Vec<ReadRecord>,
+        rec: ReadRecord,
+        held_bytes: &mut u64,
+        limit_bytes: u64,
     ) -> Result<()> {
-        if memory_limit_mb == 0 {
-            return Ok(());
-        }
-
-        let avg_bytes_per_read = stats.avg_length * 2;
-        let estimated_mb = (num_reads * avg_bytes_per_read) / 1_048_576;
-
-        if estimated_mb > memory_limit_mb {
-            return Err(FqcError::InvalidArgument(format!(
-                "Archive mode requires ~{}MB memory (--memory {} MB limit). \
-                 Use --streaming or --pipeline for lower memory usage.",
-                estimated_mb, memory_limit_mb
-            )));
-        }
-
+        crate::memory_budget::account_archive_ingest(held_bytes, &rec, limit_bytes)?;
+        records.push(rec);
         Ok(())
     }
 

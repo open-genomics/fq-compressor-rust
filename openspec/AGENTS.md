@@ -41,3 +41,14 @@ Each change directory contains:
 - Never mark a task complete without running its verification command.
 - Never commit, push, publish, or archive without explicit authorization.
 - The root `AGENTS.md` remains the highest-priority project guide.
+
+## Archiving
+
+When `verification.md` is complete and the user authorizes archive:
+
+1. Merge `ADDED` / `MODIFIED` requirements from `changes/<id>/specs/` into
+   `openspec/specs/<capability>/spec.md` (drop the delta wrapper; keep scenarios).
+2. Update the capability table and archived-change list in `openspec/project.md`.
+3. Set the proposal `Status` to `Archived`.
+4. Move `openspec/changes/<id>/` to `openspec/changes/archive/YYYY-MM-DD-<id>/`.
+5. Keep proposal, design, tasks, and verification evidence; do not delete them.
