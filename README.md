@@ -42,6 +42,8 @@ cargo install --path .
 
 ```bash
 fqc compress -i reads.fastq -o reads.fqc
+fqc compress -i reads.fastq -o reads.fqc --id-mode exact
+fqc compress -i reads.fastq -o reads.fqc --lossy-quality qvz
 fqc compress -i reads.fastq -o reads.fqc --pipeline
 fqc compress -i reads.fastq -o reads.fqc --streaming
 fqc compress -i reads_R1.fastq -2 reads_R2.fastq -o paired.fqc

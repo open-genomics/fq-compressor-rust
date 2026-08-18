@@ -103,10 +103,15 @@ enum Commands {
         #[arg(long)]
         streaming: bool,
 
-        /// Quality mode: none (lossless), illumina8 (8-bin lossy), qvz (alias of lossless, not yet implemented), discard
+        /// Quality mode: none (lossless), illumina8 (8-bin), qvz (8-level nearest-neighbor), discard
         #[arg(long, default_value = "none",
               value_parser = clap::builder::PossibleValuesParser::new(["none", "illumina8", "qvz", "discard"]))]
         lossy_quality: String,
+
+        /// ID mode: tokenize (default), exact, discard
+        #[arg(long, default_value = "tokenize",
+              value_parser = clap::builder::PossibleValuesParser::new(["exact", "tokenize", "discard"]))]
+        id_mode: String,
 
         /// Read length mode: auto, short, medium, long
         #[arg(long, default_value = "auto",
@@ -268,6 +273,7 @@ fn main() {
             reorder,
             streaming,
             lossy_quality,
+            id_mode,
             long_read_mode,
             force,
             interleaved,
@@ -284,6 +290,7 @@ fn main() {
                 enable_reorder: reorder,
                 streaming_mode: streaming,
                 quality_mode: parse_quality_mode(&lossy_quality),
+                id_mode: parse_id_mode(&id_mode),
                 threads: cli.threads,
                 memory_limit_mb: cli.memory_limit,
                 force_overwrite: force,
@@ -413,6 +420,14 @@ fn parse_quality_mode(s: &str) -> QualityMode {
         "qvz" => QualityMode::Qvz,
         "discard" => QualityMode::Discard,
         _ => QualityMode::Lossless,
+    }
+}
+
+fn parse_id_mode(s: &str) -> IdMode {
+    match s {
+        "exact" => IdMode::Exact,
+        "discard" => IdMode::Discard,
+        _ => IdMode::Tokenize,
     }
 }
 

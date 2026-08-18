@@ -1118,6 +1118,104 @@ fn test_e2e_multiblock_roundtrip() {
 }
 
 // =============================================================================
+// E2E: --id-mode and --lossy-quality qvz
+// =============================================================================
+
+#[test]
+fn test_e2e_default_id_mode_is_tokenize() {
+    let input = test_data_dir().join("test_se.fastq").to_string_lossy().to_string();
+    let tokenized = TempFile::new("e2e_id_default_tokenize.fqc");
+    let exact = TempFile::new("e2e_id_exact.fqc");
+    let discarded = TempFile::new("e2e_id_discard.fqc");
+
+    let tokenize_exit = CompressCommand::new(CompressOptions {
+        input_path: input.clone(),
+        output_path: tokenized.path().to_string(),
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(tokenize_exit, 0);
+    let tokenize_reader = FqcReader::open(tokenized.path()).unwrap();
+    assert_eq!(get_id_mode(tokenize_reader.global_header.flags), IdMode::Tokenize);
+
+    let exact_exit = CompressCommand::new(CompressOptions {
+        input_path: input.clone(),
+        output_path: exact.path().to_string(),
+        id_mode: IdMode::Exact,
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(exact_exit, 0);
+    let exact_reader = FqcReader::open(exact.path()).unwrap();
+    assert_eq!(get_id_mode(exact_reader.global_header.flags), IdMode::Exact);
+
+    let discard_exit = CompressCommand::new(CompressOptions {
+        input_path: input,
+        output_path: discarded.path().to_string(),
+        id_mode: IdMode::Discard,
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(discard_exit, 0);
+    let discard_reader = FqcReader::open(discarded.path()).unwrap();
+    assert_eq!(get_id_mode(discard_reader.global_header.flags), IdMode::Discard);
+}
+
+#[test]
+fn test_e2e_qvz_quality_quantizes_to_codebook() {
+    let input = TempFile::new("e2e_qvz.fastq");
+    let archive = TempFile::new("e2e_qvz.fqc");
+    let output = TempFile::new("e2e_qvz.out.fastq");
+    let records = vec![ReadRecord::new(
+        "read_0".to_string(),
+        "ACGT".to_string(),
+        "!#I~".to_string(),
+    )];
+    write_fastq_records(input.path(), &records);
+
+    let compress_exit = CompressCommand::new(CompressOptions {
+        input_path: input.path().to_string(),
+        output_path: archive.path().to_string(),
+        quality_mode: QualityMode::Qvz,
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(compress_exit, 0);
+
+    let reader = FqcReader::open(archive.path()).unwrap();
+    assert_eq!(get_quality_mode(reader.global_header.flags), QualityMode::Qvz);
+
+    let decompress_exit = DecompressCommand::new(DecompressOptions {
+        input_path: archive.path().to_string(),
+        output_path: output.path().to_string(),
+        force_overwrite: true,
+        show_progress: false,
+        ..DecompressOptions::default()
+    })
+    .execute();
+    assert_eq!(decompress_exit, 0);
+
+    let restored = read_fastq_records(output.path());
+    assert_eq!(restored.len(), 1);
+    assert_ne!(restored[0].quality, "!#I~");
+    for c in restored[0].quality.chars() {
+        let q = (c as u8).saturating_sub(33);
+        assert!(
+            fqc::algo::quality_compressor::QVZ_CODEBOOK.contains(&q),
+            "reconstructed q={q} not in QVZ codebook"
+        );
+    }
+}
+
+// =============================================================================
 // E2E: --reorder flag is honored in archive mode (regression)
 // =============================================================================
 

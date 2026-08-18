@@ -349,6 +349,26 @@ fn qual_value_to_char(v: usize) -> char {
 const BIN_BOUNDARIES: [u8; 8] = [2, 10, 20, 25, 30, 35, 40, 255];
 const BIN_REPRESENTATIVES: [u8; 8] = [2, 6, 15, 22, 27, 33, 37, 40];
 
+/// QVZ-style reconstruction codebook (8 Phred levels, nearest-neighbor).
+pub const QVZ_CODEBOOK: [u8; 8] = [7, 15, 20, 25, 30, 35, 40, 41];
+
+fn qvz_to_bin(q: u8) -> u8 {
+    let mut best = 0u8;
+    let mut best_dist = u8::MAX;
+    for (i, &rep) in QVZ_CODEBOOK.iter().enumerate() {
+        let dist = q.abs_diff(rep);
+        if dist < best_dist {
+            best_dist = dist;
+            best = i as u8;
+        }
+    }
+    best
+}
+
+fn qvz_from_bin(bin: u8) -> u8 {
+    QVZ_CODEBOOK[bin.min(7) as usize]
+}
+
 fn illumina8_to_bin(q: u8) -> u8 {
     for (i, &b) in BIN_BOUNDARIES.iter().enumerate() {
         if q < b {
@@ -418,6 +438,8 @@ impl QualityCompressor {
 
                 if self.config.quality_mode == QualityMode::Illumina8 {
                     qv = illumina8_to_bin(qv as u8) as usize;
+                } else if self.config.quality_mode == QualityMode::Qvz {
+                    qv = qvz_to_bin(qv as u8) as usize;
                 }
 
                 qv = qv.min(NUM_QUALITY_SYMBOLS - 1);
@@ -475,10 +497,10 @@ impl QualityCompressor {
                 let qv = decoder.decode(model);
                 model.update(qv);
 
-                let out_qv = if self.config.quality_mode == QualityMode::Illumina8 {
-                    illumina8_from_bin(qv as u8) as usize
-                } else {
-                    qv
+                let out_qv = match self.config.quality_mode {
+                    QualityMode::Illumina8 => illumina8_from_bin(qv as u8) as usize,
+                    QualityMode::Qvz => qvz_from_bin(qv as u8) as usize,
+                    _ => qv,
                 };
 
                 quality.push(qual_value_to_char(out_qv));

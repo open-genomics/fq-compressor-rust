@@ -5,7 +5,7 @@
 
 use crate::algo::compressor_traits::IdCompressor;
 use crate::error::Result;
-use crate::types::{encode_codec, CodecFamily, ReadRecord};
+use crate::types::{encode_codec, CodecFamily, IdMode, ReadRecord};
 
 // =============================================================================
 // DeltaZstdIdCompressor
@@ -14,15 +14,15 @@ use crate::types::{encode_codec, CodecFamily, ReadRecord};
 /// ID compressor using delta encoding + Zstd.
 pub struct DeltaZstdIdCompressor {
     zstd_level: i32,
-    discard: bool,
+    id_mode: IdMode,
     id_prefix: String,
 }
 
 impl DeltaZstdIdCompressor {
-    pub fn new(zstd_level: i32, discard: bool, id_prefix: String) -> Self {
+    pub fn new(zstd_level: i32, id_mode: IdMode, id_prefix: String) -> Self {
         Self {
             zstd_level,
-            discard,
+            id_mode,
             id_prefix,
         }
     }
@@ -43,7 +43,7 @@ impl IdCompressor for DeltaZstdIdCompressor {
             .collect();
         let header_refs: Vec<&str> = full_headers.iter().map(|s| s.as_str()).collect();
 
-        crate::algo::id_compressor::compress_ids(&header_refs, self.zstd_level, self.discard)
+        crate::algo::id_compressor::compress_ids(&header_refs, self.zstd_level, self.id_mode)
     }
 
     fn decompress(&self, data: &[u8], read_count: u32) -> Result<Vec<String>> {
@@ -51,7 +51,7 @@ impl IdCompressor for DeltaZstdIdCompressor {
     }
 
     fn codec_id(&self) -> u8 {
-        if self.discard {
+        if self.id_mode == IdMode::Discard {
             encode_codec(CodecFamily::Raw, 0)
         } else {
             encode_codec(CodecFamily::DeltaZstd, 0)

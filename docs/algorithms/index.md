@@ -42,12 +42,12 @@ flowchart LR
     
     B -->|none| C[无损保留]
     B -->|illumina8| D[分箱压缩]
-    B -->|qvz| E[无损 SCM（别名）]
+    B -->|qvz| E[8 级最近邻量化 + SCM]
     B -->|discard| F[丢弃替换]
     
     C --> G[完整质量分数]
     D --> H[8 级分箱]
-    E --> I[与无损相同]
+    E --> I[码本重建值]
     F --> J[占位符]
     
 ```
@@ -56,12 +56,12 @@ flowchart LR
 |------|------|----------|
 | `none` | 保持质量分数无损 | 完整保留 |
 | `illumina8` | 将质量分箱到 8 个级别 | 有损分箱 |
-| `qvz` | 当前为无损 SCM 的别名（真 QVZ 量化尚未实现） | 无损 |
+| `qvz` | 量化到固定 8 级码本后再 SCM（非训练率失真 QVZ） | 有损 |
 | `discard` | 解码时用占位符替换 | 丢弃 |
 
 ## ID 路径
 
-读段 ID 由 `id_compressor` 处理：实现先尝试 tokenize（公共前缀 + 可变字段），模式不稳定则回退 exact + Zstd。CLI **没有** `--id-mode`；`discard` 只存在于内部 `IdMode`，不能从命令行选择。
+读段 ID 由 `id_compressor` 按 `--id-mode` 处理（默认 `tokenize`）：`tokenize` 先尝试公共前缀 + 可变字段，模式不稳定则该块回退 exact + Zstd；`exact` 始终走 exact 流；`discard` 解码时写占位符。所选模式写入归档 flags。
 
 ## 重排管道
 

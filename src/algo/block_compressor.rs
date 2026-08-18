@@ -182,7 +182,7 @@ impl BlockCompressor {
             quality: Box::new(ScmQualityCompressor::new(config.to_quality_config())),
             id: Box::new(DeltaZstdIdCompressor::new(
                 config.zstd_level,
-                config.id_mode == IdMode::Discard,
+                config.id_mode,
                 config.id_prefix.clone(),
             )),
             aux: Box::new(DeltaVarintAuxCompressor::new(config.zstd_level)),
@@ -196,7 +196,7 @@ impl BlockCompressor {
             quality: Box::new(ScmQualityCompressor::new(config.to_quality_config())),
             id: Box::new(DeltaZstdIdCompressor::new(
                 config.zstd_level,
-                config.id_mode == IdMode::Discard,
+                config.id_mode,
                 config.id_prefix.clone(),
             )),
             aux: Box::new(DeltaVarintAuxCompressor::new(config.zstd_level)),
@@ -445,9 +445,12 @@ impl BlockCompressor {
         data: &[u8],
         read_count: u32,
     ) -> Result<Vec<String>> {
-        let discard = match family {
-            CodecFamily::Raw => true,
-            CodecFamily::DeltaZstd => false,
+        let id_mode = match family {
+            CodecFamily::Raw => IdMode::Discard,
+            CodecFamily::DeltaZstd => match self.config.id_mode {
+                IdMode::Discard => IdMode::Exact,
+                other => other,
+            },
             other => {
                 return Err(unsupported_stream_codec(
                     block_id,
@@ -457,7 +460,7 @@ impl BlockCompressor {
                 ));
             }
         };
-        let id = DeltaZstdIdCompressor::new(self.config.zstd_level, discard, self.config.id_prefix.clone());
+        let id = DeltaZstdIdCompressor::new(self.config.zstd_level, id_mode, self.config.id_prefix.clone());
         id.decompress(data, read_count)
     }
 }

@@ -29,7 +29,8 @@ fqc compress -i INPUT -o OUTPUT [OPTIONS]
 | `-l, --level` | 压缩级别 `1..9`（默认：`5`） |
 | `--reorder <true|false>` | 启用或禁用全局读段重排 |
 | `--streaming` | 禁用重排，增量处理输入 |
-| `--lossy-quality` | `none`、`illumina8`、`qvz`（无损别名，真 QVZ 未实现）或 `discard` |
+| `--lossy-quality` | `none`（无损）、`illumina8`（8 箱）、`qvz`（8 级最近邻码本，有损）或 `discard` |
+| `--id-mode` | `tokenize`（默认：模式检测，失败回退 exact）、`exact` 或 `discard` |
 | `--long-read-mode` | `auto`、`short`、`medium` 或 `long` |
 | `--interleaved` | 将输入视为交错双端 FASTQ |
 | `--max-block-bases` | 限制中长读每块碱基数 |
@@ -42,7 +43,8 @@ fqc compress -i INPUT -o OUTPUT [OPTIONS]
 
 - archive 模式将完整读段集保留在内存中进行全局分析和可选重排
 - `--memory-limit 0` 在 compress / decompress / verify 上都是有限预算（约可用内存 75%，带硬性结构上限），不是无限内存。archive 与 pipeline 压缩按摄入峰值估计拒绝超预算，并提示改 `--streaming`
-- 没有 `--id-mode`：ID 在非 discard 时由实现自动尝试 tokenize，失败则回退 exact。`IdMode::Tokenize` / `Discard` 不是 CLI 开关
+- `--id-mode tokenize` 会尝试公共前缀 + 可变字段编码，模式不稳定则该块回退 exact；归档 flags 仍记录所选模式。`--id-mode exact` 从不 tokenize
+- `--lossy-quality qvz` 把每个 Phred 值量化到固定 8 级码本 `[7, 15, 20, 25, 30, 35, 40, 41]` 后再走 SCM，不是无损别名，也不是训练过的率失真 QVZ
 - pipeline 模式是分段执行路径，非严格低内存摄入模式
 - 普通文件输出先写同目录临时文件，成功后再 rename；stdout（`-`）不走事务
 

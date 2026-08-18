@@ -84,9 +84,9 @@ Compressed data for one aspect of a block:
 
 ### ID mode
 
-`IdMode` (`Exact`, `Tokenize`, `Discard`) is stored on archive flags. The
-compressor auto-tries tokenize and falls back to exact. There is no `--id-mode`
-CLI flag; `Discard` is programmatic only.
+`IdMode` (`Exact`, `Tokenize`, `Discard`) is stored on archive flags and chosen
+with `--id-mode` (default `tokenize`). Tokenize tries patterned IDs and falls
+back to exact per block; Exact never tokenizes; Discard writes placeholders.
 
 ## Archive Concepts
 

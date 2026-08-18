@@ -32,7 +32,7 @@ FASTQ 压缩领域涵盖通用工具（gzip、zstd）、领域特定无参考压
 | 向前兼容 | partial | n/a | n/a | yes | no | no | no | no |
 | 校验和 | yes | no | no | yes | no | no | no | no |
 
-`partial`：fqc 读取器只接受 major == 2。有损质量：`illumina8` 分箱和 `discard` 可用；CLI 上的 `qvz` 是无损 SCM 别名，真 QVZ 未实现。
+`partial`：fqc 读取器只接受 major == 2。有损质量：`illumina8` 分箱、`qvz`（固定 8 级最近邻码本）和 `discard` 可用；`qvz` 不是训练过的率失真 QVZ。
 
 ## 压缩比
 

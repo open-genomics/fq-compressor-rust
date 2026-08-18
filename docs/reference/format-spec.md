@@ -175,7 +175,7 @@ codec_byte = (family_nibble << 4) | (version_nibble & 0x0F)
 |--------|-------------|------|
 | IDs | Raw, DeltaVarint, DeltaZstd | 根据 IdMode 选择 |
 | Seq | AbcV1 (短读段), ZstdPlain (中/长读段) | 根据 ReadLengthClass 选择 |
-| Qual | Raw (Discard), ScmV1 (Lossless Order2), ScmOrder1 (Lossless Order1) | 根据 QualityMode 选择 |
+| Qual | Raw (Discard), ScmV1 / ScmOrder1（Lossless、Illumina8、Qvz 量化后仍走 SCM） | 根据 QualityMode 选择 |
 | Aux | Raw, DeltaVarint | 辅助元数据 |
 
 读取器遇到未知族时返回 unsupported-codec 错误，不回退到默认编解码器。

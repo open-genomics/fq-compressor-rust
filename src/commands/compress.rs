@@ -45,7 +45,7 @@ impl Default for CompressOptions {
             enable_reorder: true,
             streaming_mode: false,
             quality_mode: QualityMode::Lossless,
-            id_mode: IdMode::Exact,
+            id_mode: IdMode::Tokenize,
             threads: 0,
             memory_limit_mb: 0,
             force_overwrite: false,

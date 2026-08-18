@@ -3,14 +3,18 @@
 // =============================================================================
 
 use crate::error::{FqcError, Result};
+use crate::types::IdMode;
 
 // =============================================================================
 // Constants
 // =============================================================================
 
-const MAGIC_EXACT: u8 = 0x01;
-const MAGIC_TOKENIZE: u8 = 0x02;
-const MAGIC_DISCARD: u8 = 0x03;
+pub const ID_MAGIC_EXACT: u8 = 0x01;
+pub const ID_MAGIC_TOKENIZE: u8 = 0x02;
+pub const ID_MAGIC_DISCARD: u8 = 0x03;
+const MAGIC_EXACT: u8 = ID_MAGIC_EXACT;
+const MAGIC_TOKENIZE: u8 = ID_MAGIC_TOKENIZE;
+const MAGIC_DISCARD: u8 = ID_MAGIC_DISCARD;
 const DELIMITERS: &[u8] = b":_/| \t";
 const MIN_PATTERN_MATCH_RATIO: f64 = 0.95;
 
@@ -555,24 +559,22 @@ fn decompress_tokenize(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
 // Public API
 // =============================================================================
 
-/// Compress a block of read IDs.
-/// Tries tokenize mode first; falls back to exact if pattern detection fails.
-pub fn compress_ids(ids: &[&str], zstd_level: i32, discard: bool) -> Result<Vec<u8>> {
-    if discard {
-        return Ok(vec![MAGIC_DISCARD]);
+/// Compress a block of read IDs according to `id_mode`.
+/// `Tokenize` tries pattern detection and falls back to exact.
+pub fn compress_ids(ids: &[&str], zstd_level: i32, id_mode: IdMode) -> Result<Vec<u8>> {
+    match id_mode {
+        IdMode::Discard => return Ok(vec![MAGIC_DISCARD]),
+        IdMode::Exact => return compress_exact(ids, zstd_level),
+        IdMode::Tokenize => {}
     }
     if ids.is_empty() {
         return compress_exact(ids, zstd_level);
     }
-
-    // Try tokenize mode
     if let Some(pattern) = detect_pattern(ids) {
         if pattern.num_dynamic_ints > 0 {
             return compress_tokenize(ids, &pattern, zstd_level);
         }
     }
-
-    // Fallback to exact
     compress_exact(ids, zstd_level)
 }
 

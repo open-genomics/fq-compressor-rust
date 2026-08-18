@@ -4,6 +4,12 @@
 
 ### Added
 
+- `--id-mode exact|tokenize|discard` on `compress` (default `tokenize`);
+  Exact never tokenizes, Tokenize may fall back per block, Discard writes
+  placeholder IDs. The chosen mode is stored in archive flags.
+- `--lossy-quality qvz` is a distinct 8-level nearest-neighbor quality
+  quantizer (`[7, 15, 20, 25, 30, 35, 40, 41]`) encoded with existing SCM,
+  not a lossless alias and not trained rate-distortion QVZ.
 - Archive compress ingest budget: `--memory-limit 0` resolves to a finite
   automatic cap (same 75% / hard-ceiling policy as decode); running peak
   estimate fails with `ResourceLimit` before the `.fqc` is created, and
@@ -50,6 +56,9 @@
 
 ### Changed
 
+- Default `compress` ID mode is `tokenize` and is recorded as such in archive
+  flags (no longer stored as Exact while the encoder auto-tokenizes).
+- `--lossy-quality qvz` is no longer a lossless SCM alias.
 - Archived five completed OpenSpec changes under
   `openspec/changes/archive/2026-08-18-*` and merged their requirements into
   `openspec/specs/` (`archive-format`, `file-output`, `decode-budget`)
