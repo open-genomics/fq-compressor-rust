@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- Status: `Applying`
+- Status: `Archived`
 - Task IDs: `FQCR-CLI-001`
 - Prerequisites: none
 

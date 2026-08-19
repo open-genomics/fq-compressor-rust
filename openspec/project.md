@@ -19,6 +19,7 @@
 | `file-output` | `openspec/specs/file-output/` | Transactional ordinary-file outputs |
 | `decode-budget` | `openspec/specs/decode-budget/` | Operation-scoped decompress/verify memory budget |
 | `compress-budget` | `openspec/specs/compress-budget/` | Archive/pipeline ingest peak budget |
+| `cli-modes` | `openspec/specs/cli-modes/` | `--id-mode` choices and lossy QVZ quality mode |
 
 ## External boundaries
 
@@ -58,6 +59,7 @@ Completed, merged, and moved under `openspec/changes/archive/`:
 
 | Date | Change | Capability |
 |---|---|---|
+| 2026-08-19 | `complete-id-and-qvz-modes` | `cli-modes` |
 | 2026-08-18 | `correct-indexed-v2-spec` | `archive-format` |
 | 2026-08-18 | `make-file-output-atomic` | `file-output` |
 | 2026-08-18 | `dispatch-all-stream-codecs` | `archive-format` |
