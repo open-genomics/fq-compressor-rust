@@ -2,6 +2,13 @@
 
 ## [Unreleased]
 
+### Changed
+
+- README 首屏格式族说明重写为两实现对照表（仓库、实现语言、格式族 ID、完整 magic、
+  访问模型、对方链接），并新增同名二进制 `fqc` 的 `PATH` 覆盖风险提醒。对应 openspec
+  变更 `document-fqc-format-family`（verification 标注 ready-to-archive=no，待独立
+  审查后再归档）。
+
 ### Added
 
 - `--id-mode exact|tokenize|discard` on `compress` (default `tokenize`);

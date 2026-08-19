@@ -5,10 +5,17 @@
 `fqc` 是一个用 Rust 编写的 FASTQ 压缩工具，围绕块索引的 `.fqc` 归档格式构建。
 它将短读 ABC 路径、Zstd 支撑的中/长读压缩与质量分编码整合进单一 CLI，支持压缩、解压、检视与校验。
 
-> **Format family**: `fqc-indexed/v2` — command `fqc`, extension `.fqc`,
-> magic `89 46 51 43 0D 0A 1A 0A`. Distinct from C++ `fqc-sequential/v2`
-> (magic `46 51 43 56 32 0D 0A 1A`); the other family's magic is rejected with an
-> explicit unsupported-format-family error. Extension alone cannot select a decoder.
+> **格式族：`fqc-indexed/v2`**。`fqc` 与 `.fqc` 是两个**同名、不同格式族**的产品：
+> 本仓库（Rust）与 [`fq-compressor`](https://github.com/open-genomics/fq-compressor)（C++）
+> 各自实现自己的 `fqc` 二进制与 `.fqc` 归档，magic 不同、互不兼容、不能互相解码。
+
+| 仓库 | 实现语言 | 格式族 ID | 完整 magic | 访问模型 |
+|---|---|---|---|---|
+| [open-genomics/fq-compressor-rust](https://github.com/open-genomics/fq-compressor-rust)（本仓库） | Rust | `fqc-indexed/v2` | `89 46 51 43 0D 0A 1A 0A` | 块索引归档；支持检视/校验/部分流式 |
+| [open-genomics/fq-compressor](https://github.com/open-genomics/fq-compressor) | C++23 | `fqc-sequential/v2` | `46 51 43 56 32 0D 0A 1A`（`FQCV2\r\n\x1A`） | 顺序流式归档；不支持随机访问/按区间提取 |
+
+扩展名 `.fqc` 不能判定格式：reader 必须检查 archive magic，两个实现以显式的
+unsupported-format-family 错误拒绝对方的 magic，不能互相解码。
 
 ## 为什么用它
 
@@ -28,6 +35,10 @@ cargo build --release
 # 或安装到 ~/.cargo/bin
 cargo install --path .
 ```
+
+> **同名二进制 `PATH` 覆盖风险**：两个实现都安装名为 `fqc` 的二进制。若两者同时
+> 进入 `PATH`，后安装者（或 `PATH` 中更靠前的目录）会覆盖另一个，请用 `which fqc`
+> 确认实际调用的实现。
 
 ## 快速开始
 
