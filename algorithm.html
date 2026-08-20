@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>压缩算法设计 — fqc</title>
+  <meta name="description" content="fqc 的压缩算法设计：组件级编码、读长自适应、ABC 锚基压缩、SCM 质量压缩、minimizer 重排。">
+  <link rel="stylesheet" href="assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23166534'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='monospace'>fq</text></svg>">
+</head>
+<body>
+
+<nav class="site-nav">
+  <div class="nav-inner">
+    <a class="brand" href="index.html"><span class="logo">fq</span> fqc</a>
+    <div class="nav-links">
+      <a href="index.html">首页</a>
+      <a href="format.html">压缩格式设计</a>
+      <a href="algorithm.html" class="active">压缩算法设计</a>
+      <a href="architecture.html">高性能架构设计</a>
+      <a href="https://github.com/open-genomics/fq-compressor-rust" target="_blank" rel="noopener">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<header class="page-head wrap">
+  <h1>压缩算法设计</h1>
+  <p class="lede">对不同的 FASTQ 组件与读长类别使用<strong>不同的压缩策略</strong>：序列走读长自适应编解码器，质量值用 SCM 或量化，ID 用 tokenize，再以 minimizer 重排提升局部性。</p>
+</header>
+
+<main class="wrap">
+
+  <section class="topic">
+    <h2><span class="idx">1</span> 组件分离：四条独立流</h2>
+    <p>FASTQ 每条记录有四个字段：ID（+注释）、序列、<code>+</code> 分隔行、质量值。fqc 不做"整条记录"压缩，而是把不同组件<strong>拆开</strong>，各用最合适的编解码器：</p>
+    <div class="flow"><b>FASTQ 记录流</b>
+  ├─ <b>ID 流</b>      → Raw / DeltaVarint / DeltaZstd（--id-mode）
+  ├─ <b>序列流</b>     → AbcV1（短读）/ ZstdPlain（中长读）
+  ├─ <b>质量值流</b>   → Raw / ScmV1 / ScmOrder1（无损·分箱·量化）
+  └─ <b>辅助流</b>     → Raw / DeltaVarint（长度等元数据）
+
+每块四条流分别压缩后，写入 Block 的 4 个 payload 区域。</div>
+    <p>组件分离带来四点优势：每种组件用最优编解码器、独立压缩调优、<strong>选择性解压</strong>（只取需要的组件）、解压时更好的缓存局部性。</p>
+  </section>
+
+  <section class="topic">
+    <h2><span class="idx">2</span> 读长自适应分类</h2>
+    <p>fqc 在解析时根据<strong>观测到的长度分布</strong>自动分类读段（而非单一 CLI 预设），不同类别走不同编码路径：</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>类别</th><th>长度</th><th>默认编解码器</th><th>原理</th></tr></thead>
+        <tbody>
+          <tr><td>短读段</td><td>≤ 511 bp</td><td><strong>ABC</strong>（共识 / 差分）</td><td>高相似性，适合 contig 构建</td></tr>
+          <tr><td>中等读段</td><td>512 bp – 10 KB</td><td>Zstd 直接压缩</td><td>中等相似性，LZ 效率</td></tr>
+          <tr><td>长读段</td><td>&gt; 10 KB</td><td>Zstd 大块压缩</td><td>低相似性，流式效率</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="topic">
+    <h2><span class="idx">3</span> ABC：锚基压缩（短读段）</h2>
+    <p>ABC（Anchor-Based Compression）把相似读段分组、构建共识序列，再把每条读段编码为<strong>相对共识的紧凑差异</strong>——类似基于参考的压缩，但参考（共识）内生于数据，无需外部基因组。</p>
+    <div class="flow"><b>输入短读段</b>
+   │  ① 相似性分组（汉明距离） → ② 构建 Contig → ③ 共识（多数投票）
+   ▼
+<b>Delta 编码</b>  (shift, is_rc, mismatches)
+   ▼
+<b>噪声编码</b>    '0'-'3' 替换表示错配
+   ▼
+<b>Zstd 最终压缩</b></div>
+
+    <h3>① Contig 构建</h3>
+    <p>读段按<strong>汉明距离</strong>分组：与现有 contig 距离 &lt; 阈值则并入并更新共识；距离 ≥ 阈值则可作新锚点开新 contig，否则标记为孤立读段。高覆盖率下产生大量"近相同"的读段，是 ABC 收益最大的场景。</p>
+    <h3>② 共识构建</h3>
+    <p>对 contig 内读段做<strong>列比对 + 多数投票</strong>，逐位置取出现最多的碱基，得到代表序列（consensus）。</p>
+    <div class="flow"><b>列比对 / 多数投票</b>
+读段1: A T C G       位置1: A(4) → A
+读段2: A T C G       位置2: T(3),C(1) → T
+读段3: A C C G       位置3: C(4) → C
+读段4: A T C G       位置4: G(4) → G
+                    共识: <b>A T C G</b></div>
+    <h3>③ Delta 编码</h3>
+    <p>每条读段编码为 <code>(shift, is_rc, mismatches)</code>：<code>shift</code> 对齐位移、<code>is_rc</code> 是否反向互补、<code>mismatches</code> 错配位置与替换碱基列表。</p>
+    <div class="flow"><b>编码组件</b>
+共识序列: A T C G A T C G       shift = 2（右移 2 位）
+读段:     - - C G A T T -       is_rc = false（正向）
+                                mismatches = [(6, A→T)]</div>
+    <h3>④ 噪声编码</h3>
+    <p>错配以紧凑的 <code>'0'-'3'</code> 字符表示替换碱基（A→'0'、C→'1'、G→'2'、T→'3'），位置信息与碱基编码组合。</p>
+    <div class="note"><strong>复杂度：</strong>Contig 构建 O(n·m·k)（n 读段数、m 读长、k contig 数），共识构建 O(k·m·c)，Delta 编码 O(n·m)；内存峰值 O(n + k·m)。高覆盖短读段压缩率可达 10–50×，低覆盖/高变异数据显著下降甚至不如 Zstd，此时会回退到 Zstd 兜底路径。</div>
+  </section>
+
+  <section class="topic">
+    <h2><span class="idx">4</span> 质量值压缩：SCM 与量化模式</h2>
+    <p>质量值占原始数据约 40%，且同一 run 内<strong>强自相关</strong>（相邻位置分数接近）。fqc 提供四种模式：</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>模式</th><th>描述</th><th>数据保留</th></tr></thead>
+        <tbody>
+          <tr><td><code>none</code>（默认）</td><td>无损 Zstd 直接压缩</td><td>完整保留</td></tr>
+          <tr><td><code>illumina8</code></td><td>Phred 41 级量表分箱为 8 级</td><td>有损分箱（~20% 体积减少）</td></tr>
+          <tr><td><code>qvz</code></td><td>固定 8 级最近邻码本量化后再走 SCM</td><td>有损（重建值为码本 Phred）</td></tr>
+          <tr><td><code>discard</code></td><td>解码时写占位符</td><td>丢弃</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p><strong>SCM</strong>（ScmV1 Order2 / ScmOrder1）是质量流的领域感知编解码器：<strong>自适应算术编码 + 上下文建模（order 1/2）+ 位置分箱</strong>，利用质量值的强自相关获得比通用 LZ 更高的压缩率。注意：无损模式下仍完整保留所有信息；有损模式是<strong>显式选择</strong>，默认从不丢质量信息。</p>
+  </section>
+
+  <section class="topic">
+    <h2><span class="idx">5</span> ID 压缩：Tokenize</h2>
+    <p>读段 ID 通常高度可预测（如 <code>@HWI-EAS100:6:1:2:1824#0/1</code>）。<code>--id-mode</code> 选择编码策略：</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>模式</th><th>描述</th></tr></thead>
+        <tbody>
+          <tr><td><code>tokenize</code>（默认）</td><td>识别公共前缀/后缀，提取可变数字字段；模式不稳定则该块回退 exact</td></tr>
+          <tr><td><code>exact</code></td><td>始终按原文字符串 + Zstd 存储</td></tr>
+          <tr><td><code>discard</code></td><td>解码时写占位符 ID</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>所选模式写入归档 flags，块级可回退，保证 tokenize 失败时无损。</p>
+  </section>
+
+  <section class="topic">
+    <h2><span class="idx">6</span> 重排：minimizer 相似性分组</h2>
+    <p>短单端 Archive 模式会对读段<strong>重排</strong>以提升 ABC 局部性：提取每条读段的 minimizer（短 k-mer）做相似性分组，相似读段在压缩前相邻放置，使差分编码更高效；重排元数据（Reorder Map）存入归档，解压时<strong>按原始顺序恢复</strong>。</p>
+    <div class="flow"><b>原始读段顺序</b>  →  相似性分析（minimizer）  →  <b>重排后</b>  →  压缩
+<b>归档存储重排元数据</b>  →  解压  →  逆重排映射  →  <b>恢复原始顺序</b></div>
+    <div class="note">重排只在 Archive 模式下启用（Streaming / Pipeline 禁用、保留输入顺序），这是内存-压缩比权衡的一部分：<strong>压缩比</strong> vs <strong>内存占用</strong>，详见"高性能架构设计"页的三种执行模式。</div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span>© open-genomics · fqc（fq-compressor-rust）</span>
+    <span>深入阅读：<a href="https://github.com/open-genomics/fq-compressor-rust/blob/master/docs/algorithms/index.md" target="_blank" rel="noopener">docs/algorithms/</a> · <a href="https://github.com/open-genomics/fq-compressor-rust/blob/master/docs/whitepaper.md" target="_blank" rel="noopener">whitepaper.md</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>高性能架构设计 — fqc</title>
+  <meta name="description" content="fqc 的高性能架构设计：块索引驱动的并行、三种执行模式、内存预算、零 unsafe 安全保证。">
+  <link rel="stylesheet" href="assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23166534'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='monospace'>fq</text></svg>">
+</head>
+<body>
+
+<nav class="site-nav">
+  <div class="nav-inner">
+    <a class="brand" href="index.html"><span class="logo">fq</span> fqc</a>
+    <div class="nav-links">
+      <a href="index.html">首页</a>
+      <a href="format.html">压缩格式设计</a>
+      <a href="algorithm.html">压缩算法设计</a>
+      <a href="architecture.html" class="active">高性能架构设计</a>
+      <a href="https://github.com/open-genomics/fq-compressor-rust" target="_blank" rel="noopener">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<header class="page-head wrap">
+  <h1>高性能架构设计</h1>
+  <p class="lede">单二进制 Rust CLI，清晰分层的模块，<strong>块 = 独立并行单元</strong>：既支撑 O(log N) 随机访问，也支撑多块并行压缩/解压。三种执行模式在<strong>不产生格式碎片</strong>的前提下提供内存-吞吐量的灵活权衡。</p>
+</header>
+
+<main class="wrap">
+
+  <section class="topic">
+    <h2><span class="idx">1</span> 分层架构</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>层次</th><th>关键文件</th><th>职责</th></tr></thead>
+        <tbody>
+          <tr><td>CLI</td><td><code>src/main.rs</code>, <code>src/commands/*</code></td><td>解析参数、分发命令（compress / decompress / info / verify）</td></tr>
+          <tr><td>FASTQ I/O</td><td><code>src/fastq/parser.rs</code>, <code>src/io/*</code></td><td>FASTQ 解析、压缩流变体、原子输出</td></tr>
+          <tr><td>归档格式</td><td><code>src/archive/format.rs</code>, <code>writer.rs</code>, <code>reader.rs</code></td><td>编码 / 解码 <code>.fqc</code> 容器，块索引与校验</td></tr>
+          <tr><td>算法</td><td><code>src/algo/*</code></td><td>序列（ABC/Zstd）、质量（SCM）、ID、重排、双端</td></tr>
+          <tr><td>编排引擎</td><td><code>src/engine/compression_engine.rs</code></td><td>规范化请求、路由执行模式、捕获结果</td></tr>
+          <tr><td>流水线</td><td><code>src/pipeline/*</code></td><td>读取器 / 压缩器 / 写入器并行流（Pipeline 模式）</td></tr>
+          <tr><td>共享</td><td><code>src/types.rs</code>, <code>src/error.rs</code>, <code>src/memory_budget.rs</code></td><td>公共类型、退出码映射、内存预算估计</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <p>依赖方向单一：CLI → 编排 →（I/O、算法、格式）→ 流水线。算法与格式通过 <code>CompressorTrait</code> 解耦，块压缩器按读长类别与配置选择具体实现。</p>
+  </section>
+
+  <section class="topic">
+    <h2><span class="idx">2</span> 块索引：并行与随机访问的同一个答案</h2>
+    <p><strong>块</strong>是这个架构最关键的结构决定：每个块是独立压缩的读段子集，块之间<strong>零共享状态</strong>。这一个决定同时带来四项能力：</p>
+    <div class="flow"><b>独立压缩单元</b>：块间无交叉引用 → 天然可并行（多核压缩/解压）
+<b>O(log N) 随机访问</b>：尾部索引二分定位目标块
+<b>范围查询</b>：只解压覆盖目标范围的块（--range）
+<b>按块验证</b>：info / verify --quick 基于归档结构操作，不必全量解码
+<b>内存可控</b>：块即内存上限的自然粒度，配合预算估计</div>
+    <p>这也是压缩比与随机访问张力的解法：块太小 → 索引开销大、ABC 无足够相似读段；块太大 → 随机访问粒度粗、内存峰值高。块大小（推荐值）即这个权衡的显式参数。</p>
+  </section>
+
+  <section class="topic">
+    <h2><span class="idx">3</span> 三种执行模式：内存 · 吞吐 · 压缩比的权衡</h2>
+    <p>fqc 通过 <code>CompressionEngine</code> 路由到三种执行模式。<strong>关键约束：所有模式产出同一 <code>.fqc</code> 格式</strong>——因此模式选择是<strong>运维决策而非格式承诺</strong>，可随时切换。</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>模式</th><th>标志</th><th>内存</th><th>重排</th><th>压缩比</th><th>适用场景</th></tr></thead>
+        <tbody>
+          <tr><td><strong>Archive</strong></td><td>（默认）</td><td>全量摄入（高）</td><td>启用</td><td>最佳</td><td>生产归档、长期存储</td></tr>
+          <tr><td><strong>Streaming</strong></td><td><code>--streaming</code></td><td>有界（低）</td><td>禁用</td><td>良好</td><td>超大文件、内存受限</td></tr>
+          <tr><td><strong>Pipeline</strong></td><td><code>--pipeline</code></td><td>分阶段（中）</td><td>禁用</td><td>良好</td><td>多核高吞吐生产流程</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="flow"><b>Archive</b>  全量读取 → 全局分析（长度分类 + 相似性分组）→ 可选重排 → 压缩
+<b>Streaming</b> 单遍增量读取 → 流式压缩（禁用重排）→ 增量写块
+<b>Pipeline</b>  reader →[块缓冲]→ compressor →[块缓冲]→ writer（三线程并发）</div>
+    <p>Archive 模式为最佳压缩比做<strong>全局分析</strong>（含 minimizer 重排）；Streaming 是严格低内存的单遍路径；Pipeline 用生产者-消费者三阶段在途缓冲最大化多核吞吐——三者共享同一解析器、算法与格式层。</p>
+  </section>
+
+  <section class="topic">
+    <h2><span class="idx">4</span> 内存预算：有界的资源承诺</h2>
+    <p><code>--memory-limit</code> 是全局参数，对 compress / decompress / verify 均生效。<code>0</code> 表示<strong>自动有限预算</strong>（约可用内存 75%，带硬性结构上限），并非无限内存。</p>
+    <ul>
+      <li><strong>压缩</strong>：archive 与 pipeline 摄入时按该预算估计峰值，超限会在创建 <code>.fqc</code> 前失败并提示改用 <code>--streaming</code>（fail-fast，不留半成品）。</li>
+      <li><strong>解压 / 校验</strong>：按 operation 作用域预算约束声明与 zstd 分配，读取每个 header 前先校验大小再分配（<code>src/memory_budget.rs</code>）。</li>
+      <li><strong>代价提示</strong>：pipeline 仍是分段执行路径，不是严格低内存摄入——要严格低内存请用 <code>--streaming</code>。</li>
+    </ul>
+    <pre><span class="c"># 1 GiB 有界压缩（流式）与 512 MiB 解压 / 校验</span>
+fqc --memory-limit 1024 compress -i reads.fastq -o reads.fqc --streaming
+fqc --memory-limit 512 decompress -i reads.fqc -o out.fastq
+fqc --memory-limit 512 verify -i reads.fqc</pre>
+  </section>
+
+  <section class="topic">
+    <h2><span class="idx">5</span> 安全与正确性：零 unsafe 与格式契约</h2>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>保证</th><th>机制</th></tr></thead>
+        <tbody>
+          <tr><td>内存安全</td><td>纯 Rust，<code>unsafe_code = deny</code> 零 unsafe；处理不可信测序输入时消除整类内存漏洞</td></tr>
+          <tr><td>归档完整性</td><td>每块 xxHash64 + footer 全局校验和；EOF magic 校验</td></tr>
+          <tr><td>格式兼容</td><td><strong>冻结 fixture</strong>（<code>tests/fixtures/indexed-v2/</code>）：审计基线生成 + manifest，未来 reader 必须能解压并逐字节一致</td></tr>
+          <tr><td>格式契约</td><td><code>format_contract</code> 测试锁定字节布局；跨族 magic 拒绝测试</td></tr>
+          <tr><td>解码防护</td><td>块索引/偏移/流范围越界、读段数不符、footer 偏移越界均被严格拒绝</td></tr>
+          <tr><td>工程门禁</td><td><code>cargo clippy -D warnings</code> · ~190 单元/集成测试 · Criterion 基准回归 · 单静态二进制（仅依赖 libc）</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="topic">
+    <h2><span class="idx">6</span> 性能现状与证据边界</h2>
+    <p>fqc 的领域增益来自"块索引 + 组件级编码 + 读长自适应"的组合。以下数字<strong>如实标注证据范围</strong>，不把未验证的宣称当结论：</p>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>指标</th><th>数值</th><th>证据范围</th></tr></thead>
+        <tbody>
+          <tr><td>压缩比（Archive）</td><td><strong>2.39×</strong></td><td>微型夹具（20 条 150bp 读，2231 字节）实测；大文件未验证</td></tr>
+          <tr><td>压缩/解压吞吐</td><td>—</td><td>未在生产规模复测（文档明确声明）</td></tr>
+          <tr><td>随机访问 / 范围解压</td><td>O(log N)</td><td><strong>已实现的格式能力</strong>（非外推性能数字）</td></tr>
+          <tr><td>与 DSRC 2 / Leon 对比</td><td>有潜力接近</td><td>尚未被大型数据集证实</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="note warn">
+      <strong>诚实的技术债声明（引自项目文档）：</strong>"fqc 与 DSRC 2 / Leon 的压缩比竞争尚未被大型数据集证实；已证实的是格式能力（info / verify / 范围解压）和当前微型夹具上的 2.39×。下一步应先补证据，而不是根据未验证表格加功能。"——当前性能路线图的推进方向正是<strong>测量热点</strong>，而非新编解码器或大规模重写。
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span>© open-genomics · fqc（fq-compressor-rust）</span>
+    <span>深入阅读：<a href="https://github.com/open-genomics/fq-compressor-rust/blob/master/docs/architecture/index.md" target="_blank" rel="noopener">docs/architecture/</a> · <a href="https://github.com/open-genomics/fq-compressor-rust/blob/master/docs/architecture/performance-roadmap.md" target="_blank" rel="noopener">性能路线图</a></span>
+  </div>
+</footer>
+
+</body>
+</html>

@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>fqc — 块索引 FASTQ 压缩引擎</title>
+  <meta name="description" content="fqc：纯 Rust 实现、块索引、支持随机访问的领域感知 FASTQ 压缩引擎。压缩格式设计 · 压缩算法设计 · 高性能架构设计。">
+  <link rel="stylesheet" href="assets/style.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%23166534'/><text x='50' y='68' font-size='52' text-anchor='middle' fill='white' font-family='monospace'>fq</text></svg>">
+</head>
+<body>
+
+<nav class="site-nav">
+  <div class="nav-inner">
+    <a class="brand" href="index.html"><span class="logo">fq</span> fqc</a>
+    <div class="nav-links">
+      <a href="index.html" class="active">首页</a>
+      <a href="format.html">压缩格式设计</a>
+      <a href="algorithm.html">压缩算法设计</a>
+      <a href="architecture.html">高性能架构设计</a>
+      <a href="https://github.com/open-genomics/fq-compressor-rust" target="_blank" rel="noopener">GitHub ↗</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <h1>fqc</h1>
+  <p class="sub">块索引 · 组件级编码 · 读长自适应的 <strong>FASTQ 压缩引擎</strong>，纯 Rust 实现，零 unsafe。</p>
+  <div class="badges">
+    <span class="badge strong">fqc-indexed/v2</span>
+    <span class="badge">Rust · 零 unsafe</span>
+    <span class="badge">O(log N) 随机访问</span>
+    <span class="badge">MSRV 1.75</span>
+    <span class="badge">GPL-3.0</span>
+  </div>
+  <div class="hero-actions">
+    <a class="btn btn-primary" href="format.html">压缩格式设计</a>
+    <a class="btn btn-ghost" href="algorithm.html">压缩算法设计</a>
+    <a class="btn btn-ghost" href="architecture.html">高性能架构设计</a>
+  </div>
+</header>
+
+<main class="wrap">
+
+  <div class="topic-grid">
+    <a class="topic-card" href="format.html">
+      <span class="num">01 · 格式</span>
+      <h3>压缩格式设计</h3>
+      <p>自包含的块索引归档：全局头、独立压缩块、尾部块索引与页脚。字节级布局、编解码器分派、版本与校验规则，实现 O(log N) 随机访问。</p>
+      <div class="tags">
+        <span class="badge">Magic 识别</span>
+        <span class="badge">Block Index</span>
+        <span class="badge">Codec 分派</span>
+      </div>
+    </a>
+    <a class="topic-card" href="algorithm.html">
+      <span class="num">02 · 算法</span>
+      <h3>压缩算法设计</h3>
+      <p>FASTQ 组件级编码：短读段 ABC 锚基压缩（共识 + 差分）、中长读 Zstd、SCM 质量压缩、ID tokenize、minimizer 重排。</p>
+      <div class="tags">
+        <span class="badge">ABC</span>
+        <span class="badge">SCM</span>
+        <span class="badge">读长自适应</span>
+      </div>
+    </a>
+    <a class="topic-card" href="architecture.html">
+      <span class="num">03 · 架构</span>
+      <h3>高性能架构设计</h3>
+      <p>块 = 独立并行单元：三种执行模式（Archive / Streaming / Pipeline）、内存预算、分层模块与零 unsafe 的安全性保证。</p>
+      <div class="tags">
+        <span class="badge">3 种执行模式</span>
+        <span class="badge">内存有界</span>
+        <span class="badge">零 unsafe</span>
+      </div>
+    </a>
+  </div>
+
+  <section class="topic">
+    <h2><span class="idx">✦</span> 项目速览</h2>
+    <div class="table-wrap">
+      <table>
+        <tbody>
+          <tr><th>产品</th><td><code>fqc</code> — 单一二进制 CLI（<code>compress</code> / <code>decompress</code> / <code>info</code> / <code>verify</code>）</td></tr>
+          <tr><th>格式族</th><td><code>fqc-indexed/v2</code>，与 C++ 实现的 <code>fqc-sequential/v2</code> 同名但 magic 不同、互不兼容，reader 以 magic 区分并明确拒绝异族</td></tr>
+          <tr><th>压缩策略</th><td>组件分离（ID / 序列 / 质量 / aux 四流）+ 读长自适应编解码器（短读 ABC，中长读 Zstd）</td></tr>
+          <tr><th>访问模型</th><td>尾部嵌入块索引 → O(log N) 随机访问、范围解压、按块验证；自包含，无附属索引文件</td></tr>
+          <tr><th>执行模式</th><td>Archive（最佳压缩比）· Streaming（有界内存）· Pipeline（并发吞吐），三者产出同一格式</td></tr>
+          <tr><th>质量模式</th><td>无损 Zstd（默认）/ SCM / illumina8 分箱 / qvz 量化 / discard</td></tr>
+          <tr><th>工程保证</th><td>纯 Rust，<code>unsafe_code = deny</code>；格式契约测试 + 冻结归档 fixture 保护解码兼容</td></tr>
+          <tr><th>元数据</th><td>Rust 1.75（MSRV）· MIT 之外采用 GPL-3.0-or-later</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="topic">
+    <h2><span class="idx">⚡</span> 常用命令</h2>
+    <pre><span class="c"># 压缩（默认 Archive 模式，可加 --pipeline / --streaming）</span>
+fqc compress -i reads.fastq -o reads.fqc
+fqc compress -i reads_R1.fastq -2 reads_R2.fastq -o paired.fqc
+
+<span class="c"># 检视与校验</span>
+fqc info -i reads.fqc --detailed --show-codecs
+fqc verify -i reads.fqc --quick
+
+<span class="c"># 解压：全量、范围提取、恢复原始顺序</span>
+fqc decompress -i reads.fqc -o out.fastq
+fqc decompress -i reads.fqc -o subset.fastq --range 1:1000
+fqc decompress -i reads.fqc -o reads.fastq --original-order
+
+<span class="c"># 有损质量（实验）：qvz / illumina8 / discard</span>
+fqc compress -i reads.fastq -o reads.fqc --lossy-quality qvz</pre>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <span>© open-genomics · fqc（fq-compressor-rust）</span>
+    <span>源码：<a href="https://github.com/open-genomics/fq-compressor-rust" target="_blank" rel="noopener">github.com/open-genomics/fq-compressor-rust</a></span>
+  </div>
+</footer>
+
+</body>
+</html>
