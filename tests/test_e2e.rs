@@ -31,12 +31,19 @@ fn test_data_dir() -> std::path::PathBuf {
         .join("data")
 }
 
-/// RAII guard that removes the file on drop, ensuring test cleanup.
+/// Unique-per-instance counter so parallel tests never share a temp dir.
+static NEXT_TEMP_ID: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// RAII guard that removes its own file and unique directory on drop.
+///
+/// Each instance gets its own directory under `<tmp>/fqc_e2e_tests/<id>`,
+/// so concurrent test runs can never observe or delete each other's files.
 struct TempFile(String);
 
 impl TempFile {
     fn new(name: &str) -> Self {
-        let dir = std::env::temp_dir().join("fqc_e2e_tests");
+        let id = NEXT_TEMP_ID.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let dir = std::env::temp_dir().join("fqc_e2e_tests").join(id.to_string());
         std::fs::create_dir_all(&dir).unwrap();
         Self(dir.join(name).to_string_lossy().to_string())
     }
@@ -48,6 +55,9 @@ impl TempFile {
 impl Drop for TempFile {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.0);
+        if let Some(parent) = std::path::Path::new(&self.0).parent() {
+            let _ = std::fs::remove_dir(parent); // best-effort; only removes own empty dir
+        }
     }
 }
 
