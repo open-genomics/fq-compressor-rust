@@ -190,11 +190,13 @@ impl CompressionPipeline {
                 // skips reordering (e.g. long reads) the maps are empty and
                 // all reads must pass through untouched — otherwise the
                 // archive silently drops every read (0 blocks, exit 0).
+                // Build by move (mem::take) rather than cloning each record.
+                let mut all_reads = all_reads;
                 let ordered: Vec<ReadRecord> = if reordering_performed {
                     result
                         .reverse_map
                         .iter()
-                        .map(|&orig_idx| all_reads[orig_idx as usize].clone())
+                        .filter_map(|&orig_idx| all_reads.get_mut(orig_idx as usize).map(std::mem::take))
                         .collect()
                 } else {
                     all_reads
@@ -240,8 +242,15 @@ impl CompressionPipeline {
             ..Default::default()
         };
 
-        // Split reads into chunks
-        let chunks: Vec<Vec<ReadRecord>> = ordered_reads.chunks(block_size).map(|c| c.to_vec()).collect();
+        // Split reads into chunks by move (split_off) instead of cloning each block
+        let mut ordered_reads = ordered_reads;
+        let mut chunks: Vec<Vec<ReadRecord>> = Vec::new();
+        while !ordered_reads.is_empty() {
+            let n = ordered_reads.len().min(block_size);
+            let rest = ordered_reads.split_off(n);
+            chunks.push(ordered_reads);
+            ordered_reads = rest;
+        }
         let num_chunks = chunks.len();
 
         // Setup channels with bounded capacity for backpressure
@@ -457,11 +466,13 @@ impl CompressionPipeline {
                 // skips reordering (e.g. long reads) the maps are empty and
                 // all reads must pass through untouched — otherwise the
                 // archive silently drops every read (0 blocks, exit 0).
+                // Build by move (mem::take) rather than cloning each record.
+                let mut all_reads = all_reads;
                 let ordered: Vec<ReadRecord> = if reordering_performed {
                     result
                         .reverse_map
                         .iter()
-                        .map(|&orig_idx| all_reads[orig_idx as usize].clone())
+                        .filter_map(|&orig_idx| all_reads.get_mut(orig_idx as usize).map(std::mem::take))
                         .collect()
                 } else {
                     all_reads
@@ -602,11 +613,13 @@ impl CompressionPipeline {
                 // skips reordering (e.g. long reads) the maps are empty and
                 // all reads must pass through untouched — otherwise the
                 // archive silently drops every read (0 blocks, exit 0).
+                // Build by move (mem::take) rather than cloning each record.
+                let mut all_reads = all_reads;
                 let ordered: Vec<ReadRecord> = if reordering_performed {
                     result
                         .reverse_map
                         .iter()
-                        .map(|&orig_idx| all_reads[orig_idx as usize].clone())
+                        .filter_map(|&orig_idx| all_reads.get_mut(orig_idx as usize).map(std::mem::take))
                         .collect()
                 } else {
                     all_reads

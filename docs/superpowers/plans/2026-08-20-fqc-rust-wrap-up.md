@@ -472,6 +472,20 @@ git commit -m "feat(stats): instrument decompression stage timings and print in 
 
 ---
 
+### Task 4bis: 修复 pipeline 长读 reorder-skip 空归档 bug（WS2 途中发现，已完成）
+
+**背景（已实测）**：测量 ONT pipeline 时发现 `--pipeline` + 长读产出 **165 字节空归档**（0 blocks，exit 0）。根因：`GlobalAnalyzer::analyze` 对 non-Short 类跳过 reorder → `reverse_map` 为空 → pipeline 的 Phase 1b 只凭空 `reverse_map` 构建 `ordered` → 0 chunks。engine 的 `run_archive` 有正确的 `reordering_performed` 回退，pipeline 三处（run / run_paired / run_interleaved）没有。
+
+**修复（commit 55da121，已提交）**：
+1. 三处 Phase 1b 提升 `reordering_performed`；仅在 true 时用 `reverse_map` 构建 `ordered`，否则 `ordered = all_reads`；未 reorder 时 `forward_map`/`reverse_map` 置 `None`。
+2. `build_flags` 第二参（IS_ORIGINAL_ORDER）从 `!self.config.enable_reorder` 改为 `!reordering_performed`（与 engine 一致，避免孤儿 reorder map 位）。
+3. 回归测试 `test_e2e_pipeline_long_reads_no_reorder_nonempty_archive`（40 条 12kb 长读 → Long 类 → 非空归档 + round-trip）。
+4. 顺手修复：单 block 解压 Normal mode 与 `run_original_order` 现在也报阶段计时（原先 0/0/0），不再误导热点报告。
+
+**重测（release, --threads 8）**：ONT pipeline compress 9.56s（parse 151 / reorder 74 / process 8808 / write 9138 ms），输出 66,014,018 字节（与 streaming 66,013,771 几乎一致，符合长读不重排的预期）；decompress 9.67s（parse 58 / process 9408 / write 144 ms），round-trip `cmp` IDENTICAL。
+
+---
+
 ### Task 5: 拉取真实语料 + 写热点报告（WS2/WS3 交汇）
 
 **Files:**

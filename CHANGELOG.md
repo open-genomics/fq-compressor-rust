@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Fixed
+
+- e2e 测试在并行全量运行时偶发失败（每个 `TempFile` 使用唯一临时目录，消除跨测试共享
+  `/tmp/fqc_e2e_tests/` 的并发竞态）。
+- `--pipeline` 压缩长读时产出空归档（0 blocks，exit 0）：`GlobalAnalyzer` 对非 Short
+  类跳过重排后 `reverse_map` 为空，pipeline 只凭空 map 建块把全部读丢弃。三处
+  （run / run_paired / run_interleaved）现在回退到原序直通并正确设置 original-order flag，
+  与 engine 的 `run_archive` 一致；新增回归测试
+  `test_e2e_pipeline_long_reads_no_reorder_nonempty_archive`。
+
 ### Changed
 
 - README 首屏格式族说明重写为两实现对照表（仓库、实现语言、格式族 ID、完整 magic、
@@ -11,6 +21,12 @@
 
 ### Added
 
+- 阶段计时：compress / decompress 的 summary 打印 `Stage timings`（parse / reorder /
+  process / write，单位 ms；process 为并行 worker 聚合 CPU 时间）。覆盖 archive、pipeline、
+  streaming 三种模式，单 block 与 `--original-order` 路径同样计时。
+- 真实语料压缩/吞吐证据：`scripts/fetch_real_corpus.sh` + `docs/real-corpus.md`（ENA 两份公开切片，
+  与 C++ 侧同语料同 sha256，round-trip 逐字节一致）；`docs/hotspot-report.md` 记录阶段热点与
+  优化前后对比。
 - `--id-mode exact|tokenize|discard` on `compress` (default `tokenize`);
   Exact never tokenizes, Tokenize may fall back per block, Discard writes
   placeholder IDs. The chosen mode is stored in archive flags.
@@ -47,6 +63,13 @@
   and unknown-identifier rejection
 - `openspec/project.md` recording `fqc-indexed/v2` identity, decision
   `FQC-DEC-001`, and external boundaries
+
+### Performance
+
+- 重排/建块从逐条克隆改为移动（`mem::take` / `split_off`）：块内容与顺序不变、压缩输出
+  逐字节不变（reorder on 14,036,446 B / off 12,508,029 B），减少建块期整份读集克隆的分配。
+- 热点测量（`docs/hotspot-report.md`）：真实 Illumina WXS 上全局重排为纯负收益（慢 5.7× 且
+  输出大 12.2%，输入原序已空间有序）；长读压缩为单 block 串行（`--max-block-bases` 可切块并行）。
 
 ### Fixed
 

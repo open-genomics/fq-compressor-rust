@@ -28,3 +28,8 @@
 - [.fqc 二进制格式规范](reference/format-spec.md)
 - [参考文献与相关工作](reference/index.md)
 - [基准测试报告](benchmarks/performance-report.md)
+
+## 性能证据（2026-08 收尾）
+
+- [热点测量报告](hotspot-report.md) —— 阶段计时与优化前后对比
+- [真实语料压缩/吞吐](real-corpus.md) —— ENA 公开切片 round-trip 与 C++ 横向参考

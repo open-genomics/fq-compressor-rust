@@ -262,6 +262,9 @@ impl CompressionEngine {
         });
 
         // Extract block read sets
+        // Reordered block build consumes reads by move (mem::take) instead of
+        // cloning each record: identical order, same bytes, fewer allocations.
+        let mut records = records;
         let block_read_sets: Vec<(u32, Vec<ReadRecord>)> = analysis
             .block_boundaries
             .iter()
@@ -276,11 +279,13 @@ impl CompressionEngine {
                             analysis
                                 .reverse_map
                                 .get(archive_id)
-                                .and_then(|&orig_id| records.get(orig_id as usize).cloned())
+                                .and_then(|&orig_id| records.get_mut(orig_id as usize).map(std::mem::take))
                         })
                         .collect()
                 } else {
-                    (start..end.min(records.len())).map(|i| records[i].clone()).collect()
+                    (start..end.min(records.len()))
+                        .map(|i| std::mem::take(&mut records[i]))
+                        .collect()
                 };
 
                 if block_reads.is_empty() {
