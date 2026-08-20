@@ -216,7 +216,8 @@ impl DecompressionPipeline {
 
         // ---- Reader thread ----
         let reader_control = control.clone();
-        let reader_handle = thread::spawn(move || -> Result<()> {
+        let reader_handle = thread::spawn(move || -> Result<u64> {
+            let t = Instant::now();
             for block_id in start_block..end_block {
                 if reader_control.is_cancelled() {
                     break;
@@ -250,18 +251,20 @@ impl DecompressionPipeline {
                     }
                 }
             }
-            Ok(())
+            Ok(t.elapsed().as_millis() as u64)
         });
 
         // ---- Decompressor threads ----
         let num_decomp_threads = threads.max(1);
         let mut decomp_handles = Vec::new();
+        let decode_ns = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
         for _ in 0..num_decomp_threads {
             let rx = task_rx.clone();
             let tx = result_tx.clone();
             let cfg = compressor_config.clone();
             let ctrl = control.clone();
+            let decode_ns = Arc::clone(&decode_ns);
 
             let handle = thread::spawn(move || -> Result<()> {
                 let mut compressor = BlockCompressor::new((*cfg).clone());
@@ -272,7 +275,9 @@ impl DecompressionPipeline {
                     }
 
                     let bh = &task.block_data.header;
+                    let t = Instant::now();
                     let decomp_result = compressor.decompress_block(&task.block_data);
+                    decode_ns.fetch_add(t.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
 
                     ctrl.add_reads(bh.uncompressed_count as u64);
 
@@ -303,7 +308,8 @@ impl DecompressionPipeline {
         let range_end = self.config.range_end;
         let has_range = self.config.has_range();
         let force_overwrite = self.config.force_overwrite;
-        let writer_handle = thread::spawn(move || -> Result<(u64, u64)> {
+        let writer_handle = thread::spawn(move || -> Result<(u64, u64, u64)> {
+            let t = Instant::now();
             const ASYNC_WRITE_BUF: usize = 4 * 1024 * 1024; // 4 MB write-behind buffer
             const ASYNC_WRITE_DEPTH: usize = 4;
 
@@ -381,18 +387,19 @@ impl DecompressionPipeline {
             if let Some(tx) = output_tx {
                 tx.commit()?;
             }
-            Ok((total_reads_written, total_output_bytes))
+            Ok((total_reads_written, total_output_bytes, t.elapsed().as_millis() as u64))
         });
 
         // ---- Wait ----
-        reader_handle
+        let reader_read_ms = reader_handle
             .join()
             .map_err(|_| FqcError::Decompression("Reader thread panicked".to_string()))??;
         for h in decomp_handles {
             h.join()
                 .map_err(|_| FqcError::Decompression("Decompressor thread panicked".to_string()))??;
         }
-        let (reads_written, output_bytes) = writer_handle
+        let decode_ms = decode_ns.load(std::sync::atomic::Ordering::Relaxed) / 1_000_000;
+        let (reads_written, output_bytes, writer_write_ms) = writer_handle
             .join()
             .map_err(|_| FqcError::Decompression("Writer thread panicked".to_string()))??;
 
@@ -405,10 +412,10 @@ impl DecompressionPipeline {
             output_bytes,
             processing_time_ms: elapsed.as_millis() as u64,
             reorder_map_written: false,
-            parse_ms: 0,
+            parse_ms: reader_read_ms,
             reorder_ms: 0,
-            process_ms: 0,
-            write_ms: 0,
+            process_ms: decode_ms,
+            write_ms: writer_write_ms,
         };
 
         log::info!(

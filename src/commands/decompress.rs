@@ -65,9 +65,8 @@ struct DecompressStats {
     output_bytes: u64,
     elapsed_seconds: f64,
     /// Stage timings (ms). Serial stages are wall-clock; process_ms
-    /// aggregates parallel worker time.
+    /// aggregates parallel worker time. (Decompression has no reorder stage.)
     parse_ms: u64,
-    reorder_ms: u64,
     process_ms: u64,
     write_ms: u64,
 }
@@ -405,11 +404,15 @@ impl DecompressCommand {
 
         let mut global_read_idx = 0u64;
         let mut block_start = 0usize;
+        let mut parse_ms = 0u64;
+        let mut process_ms = 0u64;
+        let mut write_ms = 0u64;
 
         while block_start < block_count {
             let batch_end = (block_start + batch_size).min(block_count);
 
             // Phase 1: Read block data sequentially
+            let t_phase = std::time::Instant::now();
             let mut block_data_vec: Vec<(u32, BlockData)> = Vec::with_capacity(batch_end - block_start);
             let mut phase1_failures: Vec<(u32, String, u32)> = Vec::new();
             for block_id in block_start..batch_end {
@@ -432,8 +435,10 @@ impl DecompressCommand {
                     }
                 }
             }
+            parse_ms += t_phase.elapsed().as_millis() as u64;
 
             // Phase 2: Decompress in parallel
+            let t_phase = std::time::Instant::now();
             let cfg = Arc::clone(&config);
             let results: Vec<std::result::Result<(u32, DecompressedBlockData), (u32, String, u32)>> = block_data_vec
                 .into_par_iter()
@@ -445,8 +450,10 @@ impl DecompressCommand {
                     }
                 })
                 .collect();
+            process_ms += t_phase.elapsed().as_millis() as u64;
 
             // Phase 3: Write results sequentially (sorted by block_id)
+            let t_phase = std::time::Instant::now();
             let mut sorted: Vec<_> = results;
             sorted.extend(phase1_failures.into_iter().map(Err));
             sorted.sort_by_key(|r| match r {
@@ -487,9 +494,14 @@ impl DecompressCommand {
                     }
                 }
             }
+            write_ms += t_phase.elapsed().as_millis() as u64;
 
             block_start = batch_end;
         }
+
+        self.stats.parse_ms = parse_ms;
+        self.stats.process_ms = process_ms;
+        self.stats.write_ms = write_ms;
 
         Ok(())
     }
@@ -685,6 +697,9 @@ impl DecompressCommand {
         self.stats.blocks_processed = stats.total_blocks as u64;
         self.stats.output_bytes = stats.output_bytes;
         self.stats.input_bytes = stats.input_bytes;
+        self.stats.parse_ms = stats.parse_ms;
+        self.stats.process_ms = stats.process_ms;
+        self.stats.write_ms = stats.write_ms;
 
         log::info!(
             "Pipeline decompression complete! {} reads, {:.1} MB/s",
@@ -721,6 +736,10 @@ impl DecompressCommand {
         println!("  Output size:       {} bytes", self.stats.output_bytes);
         println!("  Elapsed time:      {:.2} s", self.stats.elapsed_seconds);
         println!("  Throughput:        {:.2} MB/s", self.stats.throughput_mbps());
+        println!(
+            "  Stage timings:    parse {:.0} ms | process {:.0} ms | write {:.0} ms",
+            self.stats.parse_ms as f64, self.stats.process_ms as f64, self.stats.write_ms as f64
+        );
         println!("=============================");
     }
 }

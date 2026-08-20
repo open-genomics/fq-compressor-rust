@@ -236,6 +236,13 @@ impl CompressCommand {
         println!("  Bits per base:     {:.3}", self.stats.bits_per_base());
         println!("  Elapsed time:      {:.2} s", self.stats.elapsed_seconds);
         println!("  Throughput:        {:.2} MB/s", self.stats.throughput_mbps());
+        println!(
+            "  Stage timings:    parse {:.0} ms | reorder {:.0} ms | process {:.0} ms | write {:.0} ms",
+            self.stats.inner.parse_ms as f64,
+            self.stats.inner.reorder_ms as f64,
+            self.stats.inner.process_ms as f64,
+            self.stats.inner.write_ms as f64
+        );
         println!("===========================");
     }
 }
