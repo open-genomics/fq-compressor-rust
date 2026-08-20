@@ -152,6 +152,7 @@ impl CompressionEngine {
     fn run_archive(&self, request: CompressionRequest) -> Result<CompressionOutcome> {
         let input = request.input.resolve();
 
+        let t_parse = std::time::Instant::now();
         log::info!("Reading input file: {}", input.primary_path);
         let records = if let Some(path2) = input.secondary_path.as_deref() {
             Self::read_all_paired_records(
@@ -171,6 +172,8 @@ impl CompressionEngine {
                 "Input file contains no FASTQ records".to_string(),
             ));
         }
+
+        let parse_ms = t_parse.elapsed().as_millis() as u64;
 
         let total_bases: u64 = records.iter().map(|r| r.sequence.len() as u64).sum();
         let total_reads = records.len() as u64;
@@ -202,6 +205,7 @@ impl CompressionEngine {
         log::info!("Reordering: {}", enable_reorder);
 
         // Phase 1: Global analysis (reordering)
+        let t_reorder = std::time::Instant::now();
         let sequences: Vec<String> = records.iter().map(|r| r.sequence.clone()).collect();
 
         let analyzer_config = GlobalAnalyzerConfig {
@@ -286,6 +290,7 @@ impl CompressionEngine {
                 }
             })
             .collect();
+        let reorder_ms = t_reorder.elapsed().as_millis() as u64;
 
         // Parallel block compression
         let num_blocks = block_read_sets.len();
@@ -295,15 +300,22 @@ impl CompressionEngine {
             if num_blocks > 1 { " in parallel" } else { "" }
         );
 
+        let process_ns = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let process_ns_ref = std::sync::Arc::clone(&process_ns);
         let compressed_blocks: Vec<Result<CompressedBlockData>> = block_read_sets
             .par_iter()
             .map(|(block_id, reads)| {
+                let t = std::time::Instant::now();
                 let mut compressor = BlockCompressor::new((*block_config).clone());
-                compressor.compress(reads, *block_id)
+                let r = compressor.compress(reads, *block_id);
+                process_ns_ref.fetch_add(t.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+                r
             })
             .collect();
+        let process_ms = process_ns.load(std::sync::atomic::Ordering::Relaxed) / 1_000_000;
 
         // Sequential write (file I/O must be ordered)
+        let t_write = std::time::Instant::now();
         let mut archive_id_start = 0u64;
         let mut output_bytes = 0u64;
         let mut blocks_written = 0;
@@ -336,6 +348,7 @@ impl CompressionEngine {
         // Finalize then atomically replace the destination
         writer.finalize()?;
         output_tx.commit()?;
+        let write_ms = t_write.elapsed().as_millis() as u64;
 
         log::info!("Compression complete! {} blocks written.", blocks_written);
 
@@ -353,10 +366,10 @@ impl CompressionEngine {
             output_bytes,
             blocks_written: blocks_written as u64,
             elapsed_seconds: 0.0, // Will be filled by command layer
-            parse_ms: 0,
-            reorder_ms: 0,
-            process_ms: 0,
-            write_ms: 0,
+            parse_ms,
+            reorder_ms,
+            process_ms,
+            write_ms,
         };
 
         Ok(CompressionOutcome {

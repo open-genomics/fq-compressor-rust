@@ -137,6 +137,7 @@ impl CompressionPipeline {
     }
 
     /// Run compression on a single-end input file
+    #[allow(clippy::too_many_lines)]
     pub fn run(&mut self, input_path: &str, output_path: impl AsRef<Path>, original_filename: &str) -> Result<()> {
         self.config.validate()?;
         let start = Instant::now();
@@ -148,6 +149,7 @@ impl CompressionPipeline {
         log::info!("Compression pipeline: {} threads, block_size={}", threads, block_size);
 
         // ---- Phase 1: Read all records (needed for global analysis) ----
+        let t_parse = Instant::now();
         let all_reads = if input_path == "-" {
             let mut parser = open_fastq_stdin();
             parser.collect_all_within_archive_budget(self.config.memory_limit_mb)?
@@ -159,6 +161,7 @@ impl CompressionPipeline {
         if all_reads.is_empty() {
             return Err(FqcError::InvalidArgument("Input file is empty".to_string()));
         }
+        let parse_ms = t_parse.elapsed().as_millis() as u64;
 
         let total_reads = all_reads.len();
         let (input_bytes, total_bases) = all_reads.iter().fold((0usize, 0u64), |(bytes, bases), record| {
@@ -171,6 +174,7 @@ impl CompressionPipeline {
         log::info!("Read {} records ({} bytes)", total_reads, input_bytes);
 
         // ---- Phase 1b: Global analysis (reordering) ----
+        let t_reorder = Instant::now();
         let (ordered_reads, forward_map, reverse_map) = if self.config.enable_reorder && !self.config.streaming_mode {
             log::info!("Running global analysis...");
             let ga_config = GlobalAnalyzerConfig {
@@ -190,6 +194,7 @@ impl CompressionPipeline {
         } else {
             (all_reads, None, None)
         };
+        let reorder_ms = t_reorder.elapsed().as_millis() as u64;
         let reorder_map_written = forward_map.is_some() && self.config.save_reorder_map;
 
         // ---- Phase 2: Pipeline compression ----
@@ -246,12 +251,14 @@ impl CompressionPipeline {
         // ---- Compressor threads (parallel) ----
         let num_compressor_threads = threads.max(1);
         let mut compressor_handles = Vec::new();
+        let process_ns = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
 
         for _ in 0..num_compressor_threads {
             let rx = chunk_rx.clone();
             let tx = block_tx.clone();
             let cfg = compressor_config_arc.clone();
             let ctrl = control.clone();
+            let process_ns = std::sync::Arc::clone(&process_ns);
 
             let handle = thread::spawn(move || -> Result<()> {
                 let mut compressor = BlockCompressor::new((*cfg).clone());
@@ -260,7 +267,9 @@ impl CompressionPipeline {
                         break;
                     }
 
+                    let t = Instant::now();
                     let compressed = compressor.compress(&chunk.reads, chunk.chunk_id)?;
+                    process_ns.fetch_add(t.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
                     ctrl.add_reads(chunk.reads.len() as u64);
 
                     tx.send(OrderedBlock {
@@ -280,7 +289,8 @@ impl CompressionPipeline {
         // ---- Writer thread: receive and write in order ----
         let writer_control = control.clone();
         let force_overwrite = self.config.force_overwrite;
-        let writer_handle = thread::spawn(move || -> Result<u64> {
+        let writer_handle = thread::spawn(move || -> Result<(u64, u64)> {
+            let t_write = Instant::now();
             let (mut writer, output_tx) = begin_fqc_writer(&output_path_owned, force_overwrite)?;
 
             let gh = GlobalHeader::new(
@@ -333,7 +343,7 @@ impl CompressionPipeline {
 
             writer.finalize()?;
             output_tx.commit()?;
-            Ok(total_output_bytes)
+            Ok((total_output_bytes, t_write.elapsed().as_millis() as u64))
         });
 
         // ---- Wait for all stages ----
@@ -344,7 +354,8 @@ impl CompressionPipeline {
             h.join()
                 .map_err(|_| FqcError::Compression("Compressor thread panicked".to_string()))??;
         }
-        let output_bytes = writer_handle
+        let process_ms = process_ns.load(std::sync::atomic::Ordering::Relaxed) / 1_000_000;
+        let (output_bytes, write_ms) = writer_handle
             .join()
             .map_err(|_| FqcError::Compression("Writer thread panicked".to_string()))??;
 
@@ -358,10 +369,10 @@ impl CompressionPipeline {
             output_bytes,
             processing_time_ms: elapsed.as_millis() as u64,
             reorder_map_written,
-            parse_ms: 0,
-            reorder_ms: 0,
-            process_ms: 0,
-            write_ms: 0,
+            parse_ms,
+            reorder_ms,
+            process_ms,
+            write_ms,
         };
 
         log::info!(
