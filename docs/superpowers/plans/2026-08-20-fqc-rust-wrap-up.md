@@ -1,5 +1,9 @@
 # fq-compressor-rust 收尾实施计划
 
+> **状态（2026-08-20 收口）：** Task 1-4、4bis、5-7 全部完成并提交（`55da121`、`ecf3a3c`）；
+> Task 8 门禁 3× 全量零失败。交付物：`docs/hotspot-report.md`、`docs/real-corpus.md`、阶段计时 summary、
+> pipeline 长读空归档修复、move-based 建块。真实测量值已写入对应报告。
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 收尾 fq-compressor-rust：结构性修复 e2e 并行 flaky、补齐分段计时并测热点、用真实语料补生产规模压缩/吞吐证据、同步文档与 CHANGELOG。

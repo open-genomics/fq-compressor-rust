@@ -89,6 +89,7 @@ fqc --memory-limit 512 verify -i reads.fqc
 - [算法与 ABC 详解](docs/algorithms/index.md)
 - [.fqc 格式规范](docs/reference/format-spec.md)
 - [基准测试报告](docs/benchmarks/performance-report.md)
+- [热点测量报告](docs/hotspot-report.md)与[真实语料压缩/吞吐](docs/real-corpus.md)（2026-08 收尾）
 
 ## 开发
 
