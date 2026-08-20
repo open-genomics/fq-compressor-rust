@@ -22,6 +22,9 @@ desktop.ini
 *_range.fastq
 *_header.fastq
 
+# Real-corpus slices (large, fetched via scripts/fetch_real_corpus.sh)
+corpus/
+
 # Profiling & benchmarks
 perf.data
 perf.data.old

@@ -1037,6 +1037,64 @@ fn test_e2e_pipeline_respects_save_reorder_map_flag() {
     assert!(!reader.has_reorder_map());
 }
 
+#[test]
+fn test_e2e_pipeline_long_reads_no_reorder_nonempty_archive() {
+    // Regression: pipeline + long reads used to produce an EMPTY archive
+    // (0 blocks, exit 0). GlobalAnalyzer::analyze skips reordering for
+    // non-Short classes, leaving reverse_map empty; the pipeline built
+    // `ordered` solely from that empty map and silently dropped every read.
+    // Reads must pass through untouched (engine run_archive does this; the
+    // pipeline must match).
+    use fqc::pipeline::compression::{CompressionPipeline, CompressionPipelineConfig};
+
+    let input = TempFile::new("e2e_pipeline_long.fastq");
+    let compressed = TempFile::new("e2e_pipeline_long.fqc");
+    let decompressed = TempFile::new("e2e_pipeline_long_out.fastq");
+
+    // 40 reads of ~12 kb -> median/max classify as Long (>= LONG_READ_THRESHOLD).
+    let reads = synthetic_reads(&vec![12_000; 40], "long");
+    write_fastq_records(input.path(), &reads);
+
+    let config = CompressionPipelineConfig {
+        num_threads: 2,
+        block_size: 100,
+        read_length_class: ReadLengthClass::Long,
+        quality_mode: QualityMode::Lossless,
+        id_mode: IdMode::Exact,
+        compression_level: 3,
+        enable_reorder: true,
+        save_reorder_map: false,
+        streaming_mode: false,
+        pe_layout: PeLayout::Interleaved,
+        ..Default::default()
+    };
+
+    let mut pipeline = CompressionPipeline::new(config);
+    pipeline
+        .run(input.path(), compressed.path(), "e2e_pipeline_long.fastq")
+        .unwrap();
+
+    let stats = pipeline.stats();
+    assert_eq!(stats.total_reads, 40);
+    assert!(
+        stats.total_blocks >= 1,
+        "pipeline must not drop all reads for long-read input (got {} blocks)",
+        stats.total_blocks
+    );
+    assert!(
+        stats.output_bytes > 0,
+        "pipeline must not produce an empty archive for long-read input"
+    );
+
+    let reader = FqcReader::open(compressed.path()).unwrap();
+    assert_eq!(reader.block_count(), 1);
+
+    decompress_file(compressed.path(), decompressed.path());
+    let restored = read_fastq_records(decompressed.path());
+    assert_eq!(restored.len(), 40);
+    assert_roundtrip_match(&reads, &restored);
+}
+
 // =============================================================================
 // E2E: Decompression Pipeline Round-Trip
 // =============================================================================

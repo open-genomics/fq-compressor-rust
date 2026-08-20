@@ -175,33 +175,55 @@ impl CompressionPipeline {
 
         // ---- Phase 1b: Global analysis (reordering) ----
         let t_reorder = Instant::now();
-        let (ordered_reads, forward_map, reverse_map) = if self.config.enable_reorder && !self.config.streaming_mode {
-            log::info!("Running global analysis...");
-            let ga_config = GlobalAnalyzerConfig {
-                reads_per_block: block_size,
-                ..Default::default()
+        let (ordered_reads, forward_map, reverse_map, reordering_performed) =
+            if self.config.enable_reorder && !self.config.streaming_mode {
+                log::info!("Running global analysis...");
+                let ga_config = GlobalAnalyzerConfig {
+                    reads_per_block: block_size,
+                    ..Default::default()
+                };
+                let sequences: Vec<String> = all_reads.iter().map(|r| r.sequence.clone()).collect();
+                let analyzer = GlobalAnalyzer::new(ga_config);
+                let result = analyzer.analyze(&sequences)?;
+                let reordering_performed = result.reordering_performed;
+                // reverse_map[archive_id] = original_id. When the analyzer
+                // skips reordering (e.g. long reads) the maps are empty and
+                // all reads must pass through untouched — otherwise the
+                // archive silently drops every read (0 blocks, exit 0).
+                let ordered: Vec<ReadRecord> = if reordering_performed {
+                    result
+                        .reverse_map
+                        .iter()
+                        .map(|&orig_idx| all_reads[orig_idx as usize].clone())
+                        .collect()
+                } else {
+                    all_reads
+                };
+                (
+                    ordered,
+                    if reordering_performed {
+                        Some(result.forward_map)
+                    } else {
+                        None
+                    },
+                    if reordering_performed {
+                        Some(result.reverse_map)
+                    } else {
+                        None
+                    },
+                    reordering_performed,
+                )
+            } else {
+                (all_reads, None, None, false)
             };
-            let sequences: Vec<String> = all_reads.iter().map(|r| r.sequence.clone()).collect();
-            let analyzer = GlobalAnalyzer::new(ga_config);
-            let result = analyzer.analyze(&sequences)?;
-            // reverse_map[archive_id] = original_id
-            let ordered: Vec<ReadRecord> = result
-                .reverse_map
-                .iter()
-                .map(|&orig_idx| all_reads[orig_idx as usize].clone())
-                .collect();
-            (ordered, Some(result.forward_map), Some(result.reverse_map))
-        } else {
-            (all_reads, None, None)
-        };
         let reorder_ms = t_reorder.elapsed().as_millis() as u64;
-        let reorder_map_written = forward_map.is_some() && self.config.save_reorder_map;
+        let reorder_map_written = reordering_performed && self.config.save_reorder_map;
 
         // ---- Phase 2: Pipeline compression ----
         let is_paired = false;
         let flags = build_flags(
             is_paired,
-            !self.config.enable_reorder,
+            !reordering_performed,
             self.config.quality_mode,
             self.config.id_mode,
             reorder_map_written,
@@ -421,28 +443,51 @@ impl CompressionPipeline {
         });
         let block_size = self.config.effective_block_size();
 
-        let (ordered_reads, forward_map, reverse_map) = if self.config.enable_reorder && !self.config.streaming_mode {
-            let ga_config = GlobalAnalyzerConfig {
-                reads_per_block: block_size,
-                ..Default::default()
+        let (ordered_reads, forward_map, reverse_map, reordering_performed) =
+            if self.config.enable_reorder && !self.config.streaming_mode {
+                let ga_config = GlobalAnalyzerConfig {
+                    reads_per_block: block_size,
+                    ..Default::default()
+                };
+                let sequences: Vec<String> = all_reads.iter().map(|r| r.sequence.clone()).collect();
+                let analyzer = GlobalAnalyzer::new(ga_config);
+                let result = analyzer.analyze(&sequences)?;
+                let reordering_performed = result.reordering_performed;
+                // reverse_map[archive_id] = original_id. When the analyzer
+                // skips reordering (e.g. long reads) the maps are empty and
+                // all reads must pass through untouched — otherwise the
+                // archive silently drops every read (0 blocks, exit 0).
+                let ordered: Vec<ReadRecord> = if reordering_performed {
+                    result
+                        .reverse_map
+                        .iter()
+                        .map(|&orig_idx| all_reads[orig_idx as usize].clone())
+                        .collect()
+                } else {
+                    all_reads
+                };
+                (
+                    ordered,
+                    if reordering_performed {
+                        Some(result.forward_map)
+                    } else {
+                        None
+                    },
+                    if reordering_performed {
+                        Some(result.reverse_map)
+                    } else {
+                        None
+                    },
+                    reordering_performed,
+                )
+            } else {
+                (all_reads, None, None, false)
             };
-            let sequences: Vec<String> = all_reads.iter().map(|r| r.sequence.clone()).collect();
-            let analyzer = GlobalAnalyzer::new(ga_config);
-            let result = analyzer.analyze(&sequences)?;
-            let ordered: Vec<ReadRecord> = result
-                .reverse_map
-                .iter()
-                .map(|&orig_idx| all_reads[orig_idx as usize].clone())
-                .collect();
-            (ordered, Some(result.forward_map), Some(result.reverse_map))
-        } else {
-            (all_reads, None, None)
-        };
-        let reorder_map_written = forward_map.is_some() && self.config.save_reorder_map;
+        let reorder_map_written = reordering_performed && self.config.save_reorder_map;
 
         let flags = build_flags(
             true,
-            !self.config.enable_reorder,
+            !reordering_performed,
             self.config.quality_mode,
             self.config.id_mode,
             reorder_map_written,
@@ -543,28 +588,51 @@ impl CompressionPipeline {
         });
         let block_size = self.config.effective_block_size();
 
-        let (ordered_reads, forward_map, reverse_map) = if self.config.enable_reorder && !self.config.streaming_mode {
-            let ga_config = GlobalAnalyzerConfig {
-                reads_per_block: block_size,
-                ..Default::default()
+        let (ordered_reads, forward_map, reverse_map, reordering_performed) =
+            if self.config.enable_reorder && !self.config.streaming_mode {
+                let ga_config = GlobalAnalyzerConfig {
+                    reads_per_block: block_size,
+                    ..Default::default()
+                };
+                let sequences: Vec<String> = all_reads.iter().map(|r| r.sequence.clone()).collect();
+                let analyzer = GlobalAnalyzer::new(ga_config);
+                let result = analyzer.analyze(&sequences)?;
+                let reordering_performed = result.reordering_performed;
+                // reverse_map[archive_id] = original_id. When the analyzer
+                // skips reordering (e.g. long reads) the maps are empty and
+                // all reads must pass through untouched — otherwise the
+                // archive silently drops every read (0 blocks, exit 0).
+                let ordered: Vec<ReadRecord> = if reordering_performed {
+                    result
+                        .reverse_map
+                        .iter()
+                        .map(|&orig_idx| all_reads[orig_idx as usize].clone())
+                        .collect()
+                } else {
+                    all_reads
+                };
+                (
+                    ordered,
+                    if reordering_performed {
+                        Some(result.forward_map)
+                    } else {
+                        None
+                    },
+                    if reordering_performed {
+                        Some(result.reverse_map)
+                    } else {
+                        None
+                    },
+                    reordering_performed,
+                )
+            } else {
+                (all_reads, None, None, false)
             };
-            let sequences: Vec<String> = all_reads.iter().map(|r| r.sequence.clone()).collect();
-            let analyzer = GlobalAnalyzer::new(ga_config);
-            let result = analyzer.analyze(&sequences)?;
-            let ordered: Vec<ReadRecord> = result
-                .reverse_map
-                .iter()
-                .map(|&orig_idx| all_reads[orig_idx as usize].clone())
-                .collect();
-            (ordered, Some(result.forward_map), Some(result.reverse_map))
-        } else {
-            (all_reads, None, None)
-        };
-        let reorder_map_written = forward_map.is_some() && self.config.save_reorder_map;
+        let reorder_map_written = reordering_performed && self.config.save_reorder_map;
 
         let flags = build_flags(
             true,
-            !self.config.enable_reorder,
+            !reordering_performed,
             self.config.quality_mode,
             self.config.id_mode,
             reorder_map_written,

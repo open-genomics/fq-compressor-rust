@@ -15,6 +15,7 @@ use crate::types::*;
 use rayon::prelude::*;
 use std::io::{BufWriter, Write};
 use std::sync::Arc;
+use std::time::Instant;
 
 // =============================================================================
 // DecompressOptions
@@ -515,10 +516,17 @@ impl DecompressCommand {
         global_read_idx: &mut u64,
         output: &mut OutputWriters,
     ) -> Result<()> {
+        // Serial path: time each phase so single-block files still report
+        // stage timings (run_parallel only covers the multi-block path).
+        let t_read = Instant::now();
         let block_data = reader.read_block(block_id)?;
+        let parse_ms = t_read.elapsed().as_millis() as u64;
 
+        let t_proc = Instant::now();
         let decompressed = compressor.decompress_block(&block_data)?;
+        let process_ms = t_proc.elapsed().as_millis() as u64;
 
+        let t_write = Instant::now();
         let block_read_count = decompressed.reads.len() as u64;
         for (local_idx, read) in decompressed.reads.iter().enumerate() {
             let read_idx = *global_read_idx;
@@ -531,6 +539,11 @@ impl DecompressCommand {
                 Some((local_idx as u64, block_read_count)),
             )?;
         }
+        let write_ms = t_write.elapsed().as_millis() as u64;
+
+        self.stats.parse_ms += parse_ms;
+        self.stats.process_ms += process_ms;
+        self.stats.write_ms += write_ms;
 
         Ok(())
     }
@@ -555,7 +568,10 @@ impl DecompressCommand {
         // Buffer all reads in archive order
         let mut all_reads: Vec<ReadRecord> = Vec::with_capacity(total_reads);
 
+        let mut parse_ms = 0u64;
+        let mut process_ms = 0u64;
         for block_id in 0..block_count {
+            let t_read = Instant::now();
             let block_data = match reader.read_block(block_id as u32) {
                 Ok(block_data) => block_data,
                 Err(e) => {
@@ -573,7 +589,9 @@ impl DecompressCommand {
                     return Err(e);
                 }
             };
+            parse_ms += t_read.elapsed().as_millis() as u64;
 
+            let t_proc = Instant::now();
             match compressor.decompress_block(&block_data) {
                 Ok(decompressed) => {
                     all_reads.extend(decompressed.reads);
@@ -594,11 +612,13 @@ impl DecompressCommand {
                     }
                 }
             }
+            process_ms += t_proc.elapsed().as_millis() as u64;
         }
 
         // Reorder: forward_map[original_id] = archive_id
         // So to output in original order, iterate original_id 0..N
         // and output all_reads[forward_map[original_id]]
+        let t_write = Instant::now();
         for (original_id, &fwd) in forward_map.iter().enumerate().take(total_reads) {
             let archive_id = fwd as usize;
             if archive_id >= all_reads.len() {
@@ -614,6 +634,11 @@ impl DecompressCommand {
             let read = &all_reads[archive_id];
             self.emit_read(output, read, original_id as u64, total_archive_reads, None)?;
         }
+        let write_ms = t_write.elapsed().as_millis() as u64;
+
+        self.stats.parse_ms += parse_ms;
+        self.stats.process_ms += process_ms;
+        self.stats.write_ms += write_ms;
 
         Ok(())
     }
