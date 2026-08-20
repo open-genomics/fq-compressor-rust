@@ -49,6 +49,12 @@ pub struct PipelineStats {
     pub output_bytes: u64,
     pub processing_time_ms: u64,
     pub reorder_map_written: bool,
+    // Stage timings (ms). Serial stages are wall-clock; process_ms
+    // aggregates parallel worker time across threads.
+    pub parse_ms: u64,
+    pub reorder_ms: u64,
+    pub process_ms: u64,
+    pub write_ms: u64,
 }
 
 impl PipelineStats {

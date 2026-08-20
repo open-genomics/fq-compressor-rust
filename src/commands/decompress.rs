@@ -64,6 +64,12 @@ struct DecompressStats {
     input_bytes: u64,
     output_bytes: u64,
     elapsed_seconds: f64,
+    /// Stage timings (ms). Serial stages are wall-clock; process_ms
+    /// aggregates parallel worker time.
+    parse_ms: u64,
+    reorder_ms: u64,
+    process_ms: u64,
+    write_ms: u64,
 }
 
 enum OutputWriters {

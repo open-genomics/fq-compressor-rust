@@ -358,6 +358,10 @@ impl CompressionPipeline {
             output_bytes,
             processing_time_ms: elapsed.as_millis() as u64,
             reorder_map_written,
+            parse_ms: 0,
+            reorder_ms: 0,
+            process_ms: 0,
+            write_ms: 0,
         };
 
         log::info!(
@@ -486,6 +490,10 @@ impl CompressionPipeline {
             output_bytes,
             processing_time_ms: elapsed.as_millis() as u64,
             reorder_map_written,
+            parse_ms: 0,
+            reorder_ms: 0,
+            process_ms: 0,
+            write_ms: 0,
         };
 
         Ok(())
@@ -604,6 +612,10 @@ impl CompressionPipeline {
             output_bytes,
             processing_time_ms: elapsed.as_millis() as u64,
             reorder_map_written,
+            parse_ms: 0,
+            reorder_ms: 0,
+            process_ms: 0,
+            write_ms: 0,
         };
 
         Ok(())

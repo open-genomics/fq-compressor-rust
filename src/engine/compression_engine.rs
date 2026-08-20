@@ -37,6 +37,12 @@ pub struct ProcessingStats {
     pub blocks_written: u64,
     /// Elapsed time in seconds
     pub elapsed_seconds: f64,
+    /// Stage timings (ms). Serial stages are wall-clock; process_ms
+    /// aggregates parallel worker time across threads.
+    pub parse_ms: u64,
+    pub reorder_ms: u64,
+    pub process_ms: u64,
+    pub write_ms: u64,
 }
 
 impl ProcessingStats {
@@ -347,6 +353,10 @@ impl CompressionEngine {
             output_bytes,
             blocks_written: blocks_written as u64,
             elapsed_seconds: 0.0, // Will be filled by command layer
+            parse_ms: 0,
+            reorder_ms: 0,
+            process_ms: 0,
+            write_ms: 0,
         };
 
         Ok(CompressionOutcome {
@@ -553,6 +563,10 @@ impl CompressionEngine {
             output_bytes: stats.output_bytes,
             blocks_written: stats.total_blocks as u64,
             elapsed_seconds: 0.0, // Will be filled by command layer
+            parse_ms: stats.parse_ms,
+            reorder_ms: stats.reorder_ms,
+            process_ms: stats.process_ms,
+            write_ms: stats.write_ms,
         };
 
         Ok(CompressionOutcome {
@@ -748,6 +762,10 @@ impl CompressionEngine {
             output_bytes,
             blocks_written: blocks_written as u64,
             elapsed_seconds: 0.0,
+            parse_ms: 0,
+            reorder_ms: 0,
+            process_ms: 0,
+            write_ms: 0,
         };
 
         Ok(CompressionOutcome {
@@ -861,6 +879,10 @@ impl CompressionEngine {
             output_bytes,
             blocks_written: blocks_written as u64,
             elapsed_seconds: 0.0,
+            parse_ms: 0,
+            reorder_ms: 0,
+            process_ms: 0,
+            write_ms: 0,
         };
 
         Ok(CompressionOutcome {
@@ -978,6 +1000,10 @@ impl CompressionEngine {
             output_bytes,
             blocks_written: blocks_written as u64,
             elapsed_seconds: 0.0,
+            parse_ms: 0,
+            reorder_ms: 0,
+            process_ms: 0,
+            write_ms: 0,
         };
 
         Ok(CompressionOutcome {
