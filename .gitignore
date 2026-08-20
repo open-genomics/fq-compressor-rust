@@ -37,3 +37,6 @@ flamegraph.svg
 lcov.info
 *.gcno
 *.gcda
+
+# Claude Code (worktrees, settings, local config)
+.claude/
