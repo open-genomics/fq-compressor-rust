@@ -24,10 +24,10 @@
 </nav>
 
 <header class="hero">
-  <h1>fqc</h1>
-  <p class="sub">块索引 · 组件级编码 · 读长自适应的 <strong>FASTQ 压缩引擎</strong>，纯 Rust 实现，零 unsafe。</p>
+  <h1>fqc<span class="dot">.</span></h1>
+  <p class="sub">块索引 · 组件级编码 · 读长自适应——为 FASTQ 量身打造的<strong>领域感知压缩引擎</strong>，纯 Rust 实现，零 unsafe。</p>
   <div class="badges">
-    <span class="badge strong">fqc-indexed/v2</span>
+    <span class="badge green">fqc-indexed/v2</span>
     <span class="badge">Rust · 零 unsafe</span>
     <span class="badge">O(log N) 随机访问</span>
     <span class="badge">MSRV 1.75</span>
@@ -40,76 +40,113 @@
   </div>
 </header>
 
+<div class="stats-band">
+  <div class="stats">
+    <div class="stat">
+      <div class="num g">O(log N)</div>
+      <div class="lab">尾部索引 · 随机访问</div>
+    </div>
+    <div class="stat">
+      <div class="num t">0</div>
+      <div class="lab">unsafe 代码行</div>
+    </div>
+    <div class="stat">
+      <div class="num a">3</div>
+      <div class="lab">执行模式 · 同一格式</div>
+    </div>
+    <div class="stat">
+      <div class="num r">4</div>
+      <div class="lab">组件流 · 独立编码</div>
+    </div>
+  </div>
+</div>
+
 <main class="wrap">
 
-  <div class="topic-grid">
-    <a class="topic-card" href="format.html">
-      <span class="num">01 · 格式</span>
-      <h3>压缩格式设计</h3>
-      <p>自包含的块索引归档：全局头、独立压缩块、尾部块索引与页脚。字节级布局、编解码器分派、版本与校验规则，实现 O(log N) 随机访问。</p>
-      <div class="tags">
-        <span class="badge">Magic 识别</span>
-        <span class="badge">Block Index</span>
-        <span class="badge">Codec 分派</span>
-      </div>
-    </a>
-    <a class="topic-card" href="algorithm.html">
-      <span class="num">02 · 算法</span>
-      <h3>压缩算法设计</h3>
-      <p>FASTQ 组件级编码：短读段 ABC 锚基压缩（共识 + 差分）、中长读 Zstd、SCM 质量压缩、ID tokenize、minimizer 重排。</p>
-      <div class="tags">
-        <span class="badge">ABC</span>
-        <span class="badge">SCM</span>
-        <span class="badge">读长自适应</span>
-      </div>
-    </a>
-    <a class="topic-card" href="architecture.html">
-      <span class="num">03 · 架构</span>
-      <h3>高性能架构设计</h3>
-      <p>块 = 独立并行单元：三种执行模式（Archive / Streaming / Pipeline）、内存预算、分层模块与零 unsafe 的安全性保证。</p>
-      <div class="tags">
-        <span class="badge">3 种执行模式</span>
-        <span class="badge">内存有界</span>
-        <span class="badge">零 unsafe</span>
-      </div>
-    </a>
-  </div>
-
   <section class="topic">
-    <h2><span class="idx">✦</span> 项目速览</h2>
-    <div class="table-wrap">
-      <table>
-        <tbody>
-          <tr><th>产品</th><td><code>fqc</code> — 单一二进制 CLI（<code>compress</code> / <code>decompress</code> / <code>info</code> / <code>verify</code>）</td></tr>
-          <tr><th>格式族</th><td><code>fqc-indexed/v2</code>，与 C++ 实现的 <code>fqc-sequential/v2</code> 同名但 magic 不同、互不兼容，reader 以 magic 区分并明确拒绝异族</td></tr>
-          <tr><th>压缩策略</th><td>组件分离（ID / 序列 / 质量 / aux 四流）+ 读长自适应编解码器（短读 ABC，中长读 Zstd）</td></tr>
-          <tr><th>访问模型</th><td>尾部嵌入块索引 → O(log N) 随机访问、范围解压、按块验证；自包含，无附属索引文件</td></tr>
-          <tr><th>执行模式</th><td>Archive（最佳压缩比）· Streaming（有界内存）· Pipeline（并发吞吐），三者产出同一格式</td></tr>
-          <tr><th>质量模式</th><td>无损 Zstd（默认）/ SCM / illumina8 分箱 / qvz 量化 / discard</td></tr>
-          <tr><th>工程保证</th><td>纯 Rust，<code>unsafe_code = deny</code>；格式契约测试 + 冻结归档 fixture 保护解码兼容</td></tr>
-          <tr><th>元数据</th><td>Rust 1.75（MSRV）· MIT 之外采用 GPL-3.0-or-later</td></tr>
-        </tbody>
-      </table>
+    <h2 class="sec-title"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg> 三个角度看懂 fqc</h2>
+    <p class="sec-sub">不是"又一个 gzip"：从格式、算法到架构，每个决定都围绕同一个核心——让压缩后的 FASTQ <strong>可随机访问、可并行、可校验</strong>。</p>
+
+    <div class="topic-grid">
+      <a class="topic-card" href="format.html">
+        <div class="t">
+          <span class="icon-chip teal"><svg class="ic ic-lg" viewBox="0 0 24 24" aria-hidden="true"><polyline points="21 8 21 21 3 21 3 8"/><rect x="1" y="3" width="22" height="5"/><line x1="10" y1="12" x2="14" y2="12"/></svg></span>
+          <h3>压缩格式设计</h3>
+        </div>
+        <p class="hook">自包含的块索引归档：索引<strong>内嵌在文件尾部</strong>，换来 O(log N) 随机访问，无附属索引文件——这是与 BAM/.bai、gzip 流式格式的根本分野。</p>
+        <div class="kws">
+          <span class="kw g">尾部嵌入索引</span>
+          <span class="kw t">跨族 magic 拒绝</span>
+          <span class="kw">codec 分派</span>
+        </div>
+      </a>
+      <a class="topic-card" href="algorithm.html">
+        <div class="t">
+          <span class="icon-chip green"><svg class="ic ic-lg" viewBox="0 0 24 24" aria-hidden="true"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg></span>
+          <h3>压缩算法设计</h3>
+        </div>
+        <p class="hook">不压缩"整条记录"，而是把 FASTQ 拆成 4 条流各用最优编解码器；短读段走 <strong>ABC 锚基压缩</strong>——内建参考基因组（共识），只存差异。</p>
+        <div class="kws">
+          <span class="kw g">ABC 锚基压缩</span>
+          <span class="kw t">SCM 质量编码</span>
+          <span class="kw">读长自适应</span>
+        </div>
+      </a>
+      <a class="topic-card" href="architecture.html">
+        <div class="t">
+          <span class="icon-chip blue"><svg class="ic ic-lg" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/><line x1="9" y1="2" x2="9" y2="4"/><line x1="15" y1="2" x2="15" y2="4"/><line x1="9" y1="20" x2="9" y2="22"/><line x1="15" y1="20" x2="15" y2="22"/><line x1="2" y1="9" x2="4" y2="9"/><line x1="2" y1="15" x2="4" y2="15"/><line x1="20" y1="9" x2="22" y2="9"/><line x1="20" y1="15" x2="22" y2="15"/></svg></span>
+          <h3>高性能架构设计</h3>
+        </div>
+        <p class="hook"><strong>块 = 独立并行单元</strong>：多核并行、随机访问、范围解压、按块校验，四者共享同一个结构决定。三种执行模式产出同一格式，切换只关乎运维。</p>
+        <div class="kws">
+          <span class="kw g">3 种执行模式</span>
+          <span class="kw t">内存有界</span>
+          <span class="kw">零 unsafe</span>
+        </div>
+      </a>
     </div>
   </section>
 
   <section class="topic">
-    <h2><span class="idx">⚡</span> 常用命令</h2>
-    <pre><span class="c"># 压缩（默认 Archive 模式，可加 --pipeline / --streaming）</span>
+    <h2 class="sec-title"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><polyline points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg> 30 秒上手</h2>
+    <pre><span class="c"># 压缩（默认 Archive 最佳压缩比；加 --streaming / --pipeline 换资源权衡）</span>
 fqc compress -i reads.fastq -o reads.fqc
-fqc compress -i reads_R1.fastq -2 reads_R2.fastq -o paired.fqc
 
-<span class="c"># 检视与校验</span>
-fqc info -i reads.fqc --detailed --show-codecs
+<span class="c"># 检视 + 校验（--quick 按块校验，不必全量解码）</span>
+fqc info -i reads.fqc --detailed
 fqc verify -i reads.fqc --quick
 
-<span class="c"># 解压：全量、范围提取、恢复原始顺序</span>
+<span class="c"># 解压：全量 / 随机范围提取 / 恢复原始顺序</span>
 fqc decompress -i reads.fqc -o out.fastq
 fqc decompress -i reads.fqc -o subset.fastq --range 1:1000
-fqc decompress -i reads.fqc -o reads.fastq --original-order
+fqc decompress -i reads.fqc -o reads.fastq --original-order</pre>
+  </section>
 
-<span class="c"># 有损质量（实验）：qvz / illumina8 / discard</span>
-fqc compress -i reads.fastq -o reads.fqc --lossy-quality qvz</pre>
+  <section class="topic">
+    <h2 class="sec-title"><svg class="ic" viewBox="0 0 24 24" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.83z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg> 为什么值得一看</h2>
+    <div class="feature-row">
+      <div class="feature">
+        <span class="icon-chip amber"><svg class="ic ic-lg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><line x1="22" y1="12" x2="18" y2="12"/><line x1="6" y1="12" x2="2" y2="12"/><line x1="12" y1="6" x2="12" y2="2"/><line x1="12" y1="22" x2="12" y2="18"/></svg></span>
+        <div>
+          <h4>并行与随机访问，同一个答案</h4>
+          <p>块之间零共享状态——多核并行压缩的同时，也天然获得 O(log N) 随机定位与范围查询。</p>
+        </div>
+      </div>
+      <div class="feature">
+        <span class="icon-chip violet"><svg class="ic ic-lg" viewBox="0 0 24 24" aria-hidden="true"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></span>
+        <div>
+          <h4>自包含归档，无附属索引</h4>
+          <p>索引内嵌文件尾部，一个 .fqc 文件即全部——可移植、可搬运，不存在"文件 + 索引"丢失配对的坑。</p>
+        </div>
+      </div>
+      <div class="feature">
+        <span class="icon-chip rose"><svg class="ic ic-lg" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></span>
+        <div>
+          <h4>领域感知，而非通用 LZ</h4>
+          <p>读长自适应：短读走 ABC 共识差分，中长读走 Zstd，质量值走 SCM——每种组件用最懂它的编解码器。</p>
+        </div>
+      </div>
+    </div>
   </section>
 
 </main>
