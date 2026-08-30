@@ -298,9 +298,8 @@ fn test_block_compress_decompress_empty() {
 
 #[test]
 fn test_full_archive_roundtrip() {
-    let dir = std::env::temp_dir().join("fqc_test_roundtrip");
-    let _ = std::fs::create_dir_all(&dir);
-    let fqc_path = dir.join("test.fqc");
+    let dir = tempfile::tempdir().unwrap();
+    let fqc_path = dir.path().join("test.fqc");
     let fqc_path_str = fqc_path.to_str().unwrap();
 
     // Create test reads
@@ -366,8 +365,7 @@ fn test_full_archive_roundtrip() {
         assert_reads_match(&reads, &decompressed.reads);
     }
 
-    // Cleanup
-    let _ = std::fs::remove_dir_all(&dir);
+    // Cleanup (tempdir drops automatically)
 }
 
 // =============================================================================
@@ -376,9 +374,8 @@ fn test_full_archive_roundtrip() {
 
 #[test]
 fn test_archive_with_reorder_map() {
-    let dir = std::env::temp_dir().join("fqc_test_reorder");
-    let _ = std::fs::create_dir_all(&dir);
-    let fqc_path = dir.join("test_reorder.fqc");
+    let dir = tempfile::tempdir().unwrap();
+    let fqc_path = dir.path().join("test_reorder.fqc");
     let fqc_path_str = fqc_path.to_str().unwrap();
 
     let reads = make_reads(20, 150);
@@ -430,5 +427,5 @@ fn test_archive_with_reorder_map() {
         }
     }
 
-    let _ = std::fs::remove_dir_all(&dir);
+    // Cleanup (tempdir drops automatically)
 }

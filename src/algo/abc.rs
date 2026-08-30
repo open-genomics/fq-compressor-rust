@@ -749,17 +749,19 @@ mod tests {
     #[test]
     fn test_abc_reverse_complement() {
         let compressor = AbcCompressor::with_defaults();
-        let reads = vec![
-            make_read("r1", "ACGTACGT", "IIIIIIII"),
-            make_read("r2", "ACGTACGT", "IIIIIIII"), // identical, will test RC detection
-        ];
+        // r2 is the true reverse complement of r1 (non-palindromic, so the
+        // forward alignment cannot win and the is_rc delta path must execute).
+        let r1 = "GATTACA";
+        let r2 = "TGTAATC"; // reverse complement of GATTACA
+        assert_ne!(r1, r2);
+        let reads = vec![make_read("r1", r1, "IIIIIII"), make_read("r2", r2, "IIIIIII")];
 
         let encoded = compressor.compress(&reads).unwrap();
         let decoded = compressor.decompress(&encoded.data, 2).unwrap();
 
         assert_eq!(decoded.len(), 2);
-        assert_eq!(decoded[0], "ACGTACGT");
-        assert_eq!(decoded[1], "ACGTACGT");
+        assert_eq!(decoded[0], r1);
+        assert_eq!(decoded[1], r2);
     }
 
     #[test]
@@ -804,8 +806,11 @@ mod tests {
         let reads: Vec<ReadRecord> = vec![];
 
         let encoded = compressor.compress(&reads).unwrap();
-        // Empty input produces minimal output (just version + 0 contigs)
-        assert!(!encoded.data.is_empty() || reads.is_empty());
+        // Empty input must still produce a valid (non-empty) versioned stream.
+        assert!(
+            !encoded.data.is_empty(),
+            "empty input should produce a valid versioned stream"
+        );
 
         let decoded = compressor.decompress(&encoded.data, 0).unwrap();
         assert!(decoded.is_empty());

@@ -21,9 +21,9 @@ fn archive_stats_carry_stage_timings() {
         writeln!(seq, "+").unwrap();
         writeln!(seq, "IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII").unwrap();
     }
-    let dir = std::env::temp_dir();
-    let input = dir.join("fqc_stats_timing_input.fastq");
-    let out = dir.join("fqc_stats_timing_out.fqc");
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("stats_timing_input.fastq");
+    let out = dir.path().join("stats_timing_out.fqc");
     std::fs::write(&input, seq).unwrap();
 
     let opts = CompressOptions {
@@ -41,7 +41,4 @@ fn archive_stats_carry_stage_timings() {
         outcome.stats.process_ms,
         outcome.stats.write_ms
     );
-
-    std::fs::remove_file(&input).ok();
-    std::fs::remove_file(&out).ok();
 }

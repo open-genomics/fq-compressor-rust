@@ -205,7 +205,8 @@ fn test_reader_rejects_unsupported_major_version() {
     let mut data = std::fs::read(fixture_dir().join("frozen.fqc")).unwrap();
     data[8] = 0x30; // major=3
 
-    let temp = std::env::temp_dir().join("fqc_test_bad_version.fqc");
+    let dir = tempfile::tempdir().unwrap();
+    let temp = dir.path().join("bad_version.fqc");
     std::fs::write(&temp, &data).unwrap();
 
     let result = FqcReader::open(temp.to_str().unwrap());
@@ -214,8 +215,6 @@ fn test_reader_rejects_unsupported_major_version() {
         Err(e) => panic!("expected UnsupportedVersion {{ major: 3 }}, got {e}"),
         Ok(_) => panic!("reader should reject unsupported major version"),
     }
-
-    let _ = std::fs::remove_file(&temp);
 }
 
 #[test]
@@ -223,13 +222,12 @@ fn test_reader_rejects_bad_magic() {
     let mut data = std::fs::read(fixture_dir().join("frozen.fqc")).unwrap();
     data[0] = 0xFF;
 
-    let temp = std::env::temp_dir().join("fqc_test_bad_magic.fqc");
+    let dir = tempfile::tempdir().unwrap();
+    let temp = dir.path().join("bad_magic.fqc");
     std::fs::write(&temp, &data).unwrap();
 
     let result = FqcReader::open(temp.to_str().unwrap());
     assert!(result.is_err());
-
-    let _ = std::fs::remove_file(&temp);
 }
 
 #[test]
