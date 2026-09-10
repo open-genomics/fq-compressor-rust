@@ -1,0 +1,40 @@
+name: Bug 报告
+description: 报告 fqc 的错误行为、崩溃或数据损坏
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢报告问题。请提供尽量完整的信息以便复现。
+  - type: input
+    id: version
+    attributes:
+      label: 版本
+      description: "`fqc --version` 输出或 git commit"
+    validations:
+      required: true
+  - type: dropdown
+    id: platform
+    attributes:
+      label: 平台
+      options:
+        - Linux
+        - macOS
+        - Windows
+        - WSL
+        - 其他
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: "复现命令、输入数据（或最小切片）、期望行为与实际行为"
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: 输出与日志
+      description: "报错信息、退出码、`fqc info` / `fqc verify` 输出"

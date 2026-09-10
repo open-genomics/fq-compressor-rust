@@ -8,9 +8,9 @@ Use this file as the **canonical AI contributor guide** for this repository.
 lightweight, nimble, and low-maintenance:
 
 - Prefer fixing drift and simplifying structure over speculative features
-- No heavy process: no CI, no docs-site build
+- No heavy process: single lightweight CI workflow (four-gate); no docs-site build
 - High-risk changes (format, compatibility, security/resource) use lightweight
-  pure-Markdown OpenSpec changes under `openspec/`; no Node.js, global CLI,
+  pure-Markdown OpenSpec changes under `openspec/changes/`; no Node.js, global CLI,
   dashboard, or tool-specific configuration directories
 - Small low-risk fixes may follow the repository's existing process directly
 - Breaking changes are allowed; backward compatibility is not guaranteed
@@ -65,7 +65,7 @@ Compression routes through `CompressionEngine` with three distinct modes:
 |------|------|--------|---------|----------|
 | Archive | (default) | Full ingest | Yes | Best ratio |
 | Streaming | `--streaming` | Bounded | No | Large files, low memory |
-| Pipeline | `--pipeline` | Staged | No | Balanced throughput |
+| Pipeline | `--pipeline` | Staged | Limited (short single-end) | Balanced throughput |
 
 ### Compression path selection
 
@@ -82,6 +82,7 @@ Read length classification:
 - **Archive format**: block-indexed `.fqc` with global header, blocks, reorder map, footer
 - **Commands**: `compress`, `decompress`, `info`, `verify`
 - **MSRV**: 1.75.0 (declared via `rust-version` in `Cargo.toml`)
+- **CI**: `.github/workflows/ci.yml` (GitHub Actions, stable, four-gate)
 - **Safety rule**: no new `unsafe` (enforced by `[lints.rust] unsafe_code = "deny"`)
 
 ## Validation commands
