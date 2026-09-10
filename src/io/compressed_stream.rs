@@ -40,7 +40,7 @@ impl CompressionFormat {
 
 /// Magic byte signatures for compression formats
 const GZIP_MAGIC: [u8; 2] = [0x1f, 0x8b];
-const BZIP2_MAGIC: [u8; 3] = [b'B', b'Z', b'h'];
+const BZIP2_MAGIC: [u8; 3] = *b"BZh";
 const ZSTD_MAGIC: [u8; 4] = [0x28, 0xb5, 0x2f, 0xfd];
 const XZ_MAGIC: [u8; 6] = [0xfd, b'7', b'z', b'X', b'Z', 0x00];
 

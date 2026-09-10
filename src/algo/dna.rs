@@ -25,7 +25,7 @@ pub const BASE_TO_INDEX: [u8; 256] = {
     t
 };
 
-pub const INDEX_TO_BASE: [u8; 5] = [b'A', b'C', b'G', b'T', b'N'];
+pub const INDEX_TO_BASE: [u8; 5] = *b"ACGTN";
 
 /// Check if a byte is a valid DNA base (A, C, G, T, N, or their lowercase equivalents).
 #[inline]

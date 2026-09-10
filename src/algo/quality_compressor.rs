@@ -71,9 +71,7 @@ impl AdaptiveModel {
     }
 
     fn reset(&mut self) {
-        for f in &mut self.frequencies {
-            *f = INITIAL_FREQUENCY;
-        }
+        self.frequencies.fill(INITIAL_FREQUENCY);
         self.update_cumulative();
     }
 

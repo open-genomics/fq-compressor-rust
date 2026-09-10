@@ -159,11 +159,11 @@ fn decode_noise(ref_base: u8, noise_char: u8) -> u8 {
         None => return noise_char,
     };
     const DECODE: [[u8; 4]; 5] = [
-        [b'C', b'G', b'T', b'N'], // A
-        [b'A', b'G', b'T', b'N'], // C
-        [b'T', b'A', b'C', b'N'], // G
-        [b'G', b'C', b'A', b'N'], // T
-        [b'A', b'G', b'C', b'T'], // N
+        *b"CGTN", // A
+        *b"AGTN", // C
+        *b"TACN", // G
+        *b"GCAN", // T
+        *b"AGCT", // N
     ];
     let row = match ref_base | 32 {
         b'a' => 0,
@@ -886,7 +886,7 @@ mod tests {
 
     #[test]
     fn test_noise_encoding_roundtrip() {
-        let bases = [b'A', b'C', b'G', b'T', b'N'];
+        let bases = *b"ACGTN";
         for &ref_base in &bases {
             for &read_base in &bases {
                 // Skip matches - encode_noise is only for mismatches
