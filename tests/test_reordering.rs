@@ -121,9 +121,12 @@ fn extract_minimizers_basic() {
 fn extract_minimizers_shorter_than_k_returns_empty() {
     assert!(extract_minimizers(b"ACGT", 5, 3).is_empty());
     assert!(extract_minimizers(b"", 3, 2).is_empty());
-    // Degenerate window sizes must not panic (w=0 yields one minimizer per
-    // window position — documented implementation behavior).
-    assert!(!extract_minimizers(b"ACGTACGT", 3, 0).is_empty());
+    // Degenerate parameters must not panic. A zero-width window has no
+    // minimum to pick, so the guard returns an empty set rather than the
+    // sentinel `hash: u64::MAX` entries the pre-guard loop emitted (its inner
+    // `0..0` loop never ran, leaving `min_hash` at its initial value).
+    assert!(extract_minimizers(b"ACGTACGT", 3, 0).is_empty());
+    assert!(extract_minimizers(b"ACGTACGT", 0, 3).is_empty());
 }
 
 #[test]
