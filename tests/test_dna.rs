@@ -102,6 +102,10 @@ fn test_complement_upper() {
     assert_eq!(COMPLEMENT[b'G' as usize], b'C');
     assert_eq!(COMPLEMENT[b'T' as usize], b'A');
     assert_eq!(COMPLEMENT[b'N' as usize], b'N');
+    assert_eq!(COMPLEMENT[b'R' as usize], b'Y');
+    assert_eq!(COMPLEMENT[b'K' as usize], b'M');
+    assert_eq!(COMPLEMENT[b'B' as usize], b'V');
+    assert_eq!(COMPLEMENT[b'D' as usize], b'H');
 }
 
 #[test]
@@ -111,6 +115,8 @@ fn test_complement_lower() {
     assert_eq!(COMPLEMENT[b'g' as usize], b'c');
     assert_eq!(COMPLEMENT[b't' as usize], b'a');
     assert_eq!(COMPLEMENT[b'n' as usize], b'n');
+    assert_eq!(COMPLEMENT[b'r' as usize], b'y');
+    assert_eq!(COMPLEMENT[b'k' as usize], b'm');
 }
 
 #[test]
@@ -140,6 +146,12 @@ fn test_reverse_complement_asymmetric() {
 fn test_reverse_complement_with_n() {
     assert_eq!(reverse_complement(b"ANCG"), b"CGNT");
     assert_eq!(reverse_complement(b"NNN"), b"NNN");
+}
+
+#[test]
+fn test_reverse_complement_with_iupac_codes() {
+    assert_eq!(reverse_complement(b"RYSWKMBDHVN"), b"NBDHVKMWSRY");
+    assert_eq!(reverse_complement(b"ryswkmbdhvn"), b"nbdhvkmwsry");
 }
 
 #[test]

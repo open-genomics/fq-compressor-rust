@@ -74,7 +74,8 @@ impl MemoryEstimator {
 
     pub fn optimal_block_size(&self, num_threads: usize) -> usize {
         let available = self.budget.phase2_available_bytes();
-        let per_thread = (available as f64 / (num_threads as f64 * MEMORY_SAFETY_MARGIN)) as usize;
+        let threads = num_threads.max(1);
+        let per_thread = (available as f64 / (threads as f64 * MEMORY_SAFETY_MARGIN)) as usize;
         let block_size = per_thread / MEMORY_PER_READ_PHASE2;
         block_size.clamp(1000, 500_000)
     }
@@ -455,6 +456,8 @@ impl ChunkingStrategy {
         num_threads: usize,
         memory_limit_mb: usize,
     ) -> Self {
+        let block_size = block_size.max(1);
+        let num_threads = num_threads.max(1);
         let effective_limit = if memory_limit_mb == 0 {
             let system_mb = get_available_memory_mb();
             // Use 75% of available memory
@@ -463,9 +466,9 @@ impl ChunkingStrategy {
             memory_limit_mb
         };
 
-        let bytes_per_read = avg_read_length * 3 + 80; // seq + qual + id + overhead
-        let phase1_per_read = MEMORY_PER_READ_PHASE1 + bytes_per_read;
-        let phase1_total_mb = (total_reads * phase1_per_read) / (1024 * 1024);
+        let bytes_per_read = avg_read_length.saturating_mul(3).saturating_add(80); // seq + qual + id + overhead
+        let phase1_per_read = MEMORY_PER_READ_PHASE1.saturating_add(bytes_per_read);
+        let phase1_total_mb = total_reads.saturating_mul(phase1_per_read) / (1024 * 1024);
 
         let available_mb = effective_limit.max(MIN_MEMORY_LIMIT_MB);
 
@@ -478,11 +481,13 @@ impl ChunkingStrategy {
         let reads_per_chunk = total_reads.div_ceil(num_chunks);
         let blocks_per_chunk = reads_per_chunk.div_ceil(block_size);
 
-        let chunk_phase1_mb = (reads_per_chunk * phase1_per_read) / (1024 * 1024);
-        let phase2_per_block_mb = (block_size * MEMORY_PER_READ_PHASE2) / (1024 * 1024);
-        let phase2_mb = phase2_per_block_mb * num_threads.min(blocks_per_chunk);
-        let estimated_peak_mb =
-            chunk_phase1_mb.max(phase2_mb) + DEFAULT_BLOCK_BUFFER_MB + DEFAULT_WORKER_STACK_MB * num_threads;
+        let chunk_phase1_mb = reads_per_chunk.saturating_mul(phase1_per_read) / (1024 * 1024);
+        let phase2_per_block_mb = block_size.saturating_mul(MEMORY_PER_READ_PHASE2) / (1024 * 1024);
+        let phase2_mb = phase2_per_block_mb.saturating_mul(num_threads.min(blocks_per_chunk));
+        let estimated_peak_mb = chunk_phase1_mb
+            .max(phase2_mb)
+            .saturating_add(DEFAULT_BLOCK_BUFFER_MB)
+            .saturating_add(DEFAULT_WORKER_STACK_MB.saturating_mul(num_threads));
 
         Self {
             num_chunks,

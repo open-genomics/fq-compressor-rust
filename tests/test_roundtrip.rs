@@ -292,6 +292,32 @@ fn test_block_compress_decompress_empty() {
     assert!(decompressed.reads.is_empty());
 }
 
+#[test]
+fn test_block_roundtrip_zero_length_reads() {
+    let reads = vec![
+        ReadRecord::new("empty-1".to_string(), String::new(), String::new()),
+        ReadRecord::new("empty-2".to_string(), String::new(), String::new()),
+    ];
+    let mut compressor = BlockCompressor::new(BlockCompressorConfig::default());
+    let compressed = compressor.compress(&reads, 0).unwrap();
+    let decoded = compressor
+        .decompress_raw(
+            0,
+            compressed.read_count,
+            compressed.uniform_read_length,
+            compressed.codec_ids,
+            compressed.codec_seq,
+            compressed.codec_qual,
+            compressed.codec_aux,
+            &compressed.id_stream,
+            &compressed.seq_stream,
+            &compressed.qual_stream,
+            &compressed.aux_stream,
+        )
+        .unwrap();
+    assert_eq!(decoded.reads, reads);
+}
+
 // =============================================================================
 // Full archive round-trip (Compress command → FQC file → Decompress command)
 // =============================================================================
@@ -428,4 +454,14 @@ fn test_archive_with_reorder_map() {
     }
 
     // Cleanup (tempdir drops automatically)
+}
+
+#[test]
+fn test_writer_rejects_invalid_reorder_map() {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("invalid-map.fqc");
+    let mut writer = FqcWriter::create(&path).unwrap();
+
+    let err = writer.write_reorder_map(&[0, 0], &[0, 1]).unwrap_err();
+    assert!(matches!(err, fqc::error::FqcError::InvalidArgument(_)));
 }

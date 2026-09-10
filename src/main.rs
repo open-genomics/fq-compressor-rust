@@ -105,7 +105,7 @@ enum Commands {
 
         /// Quality mode: none (lossless), illumina8 (8-bin), qvz (8-level nearest-neighbor), discard
         #[arg(long, default_value = "none",
-              value_parser = clap::builder::PossibleValuesParser::new(["none", "illumina8", "qvz", "discard"]))]
+              value_parser = clap::builder::PossibleValuesParser::new(["none", "lossless", "illumina8", "qvz", "discard"]))]
         lossy_quality: String,
 
         /// ID mode: tokenize (default), exact, discard

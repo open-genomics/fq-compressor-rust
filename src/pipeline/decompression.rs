@@ -74,6 +74,16 @@ impl DecompressionPipelineConfig {
     pub fn has_range(&self) -> bool {
         self.range_start > 0 || self.range_end > 0
     }
+
+    fn validate_range(&self) -> Result<()> {
+        if self.range_start > 0 && self.range_end > 0 && self.range_start > self.range_end {
+            return Err(FqcError::InvalidArgument(format!(
+                "Invalid read range: start {} is greater than end {}",
+                self.range_start, self.range_end
+            )));
+        }
+        Ok(())
+    }
 }
 
 // =============================================================================
@@ -150,6 +160,7 @@ impl DecompressionPipeline {
     /// Run decompression pipeline
     #[allow(clippy::too_many_lines)]
     pub fn run(&mut self, input_path: &str, output_path: &str) -> Result<()> {
+        self.config.validate_range()?;
         let start = Instant::now();
         let threads = self.config.effective_threads();
 
@@ -168,8 +179,13 @@ impl DecompressionPipeline {
 
         let output_path_owned = output_path.to_string();
 
-        // Load reorder map if needed (peak check before creating outputs)
-        if self.config.original_order && reader.has_reorder_map() {
+        // Load reorder map if needed (peak check before creating outputs).
+        if self.config.original_order {
+            if !reader.has_reorder_map() {
+                return Err(FqcError::Format(
+                    "Original order requested but no reorder map present".to_string(),
+                ));
+            }
             reader.budget().check_original_order_peak(
                 reader.total_read_count(),
                 reader.max_block_compressed_size(),
@@ -330,6 +346,7 @@ impl DecompressionPipeline {
             let mut total_output_bytes: u64 = 0;
             let mut total_reads_written: u64 = 0;
             let mut global_read_idx: u64 = reads_before_start_block;
+            let end_block_id: u32 = end_block as u32;
 
             for dr in result_rx.iter() {
                 if writer_control.is_cancelled() {
@@ -380,6 +397,16 @@ impl DecompressionPipeline {
                     }
                     next_expected += 1;
                 }
+            }
+
+            // A worker error or cancellation closes the channel early. Never
+            // commit a partial output: the transaction drops the temp file.
+            if !pending.is_empty() || (next_expected < end_block_id && !writer_control.is_cancelled()) {
+                return Err(FqcError::Decompression(format!(
+                    "Decompression incomplete: processed {} of blocks up to {}; output aborted",
+                    next_expected - start_block as u32,
+                    end_block_id
+                )));
             }
 
             output.flush().map_err(FqcError::Io)?;

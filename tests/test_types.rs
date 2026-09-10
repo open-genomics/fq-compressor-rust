@@ -95,8 +95,11 @@ fn test_read_record() {
     assert_eq!(r.len(), 4);
     assert!(!r.is_empty());
 
+    // Empty records are structurally valid (seq/qual lengths match at 0):
+    // the parser accepts them and verify must not flag archives containing
+    // them. Strict content checks belong to the parser, not is_valid.
     let empty = ReadRecord::default();
-    assert!(!empty.is_valid());
+    assert!(empty.is_valid());
     assert!(empty.is_empty());
 
     // Mismatched lengths

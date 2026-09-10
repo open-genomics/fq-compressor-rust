@@ -8,6 +8,7 @@ description = "High-performance FASTQ compressor with random access support"
 license = "GPL-3.0-or-later"
 readme = "README.md"
 repository = "https://github.com/open-genomics/fq-compressor-rust"
+homepage = "https://github.com/open-genomics/fq-compressor-rust"
 keywords = ["bioinformatics", "fastq", "compression", "genomics"]
 categories = ["compression", "science", "command-line-utilities"]
 

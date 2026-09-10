@@ -12,6 +12,7 @@
 
 use fqc::archive::format::*;
 use fqc::archive::reader::FqcReader;
+use fqc::commands::verify::{VerifyCommand, VerifyOptions};
 use fqc::types::*;
 use std::io::Cursor;
 
@@ -241,6 +242,26 @@ fn test_block_header_rejects_nonzero_reserved() {
 
     let result = BlockHeader::read(&mut Cursor::new(&buf));
     assert!(result.is_err());
+}
+
+#[test]
+fn test_verify_rejects_corrupt_reorder_map() {
+    let mut data = std::fs::read(fixture_dir().join("frozen.fqc")).unwrap();
+    let footer_start = data.len() - FILE_FOOTER_SIZE;
+    let reorder_offset = u64::from_le_bytes(data[footer_start + 8..footer_start + 16].try_into().unwrap()) as usize;
+    assert!(reorder_offset > 0);
+    data[reorder_offset + 4..reorder_offset + 8].copy_from_slice(&99u32.to_le_bytes());
+
+    let dir = tempfile::tempdir().unwrap();
+    let archive = dir.path().join("corrupt-map.fqc");
+    std::fs::write(&archive, data).unwrap();
+    let code = VerifyCommand::new(VerifyOptions {
+        input_path: archive.to_string_lossy().into_owned(),
+        quick_mode: true,
+        ..Default::default()
+    })
+    .execute();
+    assert_ne!(code, 0, "verify must reject a corrupt reorder map");
 }
 
 #[test]

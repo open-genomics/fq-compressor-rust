@@ -73,6 +73,45 @@ pub mod flags {
     pub const STREAMING_MODE: u64 = 1 << 12;
 }
 
+const KNOWN_FLAGS_MASK: u64 = flags::IS_PAIRED
+    | flags::PRESERVE_ORDER
+    | flags::QUALITY_MODE_MASK
+    | flags::ID_MODE_MASK
+    | flags::HAS_REORDER_MAP
+    | flags::PE_LAYOUT_MASK
+    | flags::READ_LENGTH_CLASS_MASK
+    | flags::STREAMING_MODE;
+
+fn validate_flags(raw: u64) -> Result<()> {
+    if raw & !KNOWN_FLAGS_MASK != 0 {
+        return Err(FqcError::Format(format!(
+            "GlobalHeader contains unknown flag bits: 0x{:016x}",
+            raw & !KNOWN_FLAGS_MASK
+        )));
+    }
+    let quality = ((raw & flags::QUALITY_MODE_MASK) >> flags::QUALITY_MODE_SHIFT) as u8;
+    if quality > QualityMode::Discard as u8 {
+        return Err(FqcError::Format(format!("Unknown quality mode flag value {quality}")));
+    }
+    let id = ((raw & flags::ID_MODE_MASK) >> flags::ID_MODE_SHIFT) as u8;
+    if id > IdMode::Discard as u8 {
+        return Err(FqcError::Format(format!("Unknown ID mode flag value {id}")));
+    }
+    let pe_layout = ((raw & flags::PE_LAYOUT_MASK) >> flags::PE_LAYOUT_SHIFT) as u8;
+    if pe_layout > PeLayout::Consecutive as u8 {
+        return Err(FqcError::Format(format!(
+            "Unknown paired-end layout flag value {pe_layout}"
+        )));
+    }
+    let read_length = ((raw & flags::READ_LENGTH_CLASS_MASK) >> flags::READ_LENGTH_CLASS_SHIFT) as u8;
+    if read_length > ReadLengthClass::Long as u8 {
+        return Err(FqcError::Format(format!(
+            "Unknown read-length class flag value {read_length}"
+        )));
+    }
+    Ok(())
+}
+
 #[allow(clippy::too_many_arguments)]
 pub fn build_flags(
     is_paired: bool,
@@ -179,8 +218,11 @@ impl GlobalHeader {
 
     pub fn write<W: Write>(&self, w: &mut W) -> Result<usize> {
         let fname_bytes = self.original_filename.as_bytes();
-        let fname_len = fname_bytes.len() as u16;
-        let actual_size = GLOBAL_HEADER_MIN_SIZE + fname_bytes.len();
+        let fname_len = u16::try_from(fname_bytes.len())
+            .map_err(|_| FqcError::InvalidArgument("original filename exceeds u16 length field".to_string()))?;
+        let actual_size = GLOBAL_HEADER_MIN_SIZE
+            .checked_add(fname_bytes.len())
+            .ok_or_else(|| FqcError::InvalidArgument("global header size overflows".to_string()))?;
 
         w.write_u32::<LittleEndian>(actual_size as u32)?;
         w.write_u64::<LittleEndian>(self.flags)?;
@@ -232,6 +274,17 @@ impl GlobalHeader {
 
         if reserved != 0 {
             return Err(FqcError::Format("Reserved field in GlobalHeader must be 0".to_string()));
+        }
+        validate_flags(flags)?;
+        if compression_algo != 0 {
+            return Err(FqcError::Format(format!(
+                "Unsupported global compression algorithm {compression_algo}"
+            )));
+        }
+        if checksum_type != ChecksumType::XxHash64 as u8 {
+            return Err(FqcError::Format(format!(
+                "Unsupported global checksum type {checksum_type}"
+            )));
         }
 
         Ok(Self {
@@ -343,6 +396,11 @@ impl BlockHeader {
         if reserved1 != 0 || reserved2 != 0 {
             return Err(FqcError::Format("Reserved fields in BlockHeader must be 0".to_string()));
         }
+        if checksum_type != ChecksumType::XxHash64 as u8 {
+            return Err(FqcError::Format(format!(
+                "Unsupported block checksum type {checksum_type}"
+            )));
+        }
 
         Ok(Self {
             header_size,
@@ -395,7 +453,7 @@ pub struct IndexEntry {
 
 impl IndexEntry {
     pub fn archive_id_end(&self) -> u64 {
-        self.archive_id_start + self.read_count as u64
+        self.archive_id_start.saturating_add(self.read_count as u64)
     }
 
     pub fn contains_read(&self, archive_id: u64) -> bool {
@@ -508,6 +566,7 @@ impl BlockIndex {
 // =============================================================================
 
 pub const REORDER_MAP_HEADER_SIZE: usize = 32;
+pub const REORDER_MAP_VERSION: u32 = 1;
 const MAX_REORDER_MAP_HEADER_SIZE: usize = REORDER_MAP_HEADER_SIZE + MAX_FORWARD_COMPAT_PADDING;
 
 #[derive(Debug, Clone, Default)]
@@ -544,6 +603,9 @@ impl ReorderMapHeader {
         if header_size > REORDER_MAP_HEADER_SIZE {
             let extra = header_size - REORDER_MAP_HEADER_SIZE;
             skip_extra_bytes(r, extra)?;
+        }
+        if version != REORDER_MAP_VERSION {
+            return Err(FqcError::Format(format!("Unsupported reorder map version {version}")));
         }
 
         Ok(Self {

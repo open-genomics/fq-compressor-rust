@@ -4,6 +4,15 @@
 
 ### Fixed
 
+- 加固 indexed v2 解码边界：恢复历史无损块校验和语义，有损/丢弃块不再携带
+  不可能匹配的逻辑校验和；ABC V3 使用 codec `0x11`，并严格校验载荷版本、计数、
+  映射、偏移、UTF-8 与尾随字节；Zstd、辅助流、ID 流和算术质量流拒绝截断或不一致数据。
+- 归档读取器现在拒绝未知全局标志、错误 checksum/保留字段、非连续块/流布局及无效
+  重排映射；`--skip-corrupted` 仍可在解码阶段把损坏块替换为占位读段。
+- FASTQ 文件/标准输入路径启用 Phred+33 质量校验；`+` 行同时接受完整 header 或
+  identifier-only 的规范写法；倒置解压范围在串行与 pipeline 路径统一返回 usage error。
+- GlobalAnalyzer 对 `N`/歧义碱基和零窗口参数不再发生下溢或伪造 minimizer。
+
 - e2e 测试在并行全量运行时偶发失败（每个 `TempFile` 使用唯一临时目录，消除跨测试共享
   `/tmp/fqc_e2e_tests/` 的并发竞态）。
 - `--pipeline` 压缩长读时产出空归档（0 blocks，exit 0）：`GlobalAnalyzer` 对非 Short
@@ -18,6 +27,12 @@
   访问模型、对方链接），并新增同名二进制 `fqc` 的 `PATH` 覆盖风险提醒。对应 openspec
   变更 `document-fqc-format-family`（verification 标注 ready-to-archive=no，待独立
   审查后再归档）。
+- README：新增 CI 徽章；"零 unsafe"表述修正为"除 Windows 内存探测外零 unsafe"
+  （`GlobalMemoryStatusEx` FFI 见 `src/memory_budget.rs`）。
+- docs 卫生：内部收尾计划移出公开树（`subagents/plans/`）；功能对比矩阵 / 学术文献 /
+  执行模式说明单源化（分别收敛到 `docs/comparison.md`、`docs/whitepaper.md`、
+  `docs/guide/modes.md`）；白皮书修正 src 树、测试数（215，2026-08 实测）与重排说明；
+  微型与真实语料压缩比互引。
 
 ### Added
 
@@ -58,6 +73,11 @@
   `openspec/` artifacts; no Node.js, CLI, or tool-specific configs)
 - Frozen indexed v2 decoder fixture (`tests/fixtures/indexed-v2/`) with
   MANIFEST.md documenting generator commit, command, and SHA-256 hashes
+- 轻量 CI（`.github/workflows/ci.yml`，GitHub Actions，Linux，stable）：fmt / clippy /
+  test / doc 四件套（`--locked`），push 与 PR 触发。
+- 治理文档：`SECURITY.md`（私有漏洞上报）、`CONTRIBUTING.md`、`VERSIONING.md`、
+  `.github/ISSUE_TEMPLATE/`（bug / feature 表单）。
+- `Cargo.toml` 补 `homepage` 字段。
 - Format contract tests (`tests/test_format_contract.rs`) covering magic,
   version, codec/checksum identifier encoding, frozen fixture round-trip,
   and unknown-identifier rejection
@@ -102,7 +122,8 @@
 
 ### Removed
 
-- OpenSpec spec system (`openspec/`)
+- Node.js-based OpenSpec spec tooling (superseded by the pure-Markdown
+  `openspec/` change workflow)
 - VitePress docs site, GitHub Pages deployment, and all Node.js dependencies
 - CI workflows, release automation, and cargo-deny
 - Governance boilerplate: CODE_OF_CONDUCT, CONTRIBUTING, SECURITY

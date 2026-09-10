@@ -11,9 +11,9 @@
 //! Best suited for short reads (≤511 bp) where reads have high similarity.
 
 use crate::algo::compressor_traits::SequenceCompressor;
-use crate::algo::dna::{reverse_complement, BASE_TO_INDEX, INDEX_TO_BASE};
+use crate::algo::dna::{is_valid_base, reverse_complement, BASE_TO_INDEX, INDEX_TO_BASE};
 use crate::error::{FqcError, Result};
-use crate::types::{encode_codec, CodecFamily, ReadRecord};
+use crate::types::{encode_codec, CodecFamily, ReadRecord, SPRING_MAX_READ_LENGTH};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read};
 
@@ -21,15 +21,32 @@ use std::io::{Cursor, Read};
 // ABC Format Version
 // =============================================================================
 
-/// ABC format version 1: uses u16 for lengths (max 65535)
+/// ABC format version 1: u16 lengths, ASCII '0'-'3' substitution codes.
 const ABC_FORMAT_V1: u8 = 0x01;
-/// ABC format version 2: uses u32 for lengths (supports long reads)
+/// ABC format version 2: u32 lengths, ASCII '0'-'3' substitution codes.
 const ABC_FORMAT_V2: u8 = 0x02;
+/// ABC format version 3: lossless mismatch chars — substitution codes are
+/// bytes 0x00-0x03, ANY other byte is the raw read base verbatim (IUPAC
+/// codes, digits, case differences).
+const ABC_FORMAT_V3: u8 = 0x03;
 /// Current ABC format version
-const ABC_CURRENT_VERSION: u8 = ABC_FORMAT_V2;
+const ABC_CURRENT_VERSION: u8 = ABC_FORMAT_V3;
+
+/// Normalize legacy (V1/V2) mismatch chars — ASCII '0'-'3' — into the V3
+/// code space (0x00-0x03). Applied after reading mismatch_chars so the
+/// reconstruction path has a single uniform rule.
+#[inline]
+fn normalize_legacy_noise_char(c: u8) -> u8 {
+    if (b'0'..=b'3').contains(&c) {
+        c - b'0'
+    } else {
+        c
+    }
+}
 
 /// Short-read ABC packing becomes quadratic in block size, so larger blocks fall back to Zstd.
 pub const SHORT_READ_ABC_MAX_READS: usize = 4_096;
+const MAX_ABC_DECODED_BYTES_PER_READ: usize = 4_096;
 
 // =============================================================================
 // AbcConfig
@@ -71,40 +88,76 @@ pub struct AbcEncoded {
 // Noise Encoding
 // =============================================================================
 
+/// Substitution codes are bytes 0x00-0x03 (V3 format). Any other byte in
+/// `mismatch_chars` is the raw read base verbatim.
+#[inline]
+fn decode_as_substitution(c: u8) -> Option<usize> {
+    if c <= 3 {
+        Some(c as usize)
+    } else {
+        None
+    }
+}
+
+#[inline]
+fn can_encode_substitution_losslessly(read_base: u8) -> bool {
+    matches!(read_base, b'A' | b'C' | b'G' | b'T' | b'N')
+}
+
+fn can_reverse_complement_losslessly(seq: &[u8]) -> bool {
+    seq.iter().all(|&base| {
+        matches!(
+            base | 32,
+            b'a' | b'c' | b'g' | b't' | b'n' | b'r' | b'y' | b's' | b'w' | b'k' | b'm' | b'b' | b'v' | b'd' | b'h'
+        )
+    })
+}
+
 /// Encode a mismatch as a noise character.
 ///
-/// Maps (reference_base, read_base) → '0'-'3' to compactly represent substitutions.
+/// Maps (reference_base, read_base) → 0..=3 to compactly represent substitutions.
+/// Bases whose exact byte cannot be recovered by a substitution code (IUPAC
+/// codes, digits, case-only differences handled by the caller) are returned
+/// verbatim; decode passes such bytes through unchanged.
 #[inline]
 fn encode_noise(ref_base: u8, read_base: u8) -> u8 {
+    if !can_encode_substitution_losslessly(read_base) {
+        return read_base;
+    }
     match (ref_base | 32, read_base | 32) {
-        (b'a', b'c') => b'0',
-        (b'a', b'g') => b'1',
-        (b'a', b't') => b'2',
-        (b'a', _) => b'3',
-        (b'c', b'a') => b'0',
-        (b'c', b'g') => b'1',
-        (b'c', b't') => b'2',
-        (b'c', _) => b'3',
-        (b'g', b't') => b'0',
-        (b'g', b'a') => b'1',
-        (b'g', b'c') => b'2',
-        (b'g', _) => b'3',
-        (b't', b'g') => b'0',
-        (b't', b'c') => b'1',
-        (b't', b'a') => b'2',
-        (b't', _) => b'3',
-        (b'n', b'a') => b'0',
-        (b'n', b'g') => b'1',
-        (b'n', b'c') => b'2',
-        (b'n', _) => b'3',
-        _ => b'0',
+        (b'a', b'c') => 0,
+        (b'a', b'g') => 1,
+        (b'a', b't') => 2,
+        (b'a', _) => 3,
+        (b'c', b'a') => 0,
+        (b'c', b'g') => 1,
+        (b'c', b't') => 2,
+        (b'c', _) => 3,
+        (b'g', b't') => 0,
+        (b'g', b'a') => 1,
+        (b'g', b'c') => 2,
+        (b'g', _) => 3,
+        (b't', b'g') => 0,
+        (b't', b'c') => 1,
+        (b't', b'a') => 2,
+        (b't', _) => 3,
+        (b'n', b'a') => 0,
+        (b'n', b'g') => 1,
+        (b'n', b'c') => 2,
+        // Unreachable via the is_lossless_representable guard above; kept for
+        // exhaustiveness.
+        _ => read_base,
     }
 }
 
 /// Decode a noise character back to the original base.
+/// Bytes outside the substitution-code space carry the raw read base verbatim.
 #[inline]
 fn decode_noise(ref_base: u8, noise_char: u8) -> u8 {
-    let idx = noise_char.wrapping_sub(b'0').min(3) as usize;
+    let idx = match decode_as_substitution(noise_char) {
+        Some(idx) => idx,
+        None => return noise_char,
+    };
     const DECODE: [[u8; 4]; 5] = [
         [b'C', b'G', b'T', b'N'], // A
         [b'A', b'G', b'T', b'N'], // C
@@ -155,9 +208,16 @@ fn find_best_alignment(
     let mut best_distance = usize::MAX;
     let mut best_shift = 0i32;
     let mut best_is_rc = false;
+    // No useful alignment can start farther than the two sequences together;
+    // clamp the public configuration before entering the shift loop so a
+    // forged/accidental `usize::MAX` setting cannot turn compression into an
+    // effectively unbounded CPU walk.
+    let max_shift = max_shift
+        .min(reference.len().saturating_add(read.len()))
+        .min(i32::MAX as usize) as i32;
 
     let try_align = |read_seq: &[u8], is_rc: bool, best_dist: &mut usize, best_sh: &mut i32, best_rc: &mut bool| {
-        for shift in -(max_shift as i32)..=(max_shift as i32) {
+        for shift in -max_shift..=max_shift {
             let ref_start = if shift >= 0 { shift as usize } else { 0 };
             let read_start = if shift < 0 { (-shift) as usize } else { 0 };
 
@@ -189,8 +249,10 @@ fn find_best_alignment(
 
     try_align(read, false, &mut best_distance, &mut best_shift, &mut best_is_rc);
 
-    let rc_read = reverse_complement(read);
-    try_align(&rc_read, true, &mut best_distance, &mut best_shift, &mut best_is_rc);
+    if can_reverse_complement_losslessly(read) {
+        let rc_read = reverse_complement(read);
+        try_align(&rc_read, true, &mut best_distance, &mut best_shift, &mut best_is_rc);
+    }
 
     if best_distance <= hamming_threshold {
         Some((best_shift, best_is_rc))
@@ -215,10 +277,12 @@ impl ConsensusSequence {
     fn init_from_read(read: &[u8]) -> Self {
         let mut base_counts = vec![[0u16; 4]; read.len()];
         for (i, &b) in read.iter().enumerate() {
-            let idx = BASE_TO_INDEX[b as usize] as usize;
-            // Only count valid bases (A=0, C=1, G=2, T=3). N=4 is ignored.
-            if idx < 4 {
-                base_counts[i][idx] = 1;
+            if is_valid_base(b) {
+                let idx = BASE_TO_INDEX[b as usize] as usize;
+                // Only count valid bases (A=0, C=1, G=2, T=3). N=4 is ignored.
+                if idx < 4 {
+                    base_counts[i][idx] = 1;
+                }
             }
         }
         Self {
@@ -243,7 +307,7 @@ impl ConsensusSequence {
         for k in 0..overlap_len {
             let pos = cons_start + k;
             let b = aligned[align_start + k];
-            if pos < self.base_counts.len() {
+            if pos < self.base_counts.len() && is_valid_base(b) {
                 let idx = BASE_TO_INDEX[b as usize] as usize;
                 if idx < 4 {
                     self.base_counts[pos][idx] = self.base_counts[pos][idx].saturating_add(1);
@@ -308,9 +372,14 @@ fn compute_delta(read: &[u8], consensus: &[u8], shift: i32, is_rc: bool) -> Delt
         if cons_pos >= consensus.len() {
             mismatch_positions.push(i as u32);
             mismatch_chars.push(aligned[i]);
-        } else if (aligned[i] | 32) != (consensus[cons_pos] | 32) {
+        } else if aligned[i] != consensus[cons_pos] {
             mismatch_positions.push(i as u32);
-            mismatch_chars.push(encode_noise(consensus[cons_pos], aligned[i]));
+            if (aligned[i] | 32) == (consensus[cons_pos] | 32) {
+                // Case-only difference: not a substitution; store raw byte.
+                mismatch_chars.push(aligned[i]);
+            } else {
+                mismatch_chars.push(encode_noise(consensus[cons_pos], aligned[i]));
+            }
         }
     }
 
@@ -443,6 +512,173 @@ fn build_contigs(reads: &[ReadRecord], max_shift: usize, hamming_threshold: usiz
     contigs
 }
 
+fn decode_contig(
+    cur: &mut Cursor<&[u8]>,
+    buf: &[u8],
+    abc_version: u8,
+    read_count: usize,
+    sequences: &mut [String],
+    seen: &mut [bool],
+    decoded_reads: &mut usize,
+) -> Result<()> {
+    let cons_len = if abc_version >= ABC_FORMAT_V2 {
+        cur.read_u32::<LittleEndian>()
+            .map_err(|e| FqcError::Format(format!("Truncated ABC consensus: {e}")))? as usize
+    } else {
+        cur.read_u16::<LittleEndian>()
+            .map_err(|e| FqcError::Format(format!("Truncated ABC consensus: {e}")))? as usize
+    };
+    if cons_len > SPRING_MAX_READ_LENGTH {
+        return Err(FqcError::Format(format!(
+            "ABC consensus length {cons_len} exceeds short-read limit {SPRING_MAX_READ_LENGTH}"
+        )));
+    }
+    let consensus_start = cur.position() as usize;
+    let consensus_end = consensus_start
+        .checked_add(cons_len)
+        .ok_or_else(|| FqcError::Format("ABC consensus extent overflows".to_string()))?;
+    let consensus = buf
+        .get(consensus_start..consensus_end)
+        .ok_or_else(|| FqcError::Format("Truncated ABC consensus bytes".to_string()))?;
+    if consensus.iter().any(|&byte| byte <= 3) {
+        return Err(FqcError::Format(
+            "ABC consensus contains reserved control bytes 0x00-0x03".to_string(),
+        ));
+    }
+    cur.set_position(consensus_end as u64);
+
+    let num_deltas = cur
+        .read_u32::<LittleEndian>()
+        .map_err(|e| FqcError::Format(format!("Truncated ABC deltas: {e}")))? as usize;
+    if num_deltas == 0 || num_deltas > read_count - *decoded_reads {
+        return Err(FqcError::Format(format!(
+            "ABC contig declares invalid delta count {num_deltas}"
+        )));
+    }
+
+    for _ in 0..num_deltas {
+        let original_order = cur
+            .read_u32::<LittleEndian>()
+            .map_err(|e| FqcError::Format(format!("Truncated ABC original_order: {e}")))?;
+        let original_index = original_order as usize;
+        if original_index >= sequences.len() || seen[original_index] {
+            return Err(FqcError::Format(format!(
+                "ABC has duplicate or out-of-range read index {original_order}"
+            )));
+        }
+
+        let position_offset = if abc_version >= ABC_FORMAT_V2 {
+            cur.read_i32::<LittleEndian>()
+                .map_err(|e| FqcError::Format(format!("Truncated ABC position_offset: {e}")))?
+        } else {
+            i32::from(
+                cur.read_i16::<LittleEndian>()
+                    .map_err(|e| FqcError::Format(format!("Truncated ABC position_offset: {e}")))?,
+            )
+        };
+        let mut flags = [0u8; 1];
+        cur.read_exact(&mut flags)
+            .map_err(|e| FqcError::Format(format!("Truncated ABC flags: {e}")))?;
+        if flags[0] & !1 != 0 {
+            return Err(FqcError::Format(format!(
+                "ABC flags 0x{:02x} contain reserved bits",
+                flags[0]
+            )));
+        }
+        let read_length = if abc_version >= ABC_FORMAT_V2 {
+            cur.read_u32::<LittleEndian>()
+                .map_err(|e| FqcError::Format(format!("Truncated ABC read_length: {e}")))?
+        } else {
+            u32::from(
+                cur.read_u16::<LittleEndian>()
+                    .map_err(|e| FqcError::Format(format!("Truncated ABC read_length: {e}")))?,
+            )
+        };
+        if read_length as usize > SPRING_MAX_READ_LENGTH {
+            return Err(FqcError::Format(format!(
+                "ABC read length {read_length} exceeds short-read limit {SPRING_MAX_READ_LENGTH}"
+            )));
+        }
+        if (read_length == 0 && position_offset != 0)
+            || (read_length > 0 && position_offset.unsigned_abs() as usize >= read_length as usize)
+        {
+            return Err(FqcError::Format(format!(
+                "ABC alignment offset {position_offset} has no read overlap"
+            )));
+        }
+
+        let num_mismatches = if abc_version >= ABC_FORMAT_V2 {
+            cur.read_u32::<LittleEndian>()
+                .map_err(|e| FqcError::Format(format!("Truncated ABC num_mismatches: {e}")))?
+        } else {
+            u32::from(
+                cur.read_u16::<LittleEndian>()
+                    .map_err(|e| FqcError::Format(format!("Truncated ABC num_mismatches: {e}")))?,
+            )
+        } as usize;
+        if num_mismatches > read_length as usize {
+            return Err(FqcError::Format(format!(
+                "ABC declares {num_mismatches} mismatches for a {read_length}-byte read"
+            )));
+        }
+        let position_width = if abc_version >= ABC_FORMAT_V2 { 4 } else { 2 };
+        let remaining = buf.len().saturating_sub(cur.position() as usize);
+        let required = num_mismatches
+            .checked_mul(position_width)
+            .and_then(|n| n.checked_add(num_mismatches))
+            .ok_or_else(|| FqcError::Format("ABC mismatch extent overflows".to_string()))?;
+        if required > remaining {
+            return Err(FqcError::Format("Truncated ABC mismatch data".to_string()));
+        }
+
+        let mut mismatch_positions = Vec::with_capacity(num_mismatches);
+        let mut previous_position = None;
+        for _ in 0..num_mismatches {
+            let position = if abc_version >= ABC_FORMAT_V2 {
+                cur.read_u32::<LittleEndian>()
+                    .map_err(|e| FqcError::Format(format!("Truncated ABC mismatch_pos: {e}")))?
+            } else {
+                u32::from(
+                    cur.read_u16::<LittleEndian>()
+                        .map_err(|e| FqcError::Format(format!("Truncated ABC mismatch_pos: {e}")))?,
+                )
+            };
+            if position >= read_length || previous_position.is_some_and(|previous| position <= previous) {
+                return Err(FqcError::Format(format!(
+                    "ABC mismatch position {position} is invalid for read length {read_length}"
+                )));
+            }
+            previous_position = Some(position);
+            mismatch_positions.push(position);
+        }
+
+        let mut mismatch_chars = vec![0u8; num_mismatches];
+        cur.read_exact(&mut mismatch_chars)
+            .map_err(|e| FqcError::Format(format!("Truncated ABC mismatch_chars: {e}")))?;
+        if abc_version < ABC_FORMAT_V3 {
+            for c in &mut mismatch_chars {
+                *c = normalize_legacy_noise_char(*c);
+            }
+        }
+
+        let delta = DeltaEncodedRead {
+            original_order,
+            position_offset,
+            is_rc: flags[0] & 1 != 0,
+            read_length,
+            mismatch_positions,
+            mismatch_chars,
+        };
+        let reconstructed = reconstruct_from_delta(&delta, consensus);
+        sequences[original_index] = String::from_utf8(reconstructed)
+            .map_err(|e| FqcError::Format(format!("Invalid UTF-8 in ABC sequence: {e}")))?;
+        seen[original_index] = true;
+        *decoded_reads += 1;
+    }
+
+    Ok(())
+}
+
 // =============================================================================
 // AbcCompressor
 // =============================================================================
@@ -467,6 +703,18 @@ impl AbcCompressor {
     ///
     /// Returns `AbcEncoded` containing Zstd-compressed ABC data.
     pub fn compress(&self, reads: &[ReadRecord]) -> Result<AbcEncoded> {
+        if let Some(read) = reads.iter().find(|read| read.sequence.len() > SPRING_MAX_READ_LENGTH) {
+            return Err(FqcError::InvalidArgument(format!(
+                "ABC only supports reads up to {SPRING_MAX_READ_LENGTH} bytes; got {}",
+                read.sequence.len()
+            )));
+        }
+        if reads.iter().any(|read| read.sequence.bytes().any(|byte| byte <= 3)) {
+            return Err(FqcError::InvalidArgument(
+                "ABC cannot represent sequence control bytes 0x00-0x03".to_string(),
+            ));
+        }
+
         let contigs = build_contigs(reads, self.config.max_shift, self.config.hamming_threshold);
 
         let mut buf: Vec<u8> = Vec::with_capacity(reads.len() * 20);
@@ -508,128 +756,93 @@ impl AbcCompressor {
     ///
     /// Returns a vector of strings in original order.
     pub fn decompress(&self, data: &[u8], read_count: u32) -> Result<Vec<String>> {
+        self.decompress_internal(data, read_count, None)
+    }
+
+    pub(crate) fn decompress_with_codec_revision(
+        &self,
+        data: &[u8],
+        read_count: u32,
+        codec_revision: u8,
+    ) -> Result<Vec<String>> {
+        self.decompress_internal(data, read_count, Some(codec_revision))
+    }
+
+    fn decompress_internal(
+        &self,
+        data: &[u8],
+        read_count: u32,
+        expected_codec_revision: Option<u8>,
+    ) -> Result<Vec<String>> {
         if data.is_empty() {
-            return Ok(vec![String::new(); read_count as usize]);
+            return if read_count == 0 {
+                Ok(Vec::new())
+            } else {
+                Err(FqcError::Format(
+                    "ABC stream is empty for a non-empty block".to_string(),
+                ))
+            };
         }
 
-        // Short-read ABC payload: conservative bound of 512 B/read + framing.
-        let max_out = (read_count as usize).saturating_mul(512).saturating_add(4096).max(256);
+        let max_out = (read_count as usize)
+            .saturating_mul(MAX_ABC_DECODED_BYTES_PER_READ)
+            .saturating_add(4096)
+            .max(256);
         let buf = crate::memory_budget::zstd_decompress_bounded(data, max_out, "abc sequences")?;
-
         let mut sequences = vec![String::new(); read_count as usize];
-        let mut cur = Cursor::new(&buf);
+        let mut seen = vec![false; read_count as usize];
+        let mut decoded_reads = 0usize;
+        let mut cur = Cursor::new(buf.as_slice());
 
-        // Read ABC format version
         let mut version_byte = [0u8; 1];
         cur.read_exact(&mut version_byte)
             .map_err(|e| FqcError::Format(format!("Truncated ABC version: {e}")))?;
         let version = version_byte[0];
-
-        // If version byte looks like part of a u32 (old format without version), rewind
-        let (abc_version, num_contigs) = if version == ABC_FORMAT_V2 {
+        let (abc_version, num_contigs) = if version == ABC_FORMAT_V2 || version == ABC_FORMAT_V3 {
             let n = cur
                 .read_u32::<LittleEndian>()
                 .map_err(|e| FqcError::Format(format!("Truncated ABC data: {e}")))?;
-            (ABC_FORMAT_V2, n)
+            (version, n)
         } else {
-            // Old format: version byte is actually the first byte of num_contigs
             let rest = cur
                 .read_u32::<LittleEndian>()
                 .map_err(|e| FqcError::Format(format!("Truncated ABC data: {e}")))?;
-            let num_contigs = (rest << 8) | (version as u32);
-            (ABC_FORMAT_V1, num_contigs)
+            ((ABC_FORMAT_V1), (rest << 8) | u32::from(version))
         };
 
-        for _ in 0..num_contigs {
-            let cons_len = if abc_version >= ABC_FORMAT_V2 {
-                cur.read_u32::<LittleEndian>()
-                    .map_err(|e| FqcError::Format(format!("Truncated ABC consensus: {e}")))? as usize
-            } else {
-                cur.read_u16::<LittleEndian>()
-                    .map_err(|e| FqcError::Format(format!("Truncated ABC consensus: {e}")))? as usize
-            };
-            let mut consensus = vec![0u8; cons_len];
-            cur.read_exact(&mut consensus)
-                .map_err(|e| FqcError::Format(format!("Truncated ABC consensus bytes: {e}")))?;
-
-            let num_deltas = cur
-                .read_u32::<LittleEndian>()
-                .map_err(|e| FqcError::Format(format!("Truncated ABC deltas: {e}")))?;
-
-            for _ in 0..num_deltas {
-                let original_order = cur
-                    .read_u32::<LittleEndian>()
-                    .map_err(|e| FqcError::Format(format!("Truncated ABC original_order: {e}")))?;
-
-                let position_offset = if abc_version >= ABC_FORMAT_V2 {
-                    cur.read_i32::<LittleEndian>()
-                        .map_err(|e| FqcError::Format(format!("Truncated ABC position_offset: {e}")))?
-                } else {
-                    cur.read_i16::<LittleEndian>()
-                        .map_err(|e| FqcError::Format(format!("Truncated ABC position_offset: {e}")))?
-                        as i32
-                };
-
-                let mut flags = [0u8; 1];
-                cur.read_exact(&mut flags)
-                    .map_err(|e| FqcError::Format(format!("Truncated ABC flags: {e}")))?;
-                let is_rc = (flags[0] & 1) != 0;
-
-                let read_length = if abc_version >= ABC_FORMAT_V2 {
-                    cur.read_u32::<LittleEndian>()
-                        .map_err(|e| FqcError::Format(format!("Truncated ABC read_length: {e}")))?
-                } else {
-                    cur.read_u16::<LittleEndian>()
-                        .map_err(|e| FqcError::Format(format!("Truncated ABC read_length: {e}")))?
-                        as u32
-                };
-
-                let num_mismatches = if abc_version >= ABC_FORMAT_V2 {
-                    cur.read_u32::<LittleEndian>()
-                        .map_err(|e| FqcError::Format(format!("Truncated ABC num_mismatches: {e}")))?
-                } else {
-                    cur.read_u16::<LittleEndian>()
-                        .map_err(|e| FqcError::Format(format!("Truncated ABC num_mismatches: {e}")))?
-                        as u32
-                };
-
-                let mismatch_positions = if abc_version >= ABC_FORMAT_V2 {
-                    let mut pos = vec![0u32; num_mismatches as usize];
-                    for p in &mut pos {
-                        *p = cur
-                            .read_u32::<LittleEndian>()
-                            .map_err(|e| FqcError::Format(format!("Truncated ABC mismatch_pos: {e}")))?;
-                    }
-                    pos
-                } else {
-                    let mut pos = vec![0u32; num_mismatches as usize];
-                    for p in &mut pos {
-                        *p = cur
-                            .read_u16::<LittleEndian>()
-                            .map_err(|e| FqcError::Format(format!("Truncated ABC mismatch_pos: {e}")))?
-                            as u32;
-                    }
-                    pos
-                };
-
-                let mut mismatch_chars = vec![0u8; num_mismatches as usize];
-                cur.read_exact(&mut mismatch_chars)
-                    .map_err(|e| FqcError::Format(format!("Truncated ABC mismatch_chars: {e}")))?;
-
-                let delta = DeltaEncodedRead {
-                    original_order,
-                    position_offset,
-                    is_rc,
-                    read_length,
-                    mismatch_positions,
-                    mismatch_chars,
-                };
-
-                if (original_order as usize) < sequences.len() {
-                    let reconstructed = reconstruct_from_delta(&delta, &consensus);
-                    sequences[original_order as usize] = String::from_utf8_lossy(&reconstructed).into_owned();
-                }
+        if num_contigs as usize > read_count as usize {
+            return Err(FqcError::Format(format!(
+                "ABC declares {num_contigs} contigs for {read_count} reads"
+            )));
+        }
+        if let Some(codec_revision) = expected_codec_revision {
+            let payload_revision = u8::from(abc_version == ABC_FORMAT_V3);
+            if codec_revision != payload_revision {
+                return Err(FqcError::Format(format!(
+                    "ABC codec revision {codec_revision} contradicts payload version {abc_version}"
+                )));
             }
+        }
+
+        for _ in 0..num_contigs {
+            decode_contig(
+                &mut cur,
+                &buf,
+                abc_version,
+                read_count as usize,
+                &mut sequences,
+                &mut seen,
+                &mut decoded_reads,
+            )?;
+        }
+
+        if decoded_reads != read_count as usize || seen.iter().any(|seen| !seen) {
+            return Err(FqcError::Format(format!(
+                "ABC decoded {decoded_reads} records for declared count {read_count}"
+            )));
+        }
+        if cur.position() as usize != buf.len() {
+            return Err(FqcError::Format("ABC stream has trailing bytes".to_string()));
         }
 
         Ok(sequences)
@@ -650,7 +863,7 @@ impl SequenceCompressor for AbcCompressor {
     }
 
     fn codec_id(&self) -> u8 {
-        encode_codec(CodecFamily::AbcV1, 0)
+        encode_codec(CodecFamily::AbcV1, 1)
     }
 }
 

@@ -23,7 +23,7 @@ FASTQ 压缩领域涵盖通用工具（gzip、zstd）、领域特定无参考压
 | **工程** |||||||||
 | 单二进制 | yes | yes | yes | yes | yes | no | yes | yes |
 | 内存安全 | yes | no | no | no | no | no | no | no |
-| 零 unsafe | yes | n/a | n/a | no | no | no | no | no |
+| 零 unsafe | yes* | n/a | n/a | no | no | no | no | no |
 | Verify 命令 | yes | no | no | no | no | no | no | no |
 | Info 命令 | yes | no | no | no | no | no | no | no |
 | 结构化退出码 | yes | no | no | no | no | no | no | no |
@@ -33,6 +33,7 @@ FASTQ 压缩领域涵盖通用工具（gzip、zstd）、领域特定无参考压
 | 校验和 | yes | no | no | yes | no | no | no | no |
 
 `partial`：fqc 读取器只接受 major == 2。有损质量：`illumina8` 分箱、`qvz`（固定 8 级最近邻码本）和 `discard` 可用；`qvz` 不是训练过的率失真 QVZ。
+`yes*`：除 Windows 内存探测（`GlobalMemoryStatusEx` FFI，见 `src/memory_budget.rs`）外零 unsafe。
 
 ## 压缩比
 

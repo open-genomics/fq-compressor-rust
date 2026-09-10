@@ -98,12 +98,24 @@ impl FqcReader {
         let header_end = reader.stream_position()?;
 
         Self::validate_footer_offsets(&footer, header_end, footer_pos)?;
+        let header_has_reorder_map = (global_header.flags & flags::HAS_REORDER_MAP) != 0;
+        if header_has_reorder_map != footer.has_reorder_map() {
+            return Err(FqcError::Format(
+                "GlobalHeader HAS_REORDER_MAP flag disagrees with footer".to_string(),
+            ));
+        }
         budget.check_total_reads(global_header.total_read_count, "global_header.total_read_count")?;
 
         // Read block index with budget + file-region caps
         let index_region = footer_pos.saturating_sub(footer.index_offset);
         reader.seek(SeekFrom::Start(footer.index_offset))?;
         let block_index = BlockIndex::read_with_budget(&mut reader, &budget, index_region)?;
+        let index_end = reader.stream_position()?;
+        if index_end != footer_pos {
+            return Err(FqcError::Format(format!(
+                "Block index ends at {index_end}, but footer starts at {footer_pos}"
+            )));
+        }
         Self::validate_block_index(&block_index, header_end, &footer, global_header.total_read_count)?;
         Self::validate_block_headers(&mut reader, &block_index, &footer)?;
 
@@ -150,6 +162,13 @@ impl FqcReader {
         footer: &FileFooter,
         total_read_count: u64,
     ) -> Result<()> {
+        if block_index.num_blocks != block_index.entries.len() as u64 {
+            return Err(FqcError::Format(format!(
+                "Block index declares {} blocks but contains {} entries",
+                block_index.num_blocks,
+                block_index.entries.len()
+            )));
+        }
         let data_end = if footer.has_reorder_map() {
             footer.reorder_map_offset
         } else {
@@ -171,9 +190,14 @@ impl FqcReader {
                     entry.offset
                 )));
             }
-            if entry.offset < previous_end {
+            if entry.offset != previous_end {
+                let relation = if entry.offset < previous_end {
+                    "overlaps or reorders"
+                } else {
+                    "leaves a gap before"
+                };
                 return Err(FqcError::Format(format!(
-                    "Block index entry {idx} overlaps or reorders block data"
+                    "Block index entry {idx} {relation} block data"
                 )));
             }
             if entry.archive_id_start != expected_archive_id_start {
@@ -204,6 +228,12 @@ impl FqcReader {
                 "Block index total read count {} does not match global header {}",
                 expected_archive_id_start, total_read_count
             )));
+        }
+
+        if previous_end != data_end {
+            return Err(FqcError::Format(
+                "Block data does not exactly fill the region before index/reorder map".to_string(),
+            ));
         }
 
         Ok(())
@@ -251,20 +281,58 @@ impl FqcReader {
                 )));
             }
 
-            let declared_stream_end = [
-                header.offset_ids.checked_add(header.size_ids),
-                header.offset_seq.checked_add(header.size_seq),
-                header.offset_qual.checked_add(header.size_qual),
-                header.offset_aux.checked_add(header.size_aux),
-            ]
-            .into_iter()
-            .flatten()
-            .max()
-            .ok_or_else(|| FqcError::Format(format!("Block {idx} stream extent overflows block payload")))?;
+            let expected_entry_size = (header.header_size as u64)
+                .checked_add(header.compressed_size)
+                .ok_or_else(|| FqcError::Format(format!("Block {idx} declared size overflows archive offsets")))?;
+            if expected_entry_size != entry.compressed_size {
+                return Err(FqcError::Format(format!(
+                    "Block {idx} index size {} does not match header size {} + payload {}",
+                    entry.compressed_size, header.header_size, header.compressed_size
+                )));
+            }
+
+            let ids_end = header
+                .offset_ids
+                .checked_add(header.size_ids)
+                .ok_or_else(|| FqcError::Format(format!("Block {idx} ids stream overflows u64")))?;
+            let seq_end = header
+                .offset_seq
+                .checked_add(header.size_seq)
+                .ok_or_else(|| FqcError::Format(format!("Block {idx} seq stream overflows u64")))?;
+            let qual_end = header
+                .offset_qual
+                .checked_add(header.size_qual)
+                .ok_or_else(|| FqcError::Format(format!("Block {idx} qual stream overflows u64")))?;
+            let aux_end = header
+                .offset_aux
+                .checked_add(header.size_aux)
+                .ok_or_else(|| FqcError::Format(format!("Block {idx} aux stream overflows u64")))?;
+            let declared_stream_end = ids_end.max(seq_end).max(qual_end).max(aux_end);
 
             if declared_stream_end > header.compressed_size {
                 return Err(FqcError::Format(format!(
                     "Block {idx} stream extent exceeds declared block payload"
+                )));
+            }
+
+            let expected_seq = header.size_ids;
+            let expected_qual = expected_seq
+                .checked_add(header.size_seq)
+                .ok_or_else(|| FqcError::Format(format!("Block {idx} stream offsets overflow")))?;
+            let expected_aux = expected_qual
+                .checked_add(header.size_qual)
+                .ok_or_else(|| FqcError::Format(format!("Block {idx} stream offsets overflow")))?;
+            let expected_payload = expected_aux
+                .checked_add(header.size_aux)
+                .ok_or_else(|| FqcError::Format(format!("Block {idx} stream offsets overflow")))?;
+            if header.offset_ids != 0
+                || header.offset_seq != expected_seq
+                || header.offset_qual != expected_qual
+                || header.offset_aux != expected_aux
+                || expected_payload != header.compressed_size
+            {
+                return Err(FqcError::Format(format!(
+                    "Block {idx} stream layout is not canonical and contiguous"
                 )));
             }
 
@@ -347,6 +415,20 @@ impl FqcReader {
         self.budget
             .check_alloc(rmh.reverse_map_size, "reorder_map.reverse_compressed")?;
 
+        let map_payload_start = self.reader.stream_position()?;
+        let map_payload_size = rmh
+            .forward_map_size
+            .checked_add(rmh.reverse_map_size)
+            .ok_or_else(|| FqcError::Format("reorder map compressed sizes overflow".to_string()))?;
+        let map_payload_end = map_payload_start
+            .checked_add(map_payload_size)
+            .ok_or_else(|| FqcError::Format("reorder map extent overflows archive offsets".to_string()))?;
+        if map_payload_end != self.footer.index_offset {
+            return Err(FqcError::Format(
+                "reorder map payload does not exactly precede the block index".to_string(),
+            ));
+        }
+
         let fwd_len = self
             .budget
             .checked_usize(rmh.forward_map_size, "reorder_map.forward_compressed")?;
@@ -369,9 +451,63 @@ impl FqcReader {
         let forward_raw = zstd_decompress_bounded(&forward_compressed, max_raw, "reorder_map.forward")?;
         let reverse_raw = zstd_decompress_bounded(&reverse_compressed, max_raw, "reorder_map.reverse")?;
 
-        self.reorder_forward = Some(delta_decode_ids(&forward_raw, rmh.total_reads)?);
-        self.reorder_reverse = Some(delta_decode_ids(&reverse_raw, rmh.total_reads)?);
+        let forward = delta_decode_ids(&forward_raw, rmh.total_reads)?;
+        let reverse = delta_decode_ids(&reverse_raw, rmh.total_reads)?;
+        Self::validate_reorder_maps(&forward, &reverse)?;
+        self.reorder_forward = Some(forward);
+        self.reorder_reverse = Some(reverse);
 
+        Ok(())
+    }
+
+    fn validate_reorder_maps(forward: &[u64], reverse: &[u64]) -> Result<()> {
+        if forward.len() != reverse.len() {
+            return Err(FqcError::Format(
+                "reorder maps have different decoded lengths".to_string(),
+            ));
+        }
+        let n = forward.len() as u64;
+        let mut seen_forward = vec![false; forward.len()];
+        for (original, &archive) in forward.iter().enumerate() {
+            if archive >= n {
+                return Err(FqcError::Format(format!(
+                    "forward reorder map value {archive} is outside 0..{n}"
+                )));
+            }
+            let archive_index = archive as usize;
+            if seen_forward[archive_index] {
+                return Err(FqcError::Format(format!(
+                    "forward reorder map contains duplicate archive id {archive}"
+                )));
+            }
+            seen_forward[archive_index] = true;
+            if reverse[archive_index] != original as u64 {
+                return Err(FqcError::Format(format!(
+                    "reorder maps disagree at original id {original}"
+                )));
+            }
+        }
+
+        let mut seen_reverse = vec![false; reverse.len()];
+        for (archive, &original) in reverse.iter().enumerate() {
+            if original >= n {
+                return Err(FqcError::Format(format!(
+                    "reverse reorder map value {original} is outside 0..{n}"
+                )));
+            }
+            let original_index = original as usize;
+            if seen_reverse[original_index] {
+                return Err(FqcError::Format(format!(
+                    "reverse reorder map contains duplicate original id {original}"
+                )));
+            }
+            seen_reverse[original_index] = true;
+            if forward[original_index] != archive as u64 {
+                return Err(FqcError::Format(format!(
+                    "reorder maps disagree at archive id {archive}"
+                )));
+            }
+        }
         Ok(())
     }
 
@@ -407,7 +543,10 @@ impl FqcReader {
 
         self.reader.seek(SeekFrom::Start(entry.offset))?;
         let bh = BlockHeader::read(&mut self.reader)?;
-        let payload_start = entry.offset + bh.header_size as u64;
+        let payload_start = entry
+            .offset
+            .checked_add(bh.header_size as u64)
+            .ok_or_else(|| FqcError::Format(format!("Block {block_id} payload start overflows u64")))?;
         let payload_extent = bh.compressed_size;
 
         let mut block_data = BlockData {
@@ -416,26 +555,38 @@ impl FqcReader {
         };
 
         if bh.size_ids > 0 {
-            self.reader.seek(SeekFrom::Start(payload_start + bh.offset_ids))?;
+            let ids_offset = payload_start
+                .checked_add(bh.offset_ids)
+                .ok_or_else(|| FqcError::Format(format!("Block {block_id} ids offset overflows u64")))?;
+            self.reader.seek(SeekFrom::Start(ids_offset))?;
             block_data.ids_data = self.alloc_stream(bh.size_ids, &format!("block {block_id} ids"), payload_extent)?;
             self.reader.read_exact(&mut block_data.ids_data)?;
         }
 
         if bh.size_seq > 0 {
-            self.reader.seek(SeekFrom::Start(payload_start + bh.offset_seq))?;
+            let seq_offset = payload_start
+                .checked_add(bh.offset_seq)
+                .ok_or_else(|| FqcError::Format(format!("Block {block_id} seq offset overflows u64")))?;
+            self.reader.seek(SeekFrom::Start(seq_offset))?;
             block_data.seq_data = self.alloc_stream(bh.size_seq, &format!("block {block_id} seq"), payload_extent)?;
             self.reader.read_exact(&mut block_data.seq_data)?;
         }
 
         if bh.size_qual > 0 {
-            self.reader.seek(SeekFrom::Start(payload_start + bh.offset_qual))?;
+            let qual_offset = payload_start
+                .checked_add(bh.offset_qual)
+                .ok_or_else(|| FqcError::Format(format!("Block {block_id} qual offset overflows u64")))?;
+            self.reader.seek(SeekFrom::Start(qual_offset))?;
             block_data.qual_data =
                 self.alloc_stream(bh.size_qual, &format!("block {block_id} qual"), payload_extent)?;
             self.reader.read_exact(&mut block_data.qual_data)?;
         }
 
         if bh.size_aux > 0 {
-            self.reader.seek(SeekFrom::Start(payload_start + bh.offset_aux))?;
+            let aux_offset = payload_start
+                .checked_add(bh.offset_aux)
+                .ok_or_else(|| FqcError::Format(format!("Block {block_id} aux offset overflows u64")))?;
+            self.reader.seek(SeekFrom::Start(aux_offset))?;
             block_data.aux_data = self.alloc_stream(bh.size_aux, &format!("block {block_id} aux"), payload_extent)?;
             self.reader.read_exact(&mut block_data.aux_data)?;
         }

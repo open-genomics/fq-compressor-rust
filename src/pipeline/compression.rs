@@ -354,12 +354,14 @@ impl CompressionPipeline {
                 }
             }
 
-            // Write remaining pending blocks
-            while let Some((&id, _)) = pending.iter().next() {
-                if let Some(block) = pending.remove(&id) {
-                    writer.write_block(&block.compressed)?;
-                    total_output_bytes += block.compressed.total_compressed_size() as u64;
-                }
+            // A worker error or cancellation closes the channel early. Never
+            // commit a partial archive: the transaction drops the temp file.
+            if next_expected < num_chunks as u32 || !pending.is_empty() {
+                return Err(FqcError::Compression(format!(
+                    "Compression incomplete: wrote {}/{} blocks; output aborted",
+                    next_expected + pending.len() as u32,
+                    num_chunks
+                )));
             }
 
             // Write reorder map if present

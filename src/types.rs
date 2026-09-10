@@ -427,8 +427,14 @@ impl ReadRecord {
         }
     }
 
+    /// Structural validity: sequence and quality lengths must match.
+    ///
+    /// Empty records are valid here — the parser accepts them and the codec
+    /// round-trips them faithfully, so verify must not flag archives
+    /// containing them. Callers wanting stricter checks should validate
+    /// during parsing (`ParserOptions::validate_sequence`).
     pub fn is_valid(&self) -> bool {
-        !self.sequence.is_empty() && self.sequence.len() == self.quality.len()
+        self.sequence.len() == self.quality.len()
     }
 
     pub fn len(&self) -> usize {

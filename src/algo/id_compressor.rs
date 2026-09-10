@@ -32,13 +32,13 @@ pub enum TokenType {
 }
 
 impl TokenType {
-    fn from_u8(v: u8) -> Self {
+    fn try_from_u8(v: u8) -> Option<Self> {
         match v {
-            0 => TokenType::Static,
-            1 => TokenType::DynamicInt,
-            2 => TokenType::DynamicString,
-            3 => TokenType::Delimiter,
-            _ => TokenType::DynamicString,
+            0 => Some(TokenType::Static),
+            1 => Some(TokenType::DynamicInt),
+            2 => Some(TokenType::DynamicString),
+            3 => Some(TokenType::Delimiter),
+            _ => None,
         }
     }
 }
@@ -228,7 +228,7 @@ fn detect_pattern(ids: &[&str]) -> Option<IDPattern> {
 // =============================================================================
 
 fn zigzag_encode(v: i64) -> u64 {
-    ((v << 1) ^ (v >> 63)) as u64
+    ((v as u64) << 1) ^ ((v >> 63) as u64)
 }
 
 fn zigzag_decode(v: u64) -> i64 {
@@ -243,53 +243,62 @@ fn uvarint_encode(mut v: u64, out: &mut Vec<u8>) {
     out.push(v as u8);
 }
 
-fn uvarint_decode(data: &[u8], pos: &mut usize) -> u64 {
-    let mut result: u64 = 0;
-    let mut shift = 0u32;
-    for _ in 0..10 {
-        if *pos >= data.len() {
-            break;
-        }
-        let b = data[*pos];
+fn uvarint_decode(data: &[u8], pos: &mut usize) -> Result<u64> {
+    let mut result = 0u64;
+    for byte_index in 0..10 {
+        let byte = *data
+            .get(*pos)
+            .ok_or_else(|| FqcError::Format("truncated ID varint".to_string()))?;
         *pos += 1;
-        result |= ((b & 0x7F) as u64) << shift;
-        if b & 0x80 == 0 {
-            return result;
+        let payload = u64::from(byte & 0x7f);
+        if byte_index == 9 && payload > 1 {
+            return Err(FqcError::Format("ID varint overflows u64".to_string()));
         }
-        shift += 7;
+        result |= payload << (byte_index * 7);
+        if byte & 0x80 == 0 {
+            return Ok(result);
+        }
     }
-    result
+    Err(FqcError::Format("unterminated ID varint".to_string()))
 }
 
 fn varint_encode(v: i64, out: &mut Vec<u8>) {
     uvarint_encode(zigzag_encode(v), out);
 }
 
-fn varint_decode(data: &[u8], pos: &mut usize) -> i64 {
-    zigzag_decode(uvarint_decode(data, pos))
+fn varint_decode(data: &[u8], pos: &mut usize) -> Result<i64> {
+    Ok(zigzag_decode(uvarint_decode(data, pos)?))
 }
 
-fn delta_varint_encode(values: &[i64]) -> Vec<u8> {
+fn delta_varint_encode(values: &[i64]) -> Result<Vec<u8>> {
     let mut result = Vec::with_capacity(values.len() * 2);
     let mut prev: i64 = 0;
     for &v in values {
-        varint_encode(v - prev, &mut result);
+        let delta = v
+            .checked_sub(prev)
+            .ok_or_else(|| FqcError::InvalidArgument("ID integer delta overflows i64".to_string()))?;
+        varint_encode(delta, &mut result);
         prev = v;
     }
-    result
+    Ok(result)
 }
 
-fn delta_varint_decode(data: &[u8], count: usize) -> Vec<i64> {
+fn delta_varint_decode(data: &[u8], count: usize) -> Result<Vec<i64>> {
     let mut result = Vec::with_capacity(count);
     let mut pos = 0;
     let mut prev: i64 = 0;
     for _ in 0..count {
-        let delta = varint_decode(data, &mut pos);
-        let v = prev + delta;
+        let delta = varint_decode(data, &mut pos)?;
+        let v = prev
+            .checked_add(delta)
+            .ok_or_else(|| FqcError::Format("ID delta overflows i64".to_string()))?;
         result.push(v);
         prev = v;
     }
-    result
+    if pos != data.len() {
+        return Err(FqcError::Format("ID delta stream has trailing bytes".to_string()));
+    }
+    Ok(result)
 }
 
 // =============================================================================
@@ -315,26 +324,53 @@ fn compress_exact(ids: &[&str], zstd_level: i32) -> Result<Vec<u8>> {
 }
 
 fn decompress_exact(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
-    if num_ids == 0 {
-        return Ok(Vec::new());
-    }
     let mut pos = 0;
-    let uncompressed_size = uvarint_decode(data, &mut pos) as usize;
+    let declared_size = uvarint_decode(data, &mut pos)?;
+    let uncompressed_size = usize::try_from(declared_size)
+        .map_err(|_| FqcError::Format("ID exact uncompressed size exceeds platform limits".to_string()))?;
     // Cap runaway declarations: at most 64 KiB per ID on average.
-    let max_out = uncompressed_size
-        .max(64)
-        .min((num_ids as usize).saturating_mul(64 * 1024).saturating_add(1024));
-    let uncompressed = crate::memory_budget::zstd_decompress_bounded(&data[pos..], max_out, "id exact")?;
+    let max_allowed = (num_ids as usize).saturating_mul(64 * 1024).saturating_add(1024);
+    if uncompressed_size > max_allowed {
+        return Err(FqcError::ResourceLimit {
+            location: "id exact".to_string(),
+            declared: declared_size,
+            allowed: max_allowed as u64,
+        });
+    }
+    let compressed = data
+        .get(pos..)
+        .ok_or_else(|| FqcError::Format("Missing ID exact compressed payload".to_string()))?;
+    // The bounded helper intentionally rejects a zero ceiling.  A valid
+    // zero-ID exact stream still has a zstd frame whose decoded payload is
+    // empty, so give the decoder a one-byte probe ceiling and enforce the
+    // declared size immediately afterwards.
+    let uncompressed = crate::memory_budget::zstd_decompress_bounded(compressed, uncompressed_size.max(1), "id exact")?;
+    if uncompressed.len() != uncompressed_size {
+        return Err(FqcError::Format(format!(
+            "ID exact payload size {} does not match declared {}",
+            uncompressed.len(),
+            uncompressed_size
+        )));
+    }
 
     let mut ids = Vec::with_capacity(num_ids as usize);
     let mut offset = 0;
     for _ in 0..num_ids {
-        let len = uvarint_decode(&uncompressed, &mut offset) as usize;
-        if offset + len > uncompressed.len() {
+        let len = usize::try_from(uvarint_decode(&uncompressed, &mut offset)?)
+            .map_err(|_| FqcError::Format("ID length exceeds platform limits".to_string()))?;
+        let end = offset
+            .checked_add(len)
+            .ok_or_else(|| FqcError::Format("ID length overflows buffer".to_string()))?;
+        if end > uncompressed.len() {
             return Err(FqcError::Format("Truncated ID data".to_string()));
         }
-        ids.push(String::from_utf8_lossy(&uncompressed[offset..offset + len]).into_owned());
-        offset += len;
+        let id = String::from_utf8(uncompressed[offset..end].to_vec())
+            .map_err(|e| FqcError::Format(format!("Invalid UTF-8 in ID data: {e}")))?;
+        ids.push(id);
+        offset = end;
+    }
+    if offset != uncompressed.len() {
+        return Err(FqcError::Format("ID exact stream has trailing bytes".to_string()));
     }
     Ok(ids)
 }
@@ -390,6 +426,20 @@ fn compress_tokenize(ids: &[&str], pattern: &IDPattern, zstd_level: i32) -> Resu
         }
     }
 
+    // Losslessness gate: rebuild exactly as the decoder would and fall back to
+    // the exact codec if any ID differs (off-pattern IDs, ambiguous parsing).
+    let rebuilt = rebuild_ids_from_pattern(
+        &pattern.token_types,
+        &pattern.static_values,
+        &pattern.delimiters,
+        &int_columns,
+        &str_columns,
+        num_ids,
+    );
+    if rebuilt.iter().zip(ids.iter()).any(|(r, o)| r != o) {
+        return compress_exact(ids, zstd_level);
+    }
+
     // Build uncompressed buffer
     let mut uncompressed = Vec::new();
 
@@ -411,7 +461,7 @@ fn compress_tokenize(ids: &[&str], pattern: &IDPattern, zstd_level: i32) -> Resu
     // Integer columns (delta-varint encoded)
     uvarint_encode(int_columns.len() as u64, &mut uncompressed);
     for col in &int_columns {
-        let encoded = delta_varint_encode(col);
+        let encoded = delta_varint_encode(col)?;
         uvarint_encode(encoded.len() as u64, &mut uncompressed);
         uncompressed.extend_from_slice(&encoded);
     }
@@ -436,92 +486,192 @@ fn compress_tokenize(ids: &[&str], pattern: &IDPattern, zstd_level: i32) -> Resu
 }
 
 fn decompress_tokenize(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
-    if num_ids == 0 {
-        return Ok(Vec::new());
-    }
-
     let mut pos = 0;
-    let uncompressed_size = uvarint_decode(data, &mut pos) as usize;
-    let max_out = uncompressed_size
-        .max(64)
-        .min((num_ids as usize).saturating_mul(64 * 1024).saturating_add(1024));
-    let uncompressed = crate::memory_budget::zstd_decompress_bounded(&data[pos..], max_out, "id tokenize")?;
+    let declared_size = uvarint_decode(data, &mut pos)?;
+    let uncompressed_size = usize::try_from(declared_size)
+        .map_err(|_| FqcError::Format("ID tokenize uncompressed size exceeds platform limits".to_string()))?;
+    let max_allowed = (num_ids as usize).saturating_mul(64 * 1024).saturating_add(1024);
+    if uncompressed_size > max_allowed {
+        return Err(FqcError::ResourceLimit {
+            location: "id tokenize".to_string(),
+            declared: declared_size,
+            allowed: max_allowed as u64,
+        });
+    }
+    let compressed = data
+        .get(pos..)
+        .ok_or_else(|| FqcError::Format("Missing ID tokenize compressed payload".to_string()))?;
+    let uncompressed =
+        crate::memory_budget::zstd_decompress_bounded(compressed, uncompressed_size.max(1), "id tokenize")?;
+    if uncompressed.len() != uncompressed_size {
+        return Err(FqcError::Format(format!(
+            "ID tokenize payload size {} does not match declared {}",
+            uncompressed.len(),
+            uncompressed_size
+        )));
+    }
 
     let mut offset = 0;
 
     // Read pattern
-    let num_types = uvarint_decode(&uncompressed, &mut offset) as usize;
+    let num_types = usize::try_from(uvarint_decode(&uncompressed, &mut offset)?)
+        .map_err(|_| FqcError::Format("ID token type count exceeds platform limits".to_string()))?;
+    if num_types > uncompressed.len().saturating_sub(offset) {
+        return Err(FqcError::Format("Truncated tokenize token-type table".to_string()));
+    }
     let mut token_types = Vec::with_capacity(num_types);
     for _ in 0..num_types {
-        if offset >= uncompressed.len() {
-            break;
-        }
-        let tt = TokenType::from_u8(uncompressed[offset]);
+        let raw = *uncompressed
+            .get(offset)
+            .ok_or_else(|| FqcError::Format("Truncated tokenize token-type table".to_string()))?;
         offset += 1;
+        let tt = TokenType::try_from_u8(raw).ok_or_else(|| FqcError::Format(format!("Unknown token type {raw}")))?;
         token_types.push(tt);
     }
 
     // Static values
-    let num_static = uvarint_decode(&uncompressed, &mut offset) as usize;
+    let num_static = usize::try_from(uvarint_decode(&uncompressed, &mut offset)?)
+        .map_err(|_| FqcError::Format("ID static-value count exceeds platform limits".to_string()))?;
+    let expected_static = token_types.iter().filter(|&&t| t == TokenType::Static).count();
+    if num_static != expected_static {
+        return Err(FqcError::Format(format!(
+            "Tokenize static-value count {num_static} does not match pattern {expected_static}"
+        )));
+    }
     let mut static_values = Vec::with_capacity(num_static);
     for _ in 0..num_static {
-        let len = uvarint_decode(&uncompressed, &mut offset) as usize;
-        if offset + len > uncompressed.len() {
+        let len = usize::try_from(uvarint_decode(&uncompressed, &mut offset)?)
+            .map_err(|_| FqcError::Format("Tokenize static value length exceeds platform limits".to_string()))?;
+        let end = offset
+            .checked_add(len)
+            .ok_or_else(|| FqcError::Format("Tokenize static value length overflows".to_string()))?;
+        if end > uncompressed.len() {
             return Err(FqcError::Format("Truncated tokenize static data".to_string()));
         }
-        static_values.push(String::from_utf8_lossy(&uncompressed[offset..offset + len]).into_owned());
-        offset += len;
+        static_values.push(
+            String::from_utf8(uncompressed[offset..end].to_vec())
+                .map_err(|e| FqcError::Format(format!("Invalid UTF-8 in tokenize static data: {e}")))?,
+        );
+        offset = end;
     }
 
     // Delimiters
-    let num_delims = uvarint_decode(&uncompressed, &mut offset) as usize;
+    let num_delims = usize::try_from(uvarint_decode(&uncompressed, &mut offset)?)
+        .map_err(|_| FqcError::Format("ID delimiter count exceeds platform limits".to_string()))?;
+    let expected_delims = token_types.iter().filter(|&&t| t == TokenType::Delimiter).count();
+    if num_delims != expected_delims {
+        return Err(FqcError::Format(format!(
+            "Tokenize delimiter count {num_delims} does not match pattern {expected_delims}"
+        )));
+    }
     let mut delimiters = Vec::with_capacity(num_delims);
     for _ in 0..num_delims {
-        if offset >= uncompressed.len() {
-            break;
-        }
-        delimiters.push(uncompressed[offset]);
+        let delimiter = *uncompressed
+            .get(offset)
+            .ok_or_else(|| FqcError::Format("Truncated tokenize delimiter table".to_string()))?;
         offset += 1;
+        if !is_delimiter(delimiter) {
+            return Err(FqcError::Format(format!(
+                "Invalid tokenize delimiter byte 0x{delimiter:02x}"
+            )));
+        }
+        delimiters.push(delimiter);
     }
 
     // Integer columns
-    let num_int_cols = uvarint_decode(&uncompressed, &mut offset) as usize;
+    let num_int_cols = usize::try_from(uvarint_decode(&uncompressed, &mut offset)?)
+        .map_err(|_| FqcError::Format("ID integer-column count exceeds platform limits".to_string()))?;
+    let expected_int_cols = token_types.iter().filter(|&&t| t == TokenType::DynamicInt).count();
+    if num_int_cols != expected_int_cols {
+        return Err(FqcError::Format(format!(
+            "Tokenize integer-column count {num_int_cols} does not match pattern {expected_int_cols}"
+        )));
+    }
     let mut int_columns = Vec::with_capacity(num_int_cols);
     for _ in 0..num_int_cols {
-        let encoded_len = uvarint_decode(&uncompressed, &mut offset) as usize;
-        if offset + encoded_len > uncompressed.len() {
+        let encoded_len = usize::try_from(uvarint_decode(&uncompressed, &mut offset)?)
+            .map_err(|_| FqcError::Format("Tokenize integer-column length exceeds platform limits".to_string()))?;
+        let end = offset
+            .checked_add(encoded_len)
+            .ok_or_else(|| FqcError::Format("Tokenize integer-column length overflows".to_string()))?;
+        if end > uncompressed.len() {
             return Err(FqcError::Format("Truncated tokenize int column".to_string()));
         }
-        let col = delta_varint_decode(&uncompressed[offset..offset + encoded_len], num_ids as usize);
-        offset += encoded_len;
+        let col = delta_varint_decode(&uncompressed[offset..end], num_ids as usize)?;
+        offset = end;
         int_columns.push(col);
     }
 
     // String columns
-    let num_str_cols = uvarint_decode(&uncompressed, &mut offset) as usize;
+    let num_str_cols = usize::try_from(uvarint_decode(&uncompressed, &mut offset)?)
+        .map_err(|_| FqcError::Format("ID string-column count exceeds platform limits".to_string()))?;
+    let expected_str_cols = token_types.iter().filter(|&&t| t == TokenType::DynamicString).count();
+    if num_str_cols != expected_str_cols {
+        return Err(FqcError::Format(format!(
+            "Tokenize string-column count {num_str_cols} does not match pattern {expected_str_cols}"
+        )));
+    }
     let mut str_columns: Vec<Vec<String>> = Vec::with_capacity(num_str_cols);
     for _ in 0..num_str_cols {
         let mut col = Vec::with_capacity(num_ids as usize);
         for _ in 0..num_ids {
-            let len = uvarint_decode(&uncompressed, &mut offset) as usize;
-            if offset + len > uncompressed.len() {
+            let len = usize::try_from(uvarint_decode(&uncompressed, &mut offset)?)
+                .map_err(|_| FqcError::Format("Tokenize string length exceeds platform limits".to_string()))?;
+            let end = offset
+                .checked_add(len)
+                .ok_or_else(|| FqcError::Format("Tokenize string length overflows".to_string()))?;
+            if end > uncompressed.len() {
                 return Err(FqcError::Format("Truncated tokenize string column".to_string()));
             }
-            col.push(String::from_utf8_lossy(&uncompressed[offset..offset + len]).into_owned());
-            offset += len;
+            col.push(
+                String::from_utf8(uncompressed[offset..end].to_vec())
+                    .map_err(|e| FqcError::Format(format!("Invalid UTF-8 in tokenize string data: {e}")))?,
+            );
+            offset = end;
         }
         str_columns.push(col);
     }
 
-    // Reconstruct IDs
-    let mut ids = Vec::with_capacity(num_ids as usize);
-    for i in 0..num_ids as usize {
+    if offset != uncompressed.len() {
+        return Err(FqcError::Format("ID tokenize stream has trailing bytes".to_string()));
+    }
+
+    // Reconstruct IDs using the shared rebuild path
+    let ids = rebuild_ids_from_pattern(
+        &token_types,
+        &static_values,
+        &delimiters,
+        &int_columns,
+        &str_columns,
+        num_ids as usize,
+    );
+
+    Ok(ids)
+}
+
+// =============================================================================
+// Shared Reconstruction
+// =============================================================================
+
+/// Reconstruct IDs from a detected pattern plus per-read dynamic columns.
+/// Used by both the compression-side losslessness check and the decoder so
+/// the two paths can never drift apart.
+fn rebuild_ids_from_pattern(
+    token_types: &[TokenType],
+    static_values: &[String],
+    delimiters: &[u8],
+    int_columns: &[Vec<i64>],
+    str_columns: &[Vec<String>],
+    num_ids: usize,
+) -> Vec<String> {
+    let mut ids = Vec::with_capacity(num_ids);
+    for i in 0..num_ids {
         let mut id = String::new();
         let mut si = 0;
         let mut di = 0;
         let mut ii = 0;
         let mut sti = 0;
-        for tt in &token_types {
+        for tt in token_types {
             match tt {
                 TokenType::Static => {
                     if si < static_values.len() {
@@ -551,8 +701,7 @@ fn decompress_tokenize(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
         }
         ids.push(id);
     }
-
-    Ok(ids)
+    ids
 }
 
 // =============================================================================
@@ -582,7 +731,11 @@ pub fn compress_ids(ids: &[&str], zstd_level: i32, id_mode: IdMode) -> Result<Ve
 /// `id_prefix` is used for discard mode to generate placeholder IDs.
 pub fn decompress_ids(data: &[u8], num_ids: u32, id_prefix: &str) -> Result<Vec<String>> {
     if data.is_empty() {
-        return Ok(vec![String::new(); num_ids as usize]);
+        return if num_ids == 0 {
+            Ok(Vec::new())
+        } else {
+            Err(FqcError::Format("ID stream is empty for a non-empty block".to_string()))
+        };
     }
 
     let magic = data[0];
@@ -591,7 +744,12 @@ pub fn decompress_ids(data: &[u8], num_ids: u32, id_prefix: &str) -> Result<Vec<
     match magic {
         MAGIC_EXACT => decompress_exact(payload, num_ids),
         MAGIC_TOKENIZE => decompress_tokenize(payload, num_ids),
-        MAGIC_DISCARD => Ok((1..=num_ids as u64).map(|i| format!("{}{}", id_prefix, i)).collect()),
+        MAGIC_DISCARD => {
+            if !payload.is_empty() {
+                return Err(FqcError::Format("ID discard stream has trailing bytes".to_string()));
+            }
+            Ok((1..=num_ids as u64).map(|i| format!("{}{}", id_prefix, i)).collect())
+        }
         _ => {
             // Legacy format: len-prefixed Zstd (no magic byte)
             // Fall back to the old decompression path
@@ -618,7 +776,11 @@ fn decompress_legacy(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
         let mut id = vec![0u8; len as usize];
         cur.read_exact(&mut id)
             .map_err(|e| FqcError::Format(format!("Truncated ID bytes: {e}")))?;
-        ids.push(String::from_utf8_lossy(&id).into_owned());
+        ids.push(String::from_utf8(id).map_err(|e| FqcError::Format(format!("Invalid UTF-8 in legacy ID data: {e}")))?);
+    }
+
+    if cur.position() as usize != buf.len() {
+        return Err(FqcError::Format("Legacy ID stream has trailing bytes".to_string()));
     }
 
     Ok(ids)

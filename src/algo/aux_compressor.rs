@@ -39,11 +39,14 @@ impl AuxCompressor for DeltaVarintAuxCompressor {
         let mut prev_len = 0i32;
 
         for read in reads {
-            let len = read.sequence.len() as i32;
-            let delta = len - prev_len;
+            let len = i32::try_from(read.sequence.len())
+                .map_err(|_| FqcError::InvalidArgument("Read length exceeds auxiliary codec range".to_string()))?;
+            let delta = len
+                .checked_sub(prev_len)
+                .ok_or_else(|| FqcError::InvalidArgument("Read-length delta overflows auxiliary codec".to_string()))?;
             prev_len = len;
 
-            let mut zigzag = ((delta << 1) ^ (delta >> 31)) as u32;
+            let mut zigzag = ((delta as u32) << 1) ^ ((delta >> 31) as u32);
             loop {
                 let byte = (zigzag & 0x7F) as u8;
                 zigzag >>= 7;
@@ -75,27 +78,48 @@ impl AuxCompressor for DeltaVarintAuxCompressor {
         let mut i = 0usize;
         let mut prev_len = 0i32;
 
-        while i < buf.len() && lengths.len() < read_count as usize {
+        for read_index in 0..read_count as usize {
             let mut zigzag = 0u32;
             let mut shift = 0u32;
+            let mut terminated = false;
 
-            for _ in 0..5 {
-                if i >= buf.len() {
-                    break;
-                }
-                let byte = buf[i];
+            for byte_index in 0..5 {
+                let byte = *buf
+                    .get(i)
+                    .ok_or_else(|| FqcError::Format(format!("Truncated aux varint at read {read_index}")))?;
                 i += 1;
-                zigzag |= ((byte & 0x7F) as u32) << shift;
+                let payload = u32::from(byte & 0x7F);
+                if byte_index == 4 && payload > 0x0F {
+                    return Err(FqcError::Format(format!(
+                        "Aux varint overflows u32 at read {read_index}"
+                    )));
+                }
+                zigzag |= payload << shift;
                 shift += 7;
                 if (byte & 0x80) == 0 {
+                    terminated = true;
                     break;
                 }
             }
+            if !terminated {
+                return Err(FqcError::Format(format!(
+                    "Aux varint is unterminated at read {read_index}"
+                )));
+            }
 
             let delta = ((zigzag >> 1) as i32) ^ (-((zigzag & 1) as i32));
-            let len = prev_len + delta;
+            let len = prev_len
+                .checked_add(delta)
+                .ok_or_else(|| FqcError::Format(format!("Aux length overflows at read {read_index}")))?;
+            if len < 0 {
+                return Err(FqcError::Format(format!("Aux length is negative at read {read_index}")));
+            }
             prev_len = len;
             lengths.push(len as u32);
+        }
+
+        if i != buf.len() {
+            return Err(FqcError::Format("Aux stream has trailing bytes".to_string()));
         }
 
         Ok(lengths)

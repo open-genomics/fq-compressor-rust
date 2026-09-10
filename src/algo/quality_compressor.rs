@@ -410,6 +410,8 @@ pub struct QualityCompressor {
 
 impl QualityCompressor {
     pub fn new(config: QualityCompressorConfig) -> Self {
+        let mut config = config;
+        config.num_position_bins = config.num_position_bins.max(1);
         let ctx_model = QualityContextModel::new(config.context_order, config.num_position_bins);
         Self { config, ctx_model }
     }
@@ -422,6 +424,24 @@ impl QualityCompressor {
 
         if self.config.quality_mode == QualityMode::Discard {
             return Ok(Vec::new());
+        }
+
+        for quality in qualities {
+            if let Some((position, byte)) = quality
+                .bytes()
+                .enumerate()
+                .find(|&(_, byte)| !(33..=126).contains(&byte))
+            {
+                return Err(FqcError::InvalidArgument(format!(
+                    "Quality value {} at position {} is outside Phred+33 range",
+                    byte, position
+                )));
+            }
+            if quality.len() != quality.chars().count() {
+                return Err(FqcError::InvalidArgument(
+                    "Quality strings must contain only single-byte Phred+33 characters".to_string(),
+                ));
+            }
         }
 
         self.ctx_model.reset();
@@ -465,21 +485,51 @@ impl QualityCompressor {
 
     /// Decompress quality data given per-read lengths
     pub fn decompress(&mut self, data: &[u8], lengths: &[u32]) -> Result<Vec<String>> {
-        if data.is_empty() || lengths.is_empty() {
+        if lengths.is_empty() {
+            return if data.is_empty() {
+                Ok(Vec::new())
+            } else {
+                Err(FqcError::Format("Quality stream has data for zero reads".to_string()))
+            };
+        }
+
+        if data.is_empty() {
             if self.config.quality_mode == QualityMode::Discard {
                 return Ok(lengths.iter().map(|&l| "!".repeat(l as usize)).collect());
             }
-            return Ok(lengths.iter().map(|_| String::new()).collect());
+            return Err(FqcError::Format(
+                "Quality stream is empty for a non-discard block".to_string(),
+            ));
         }
 
         if self.config.quality_mode == QualityMode::Discard {
-            return Ok(lengths.iter().map(|&l| "!".repeat(l as usize)).collect());
+            return Err(FqcError::Format(
+                "Discarded quality stream must not contain payload bytes".to_string(),
+            ));
         }
 
         // Arithmetic-coded stream after zstd; bound by total quality bytes * 2 + overhead.
         let total_q: usize = lengths.iter().map(|&l| l as usize).fold(0usize, usize::saturating_add);
+        if total_q == 0 {
+            let decoded = crate::memory_budget::zstd_decompress_bounded(data, 64, "quality")?;
+            // `ArithmeticEncoder::finish` emits the two bits `01` when no
+            // symbols were encoded, padded to one byte (0x40).  Keep this
+            // canonical marker strict so a random one-byte payload cannot be
+            // mistaken for a valid empty stream.
+            if decoded != [0x40] {
+                return Err(FqcError::Format("invalid empty arithmetic quality stream".to_string()));
+            }
+            return Ok(vec![String::new(); lengths.len()]);
+        }
         let max_out = total_q.saturating_mul(2).saturating_add(1024).max(64);
         let decoded = crate::memory_budget::zstd_decompress_bounded(data, max_out, "quality")?;
+        // The decoder intentionally pads missing tail bits with zero while
+        // priming its 32-bit state.  Short but valid streams (for example a
+        // single quality symbol) therefore contain fewer than four bytes;
+        // only an entirely empty decoded payload is unambiguously truncated.
+        if decoded.is_empty() {
+            return Err(FqcError::Format("Truncated arithmetic quality stream".to_string()));
+        }
 
         self.ctx_model.reset();
         let mut decoder = ArithmeticDecoder::new(&decoded);

@@ -70,6 +70,11 @@ impl ParserStats {
 
 use crate::algo::dna::is_valid_base;
 
+fn strip_line_ending(line: &str) -> &str {
+    let without_newline = line.strip_suffix('\n').unwrap_or(line);
+    without_newline.strip_suffix('\r').unwrap_or(without_newline)
+}
+
 /// Validate DNA sequence
 pub fn validate_sequence(seq: &str) -> std::result::Result<(), String> {
     for (i, b) in seq.bytes().enumerate() {
@@ -163,7 +168,7 @@ impl<R: BufRead> FastqParser<R> {
             return Ok(None);
         }
 
-        let id_line = self.line_buf.trim_end();
+        let id_line = strip_line_ending(&self.line_buf);
         if id_line.is_empty() {
             return Err(FqcError::Parse(format!(
                 "Line {}: Blank line encountered where FASTQ record header was expected",
@@ -182,6 +187,9 @@ impl<R: BufRead> FastqParser<R> {
         } else {
             (id_full.to_string(), String::new())
         };
+        // Owned copy of the full header name for the '+' line check below
+        // (`self.line_buf` is reused while reading subsequent lines).
+        let header_name = id_full.to_string();
         let mut raw_bytes = bytes1;
 
         // Read sequence line
@@ -192,7 +200,7 @@ impl<R: BufRead> FastqParser<R> {
                 self.line_number, id
             )));
         }
-        let sequence = self.line_buf.trim_end().to_string();
+        let sequence = strip_line_ending(&self.line_buf).to_string();
         raw_bytes += bytes2;
 
         // Read plus line
@@ -203,11 +211,23 @@ impl<R: BufRead> FastqParser<R> {
                 self.line_number, id
             )));
         }
-        let plus_line = self.line_buf.trim_end();
+        let plus_line = strip_line_ending(&self.line_buf);
         if !plus_line.starts_with('+') {
             return Err(FqcError::Parse(format!(
                 "Line {}: Expected '+' line in FASTQ record, got: {}",
                 self.line_number, plus_line
+            )));
+        }
+        // The optional name after '+' may identify either the complete header
+        // text or its identifier token. Both forms occur in valid FASTQ data.
+        let plus_name = plus_line[1..].trim();
+        if !plus_name.is_empty() && plus_name != header_name.trim_end() && plus_name != id.as_str() {
+            return Err(FqcError::Parse(format!(
+                "Record {} ('{}'): '+' line name '{}' does not match header name '{}'",
+                self.record_number + 1,
+                id,
+                plus_name,
+                header_name
             )));
         }
         raw_bytes += bytes3;
@@ -220,7 +240,7 @@ impl<R: BufRead> FastqParser<R> {
                 self.line_number, id
             )));
         }
-        let quality = self.line_buf.trim_end().to_string();
+        let quality = strip_line_ending(&self.line_buf).to_string();
         raw_bytes += bytes4;
 
         if sequence.len() != quality.len() {
@@ -319,13 +339,25 @@ impl<R: BufRead> FastqParser<R> {
 /// Auto-detects gzip, bzip2, xz, and zstd by magic bytes or extension.
 pub fn open_fastq(path: &str) -> Result<FastqParser<BufReader<Box<dyn Read + Send>>>> {
     let reader = crate::io::compressed_stream::open_buffered_reader(path)?;
-    Ok(FastqParser::new(reader))
+    Ok(FastqParser::with_options(
+        reader,
+        ParserOptions {
+            validate_quality: true,
+            ..Default::default()
+        },
+    ))
 }
 
 /// Open stdin for FASTQ reading (plain text only)
 pub fn open_fastq_stdin() -> FastqParser<BufReader<Box<dyn Read + Send>>> {
     let reader = crate::io::compressed_stream::open_stdin_reader();
-    FastqParser::new(BufReader::new(reader))
+    FastqParser::with_options(
+        BufReader::new(reader),
+        ParserOptions {
+            validate_quality: true,
+            ..Default::default()
+        },
+    )
 }
 
 /// Paired-end interleaved reader: alternates R1/R2 records

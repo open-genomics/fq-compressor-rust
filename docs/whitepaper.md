@@ -6,7 +6,7 @@
   版本 0.1.1 &middot; 2026年5月 &middot; GPL-3.0 许可证
 </div>
 <div class="whitepaper-abstract">
-  <strong>摘要。</strong> 我们介绍 fqc，一款用纯 Rust 编写的领域感知 FASTQ 压缩引擎。fqc 通过块索引归档、组件级编码策略和读长自适应编解码器选择的新颖组合实现了有竞争力的压缩比。归档格式通过尾部嵌入的块索引支持 O(log N) 随机访问。三种执行模式 &mdash; Archive、Streaming 和 Pipeline &mdash; 在不产生格式碎片的前提下实现灵活的内存-吞吐量权衡。实现包含零 unsafe 代码，专为生产级生物信息学工作流而设计。
+  <strong>摘要。</strong> 我们介绍 fqc，一款用纯 Rust 编写的领域感知 FASTQ 压缩引擎。fqc 通过块索引归档、组件级编码策略和读长自适应编解码器选择的新颖组合实现了有竞争力的压缩比。归档格式通过尾部嵌入的块索引支持 O(log N) 随机访问。三种执行模式 &mdash; Archive、Streaming 和 Pipeline &mdash; 在不产生格式碎片的前提下实现灵活的内存-吞吐量权衡。实现除 Windows 内存探测外零 unsafe 代码，专为生产级生物信息学工作流而设计。
 </div>
 </div>
 
@@ -20,7 +20,7 @@
 2. **组件级编码**（ID、序列、质量值、辅助数据各使用独立调优的编解码器）
 3. **读长自适应编解码器选择**（短读段用 ABC，中长读段用 Zstd）
 4. **三种执行模式**，产生相同的输出格式
-5. **纯 Rust 内存安全实现**，零 unsafe 代码
+5. **纯 Rust 内存安全实现**，除 Windows 内存探测外零 unsafe 代码
 
 本文描述 fqc 的设计、实现和评估。
 
@@ -164,35 +164,6 @@ ABC 在覆盖深度产生许多近相同读段的 Illumina 短读段数据上特
 
 fqc 提供三种产生相同 `.fqc` 输出的执行模式，允许用户在内存、压缩比和吞吐量之间权衡：
 
-### 5.1 Archive 模式（默认）
-
-- **内存**：完全摄入（将整个输入读入内存）
-- **重排**：短单端读段启用
-- **压缩**：最佳压缩比
-- **场景**：生产归档、长期存储
-
-Archive 模式执行全局分析，包括长度分类、相似性分组和可选重排。重排按相似性排序读段以提高差分编码效率。
-
-### 5.2 Streaming 模式（`--streaming`）
-
-- **内存**：有界（可配置块缓冲）
-- **重排**：禁用（保留输入顺序）
-- **压缩**：良好压缩比
-- **场景**：大文件、内存受限环境
-
-Streaming 模式增量处理读段而不进行全局分析。这对于大于可用 RAM 的文件至关重要。
-
-### 5.3 Pipeline 模式（`--pipeline`）
-
-- **内存**：分阶段（读取器/压缩器/写入器并发）
-- **重排**：禁用
-- **压缩**：良好压缩比与并行吞吐量
-- **场景**：高吞吐量生产流程
-
-Pipeline 模式使用带在途块缓冲的生产者-消费者模式。读取器、压缩器和写入器并发执行，在多核系统上最大化吞吐量。
-
-### 5.4 模式选择
-
 | 模式 | 标志 | 内存 | 吞吐量 | 压缩比 |
 |------|------|------|--------|--------|
 | Archive | （默认） | 高 | 中等 | 最佳 |
@@ -200,6 +171,8 @@ Pipeline 模式使用带在途块缓冲的生产者-消费者模式。读取器�
 | Pipeline | `--pipeline` | 中等 | 高 | 良好 |
 
 关键在于所有模式产生相同的输出格式，因此模式选择是运维决策而非格式承诺。
+
+各模式的逐项行为（内存模型、重排启用、并发结构）详见[执行模式指南](guide/modes.md)。
 
 ## 6. 实现
 
@@ -210,11 +183,9 @@ fqc 实现为单二进制 Rust CLI，具有清晰分离的层次：
 ```
 src/
   main.rs                 # CLI 入口点
+  lib.rs                  # 库导出
   commands/               # 命令实现
-    compress.rs
-    decompress.rs
-    info.rs
-    verify.rs
+    compress.rs / decompress.rs / info.rs / verify.rs
   engine/                 # 压缩编排
     compression_engine.rs    # 执行模式路由
     compression_request.rs   # 请求规范化
@@ -222,23 +193,33 @@ src/
     abc.rs                # 锚定压缩
     block_compressor.rs   # 块级协调器
     quality_compressor.rs # SCM 质量压缩
+    id_compressor.rs      # ID tokenize/delta 编码
     global_analyzer.rs    # 最小化器提取、重排
+    zstd_sequence.rs / dna.rs / aux_compressor.rs
   archive/                # .fqc 归档
     format.rs             # 二进制布局
-    writer.rs
-    reader.rs
+    reader.rs / writer.rs / traits.rs
   pipeline/               # 并行处理阶段
+    compression.rs / decompression.rs
+  fastq/                  # FASTQ 解析
+    parser.rs
+  io/                     # 压缩输入流与事务输出
+    compressed_stream.rs / async_io.rs / output_transaction.rs
+  memory_budget.rs        # 内存预算估计
+  error.rs                # 错误类型与退出码
   types.rs                # 公共类型和默认值
 ```
 
 ### 6.2 安全与正确性
 
-实现包含**零 unsafe 代码**。所有内存管理由 Rust 所有权系统处理。这是深思熟虑的设计选择：生物信息学工具通常处理不受信任的输入（下载的测序数据），使内存安全成为安全问题。
+实现除 Windows 内存探测（`GlobalMemoryStatusEx` FFI，见 `src/memory_budget.rs`）外不包含
+**unsafe 代码**。其余所有内存管理由 Rust 所有权系统处理。这是深思熟虑的设计选择：
+生物信息学工具通常处理不受信任的输入（下载的测序数据），使内存安全成为安全问题。
 
 项目强制执行：
 
 - `cargo clippy` 配 `-D warnings`
-- `cargo test` 含约 190 个单元和集成测试
+- `cargo test` 含 215 个单元和集成测试（2026-08 实测）
 - Criterion 基准测试用于性能回归检测
 - MSRV 1.75.0 以确保广泛的工具链兼容性
 
@@ -264,7 +245,8 @@ fqc 构建为单静态二进制文件，除 libc 外无运行时依赖。这支�
 | 解压时间 | 94 ms |
 | 验证时间 | 92 ms |
 
-虽然此测试数据集较小，但该压缩比与高相似性短读段数据的预期一致。
+虽然此测试数据集较小，但该压缩比与高相似性短读段数据的预期一致。真实 Illumina WXS
+语料（ENA 公开切片）上的短读压缩比约 4.03&times;，见[真实语料压缩/吞吐](real-corpus.md)（2026-08 收尾测量）。
 
 ### 7.2 与先前工作的比较
 
@@ -284,14 +266,8 @@ fqc 构建为单静态二进制文件，除 libc 外无运行时依赖。这支�
 
 ### 7.3 运维属性
 
-| 属性 | fqc | gzip | DSRC 2 | Spring |
-|------|-----|------|--------|--------|
-| 单二进制 | 是 | 是 | 是 | 否 |
-| Info/verify 命令 | 是 | 否 | 否 | 否 |
-| 双端支持 | 是 | 不适用 | 是 | 是 |
-| 内存安全 | 是 | 否 | 否 | 否 |
-| 有损质量值 | 是 | 否 | 否 | 是 |
-| 块索引 | 是 | 否 | 否 | 否 |
+fqc 与通用/领域压缩器的完整功能对比矩阵（随机访问、流式、内存安全、质量值模式、
+工程特性等）见[竞品深度对比](comparison.md)。
 
 ## 8. 结论
 
@@ -375,5 +351,45 @@ fqc 证明了领域感知 FASTQ 压缩可以通过现代软件工程实践实现
     <span class="ref-title">"A universal algorithm for sequential data compression."</span>
     <span class="ref-journal">IEEE Trans. Information Theory</span>, 23(3), 337&ndash;343 (1977).
     <a href="https://doi.org/10.1109/TIT.1977.1055714" class="ref-link">DOI</a>
+  </li>
+  <li>
+    <span class="ref-number">[11]</span>
+    <span class="ref-authors">Shannon, C.E.</span>
+    <span class="ref-title">"A mathematical theory of communication."</span>
+    <span class="ref-journal">Bell System Technical Journal</span>, 27(3), 379&ndash;423 (1948).
+    <a href="https://doi.org/10.1002/j.1538-7305.1948.tb01338.x" class="ref-link">DOI</a>
+    <span class="ref-note">&mdash; 香农熵，压缩基本极限</span>
+  </li>
+  <li>
+    <span class="ref-number">[12]</span>
+    <span class="ref-authors">Yu, Z. 等</span>
+    <span class="ref-title">"Quality score compression improves genotyping accuracy."</span>
+    <span class="ref-journal">Nature Biotechnology</span>, 38, 1184&ndash;1188 (2020).
+    <a href="https://doi.org/10.1038/s41587-020-0552-1" class="ref-link">DOI</a>
+    <span class="ref-note">&mdash; 有损质量压缩与下游分析影响</span>
+  </li>
+  <li>
+    <span class="ref-number">[13]</span>
+    <span class="ref-authors">Ferragina, P. &amp; Venturini, R.</span>
+    <span class="ref-title">"Compressed cache-oblivious string B-tree."</span>
+    <span class="ref-journal">Theoretical Computer Science</span>, 412(29), 3555&ndash;3568 (2011).
+    <a href="https://doi.org/10.1016/j.tcs.2011.02.023" class="ref-link">DOI</a>
+    <span class="ref-note">&mdash; 压缩-访问权衡理论</span>
+  </li>
+  <li>
+    <span class="ref-number">[14]</span>
+    <span class="ref-authors">Manzini, G.</span>
+    <span class="ref-title">"An analysis of the Burrows-Wheeler transform."</span>
+    <span class="ref-journal">Journal of the ACM</span>, 48(3), 407&ndash;430 (2001).
+    <a href="https://doi.org/10.1145/382780.382782" class="ref-link">DOI</a>
+    <span class="ref-note">&mdash; BWT 理论及其压缩特性</span>
+  </li>
+  <li>
+    <span class="ref-number">[15]</span>
+    <span class="ref-authors">Koslicki, D. &amp; Falush, D.</span>
+    <span class="ref-title">"Introduction to compression strategies in Bioinformatics."</span>
+    <span class="ref-journal">Briefings in Bioinformatics</span>, 13(3), 305&ndash;313 (2012).
+    <a href="https://doi.org/10.1093/bib/bbr073" class="ref-link">DOI</a>
+    <span class="ref-note">&mdash; DNA 压缩技术综述</span>
   </li>
 </ol>

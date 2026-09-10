@@ -88,6 +88,10 @@ v2.0 = (2 << 4) | 0 = 0x20
 | `READ_LENGTH_CLASS` | 10-11 | 读长类别 (0-3) |
 | `STREAMING_MODE` | 12 | 流式模式标志 |
 
+位 2 以及 12 以外的高位目前均为保留位，必须为 0；读取器不会把未知值
+静默降级为默认模式。枚举值当前仅接受 `QUALITY_MODE` 0-3、`ID_MODE` 0-2、
+`PE_LAYOUT` 0-1 和 `READ_LENGTH_CLASS` 0-2。
+
 ## Block 结构
 
 每个 Block 包含一个 Block Header 和多个压缩流。
@@ -134,6 +138,12 @@ flowchart TD
 | 88 | 8 | size_qual | u64 LE | 质量流大小 |
 | 96 | 8 | size_aux | u64 LE | 辅助流大小 |
 
+块内四条流必须按 `IDs → Seq → Qual → Aux` 连续排列：
+`offset_ids = 0`，`offset_seq = size_ids`，`offset_qual = size_ids + size_seq`，
+`offset_aux = size_ids + size_seq + size_qual`，且四条流大小之和必须等于
+`compressed_size`。索引条目的 `compressed_size` 必须等于 `header_size + compressed_size`，
+块之间不得有重叠或未声明的空洞。
+
 ### Stream 类型
 
 | 流类型 | 描述 | 可能使用的编解码器族 |
@@ -155,10 +165,10 @@ codec_byte = (family_nibble << 4) | (version_nibble & 0x0F)
 
 ### 编解码器族表
 
-| 族值 (高 nibble) | 族名称 | 描述 | 当前 version 0 的字节值 |
+| 族值 (高 nibble) | 族名称 | 描述 | 当前字节值 |
 |-------------------|--------|------|------------------------|
 | 0x0 | Raw | 未压缩原始数据 | `0x00` |
-| 0x1 | AbcV1 | 锚基压缩 (短读段) | `0x10` |
+| 0x1 | AbcV1 | 锚基压缩 (短读段)；低 nibble `0` 为历史 V1/V2 载荷，`1` 为无损 V3 载荷 | `0x10` / `0x11` |
 | 0x2 | ScmV1 | SCM 质量压缩 (Order2) | `0x20` |
 | 0x3 | DeltaLzma | Delta + LZMA 压缩 | `0x30` |
 | 0x4 | DeltaZstd | Delta + Zstd 压缩 | `0x40` |
@@ -173,12 +183,14 @@ codec_byte = (family_nibble << 4) | (version_nibble & 0x0F)
 
 | 流类型 | 当前使用的族 | 场景 |
 |--------|-------------|------|
-| IDs | Raw, DeltaVarint, DeltaZstd | 根据 IdMode 选择 |
+| IDs | Raw, DeltaZstd（内部 payload 可为 exact/tokenize/discard） | 根据 IdMode 选择 |
 | Seq | AbcV1 (短读段), ZstdPlain (中/长读段) | 根据 ReadLengthClass 选择 |
 | Qual | Raw (Discard), ScmV1 / ScmOrder1（Lossless、Illumina8、Qvz 量化后仍走 SCM） | 根据 QualityMode 选择 |
-| Aux | Raw, DeltaVarint | 辅助元数据 |
+| Aux | DeltaVarint | 辅助元数据 |
 
-读取器遇到未知族时返回 unsupported-codec 错误，不回退到默认编解码器。
+读取器遇到未知族或不支持的版本时返回 unsupported-codec 错误，不回退到默认
+编解码器。当前仅接受 `AbcV1` 的版本 0/1；版本 1 必须携带 ABC V3 载荷，
+版本 0 用于兼容历史 ABC V1/V2 载荷。
 
 ## Reorder Map
 
@@ -193,6 +205,9 @@ codec_byte = (family_nibble << 4) | (version_nibble & 0x0F)
 | 8 | 8 | total_reads | u64 LE | 总读段数 |
 | 16 | 8 | forward_map_size | u64 LE | 正向映射大小 |
 | 24 | 8 | reverse_map_size | u64 LE | 反向映射大小 |
+
+`version` 当前必须为 1。解压后的 forward/reverse 数组都必须是
+`0..total_reads` 的完整置换，并且互为逆映射；重复、越界或不一致的映射会被拒绝。
 
 ## Block Index
 
@@ -260,7 +275,9 @@ MAGIC_END = [b'F', b'Q', b'C', b'_', b'E', b'O', b'F', 0x00]
 | 1-255 | Reserved | 保留 |
 
 校验和类型 `0` 表示 XxHash64，不表示"无校验和"。GlobalHeader 和
-BlockHeader 中的 checksum_type 字段当前始终为 `0`。
+BlockHeader 中的 checksum_type 字段当前始终为 `0`。完全无损且未丢弃 ID 的块
+写入逻辑校验和；质量有损或 ID 丢弃时该字段为 `0`，此时由 footer 的压缩流校验和
+覆盖字节级完整性，不能把逻辑校验和误当作有损结果的校验。
 
 ## 实现注意事项
 

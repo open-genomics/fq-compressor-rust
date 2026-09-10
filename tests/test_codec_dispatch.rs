@@ -161,7 +161,7 @@ fn rejects_unsupported_codec_version() {
     let reads = sample_reads();
     let mut c = compressor();
     let compressed = c.compress(&reads, 0).unwrap();
-    let bad = encode_codec(CodecFamily::AbcV1, 1); // version 1 unimplemented
+    let bad = encode_codec(CodecFamily::ZstdPlain, 1); // version 1 unimplemented
     let err = c
         .decompress_raw(
             3,

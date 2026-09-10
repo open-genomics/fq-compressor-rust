@@ -132,6 +132,16 @@ impl VerifyCommand {
             }
         }
 
+        // A reorder map is part of the archive's integrity contract even when
+        // the caller only asks for a quick verification. Decode and validate
+        // both permutations so a corrupt map cannot be reported as healthy.
+        if reader.has_reorder_map() {
+            reader.load_reorder_map()?;
+            if self.opts.verbose {
+                println!("Reorder map: OK");
+            }
+        }
+
         // In quick mode, we only verify magic + footer + global checksum
         if self.opts.quick_mode {
             if self.opts.verbose {
@@ -188,21 +198,8 @@ impl VerifyCommand {
 
     fn verify_block(&self, reader: &mut FqcReader, compressor: &mut BlockCompressor, block_id: u32) -> Result<u64> {
         let block_data = reader.read_block(block_id)?;
-        let bh = &block_data.header;
-
         // Decompress the block first to verify data integrity
         let decompressed = compressor.decompress_block(&block_data)?;
-
-        // Verify checksum against decompressed reads
-        if bh.block_xxhash64 != 0 {
-            let computed = crate::algo::block_compressor::compute_block_checksum(&decompressed.reads);
-            if computed != bh.block_xxhash64 {
-                return Err(FqcError::ChecksumMismatch {
-                    expected: bh.block_xxhash64,
-                    actual: computed,
-                });
-            }
-        }
 
         // Validate each read
         for read in &decompressed.reads {

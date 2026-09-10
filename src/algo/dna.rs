@@ -66,6 +66,26 @@ pub const COMPLEMENT: [u8; 256] = {
     t[b't' as usize] = b'a';
     t[b'N' as usize] = b'N';
     t[b'n' as usize] = b'n';
+    t[b'R' as usize] = b'Y';
+    t[b'r' as usize] = b'y';
+    t[b'Y' as usize] = b'R';
+    t[b'y' as usize] = b'r';
+    t[b'S' as usize] = b'S';
+    t[b's' as usize] = b's';
+    t[b'W' as usize] = b'W';
+    t[b'w' as usize] = b'w';
+    t[b'K' as usize] = b'M';
+    t[b'k' as usize] = b'm';
+    t[b'M' as usize] = b'K';
+    t[b'm' as usize] = b'k';
+    t[b'B' as usize] = b'V';
+    t[b'b' as usize] = b'v';
+    t[b'V' as usize] = b'B';
+    t[b'v' as usize] = b'b';
+    t[b'D' as usize] = b'H';
+    t[b'd' as usize] = b'h';
+    t[b'H' as usize] = b'D';
+    t[b'h' as usize] = b'd';
     t
 };
 

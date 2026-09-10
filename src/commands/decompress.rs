@@ -746,6 +746,12 @@ impl DecompressCommand {
                 "--split-pe cannot be used with stdout output".to_string(),
             ));
         }
+        if self.opts.range_start > 0 && self.opts.range_end > 0 && self.opts.range_start > self.opts.range_end {
+            return Err(FqcError::InvalidArgument(format!(
+                "Invalid read range: start {} is greater than end {}",
+                self.opts.range_start, self.opts.range_end
+            )));
+        }
         Ok(())
     }
 

@@ -22,9 +22,19 @@ fn compute_kmer_hash(seq: &[u8]) -> u64 {
     let mut hash: u64 = 0;
     let mut rc_hash: u64 = 0;
     for i in 0..k {
-        let base = BASE_TO_INDEX[seq[i] as usize] as u64;
+        // The minimizer hash uses a two-bit alphabet. Ambiguous/unknown
+        // symbols are mapped deterministically to A instead of allowing the
+        // N marker (index 4) to underflow the reverse-complement calculation.
+        let base = match BASE_TO_INDEX[seq[i] as usize] {
+            index @ 0..=3 => u64::from(index),
+            _ => 0,
+        };
         hash = (hash << 2) | base;
-        let rc_base = 3 - BASE_TO_INDEX[seq[k - 1 - i] as usize] as u64;
+        let rc_index = match BASE_TO_INDEX[seq[k - 1 - i] as usize] {
+            index @ 0..=3 => u64::from(index),
+            _ => 0,
+        };
+        let rc_base = 3 - rc_index;
         rc_hash = (rc_hash << 2) | rc_base;
     }
     hash.min(rc_hash)
@@ -32,7 +42,7 @@ fn compute_kmer_hash(seq: &[u8]) -> u64 {
 
 pub fn extract_minimizers(seq: &[u8], k: usize, w: usize) -> Vec<Minimizer> {
     let mut minimizers = Vec::new();
-    if seq.len() < k {
+    if k == 0 || w == 0 || seq.len() < k {
         return minimizers;
     }
 

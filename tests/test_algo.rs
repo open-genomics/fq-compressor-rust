@@ -2,7 +2,7 @@
 // fqc-rust - Algorithm Module Tests (ID Compressor, Quality Compressor, PE Optimizer)
 // =============================================================================
 
-use fqc::algo::global_analyzer::{GlobalAnalyzer, GlobalAnalyzerConfig};
+use fqc::algo::global_analyzer::{extract_minimizers, GlobalAnalyzer, GlobalAnalyzerConfig};
 use fqc::algo::id_compressor::{compress_ids, decompress_ids, ID_MAGIC_EXACT, ID_MAGIC_TOKENIZE};
 use fqc::algo::quality_compressor::{QualityCompressor, QualityCompressorConfig};
 use fqc::types::*;
@@ -170,6 +170,20 @@ fn test_quality_compress_decompress_varied_lengths() {
 }
 
 #[test]
+fn test_quality_compress_decompress_single_symbol() {
+    let qualities = ["I"];
+    let refs: Vec<&str> = qualities.to_vec();
+    let config = QualityCompressorConfig {
+        quality_mode: QualityMode::Lossless,
+        ..Default::default()
+    };
+    let mut compressor = QualityCompressor::new(config.clone());
+    let compressed = compressor.compress(&refs).unwrap();
+    let mut decompressor = QualityCompressor::new(config);
+    assert_eq!(decompressor.decompress(&compressed, &[1]).unwrap(), qualities);
+}
+
+#[test]
 fn test_quality_qvz_quantizes_to_codebook() {
     let qualities = ["!#I~"];
     let refs: Vec<&str> = qualities.to_vec();
@@ -209,4 +223,11 @@ fn test_global_analyzer_respects_requested_block_size() {
     assert_eq!(result.block_boundaries[0].archive_id_end, 3);
     assert_eq!(result.block_boundaries[3].archive_id_start, 9);
     assert_eq!(result.block_boundaries[3].archive_id_end, 10);
+}
+
+#[test]
+fn test_minimizers_handle_ambiguous_bases_and_zero_window() {
+    let minimizers = extract_minimizers(b"ACGTNNACGT", 3, 2);
+    assert!(!minimizers.is_empty());
+    assert!(extract_minimizers(b"ACGT", 3, 0).is_empty());
 }

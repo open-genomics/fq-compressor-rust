@@ -177,6 +177,18 @@ fn test_parser_with_validation() {
     assert!(err_msg.contains("Invalid base"));
 }
 
+#[test]
+fn test_quality_validation_does_not_trim_invalid_trailing_space() {
+    let data = b"@r1\nACGT\n+\nIII \n";
+    let reader = BufReader::new(data.as_slice());
+    let opts = ParserOptions {
+        validate_quality: true,
+        ..Default::default()
+    };
+    let mut parser = FastqParser::with_options(reader, opts);
+    assert!(parser.next_record().is_err());
+}
+
 // =============================================================================
 // Error Cases
 // =============================================================================

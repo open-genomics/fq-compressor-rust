@@ -40,7 +40,19 @@ impl SequenceCompressor for ZstdSequenceCompressor {
 
     fn decompress(&self, data: &[u8], read_count: u32, uniform_length: u32, lengths: &[u32]) -> Result<Vec<String>> {
         if data.is_empty() {
-            return Ok(vec![String::new(); read_count as usize]);
+            return if read_count == 0 {
+                Ok(Vec::new())
+            } else {
+                Err(FqcError::Format(
+                    "Zstd sequence stream is empty for a non-empty block".to_string(),
+                ))
+            };
+        }
+        if uniform_length == 0 && lengths.len() != read_count as usize {
+            return Err(FqcError::Format(format!(
+                "Zstd sequence stream received {} lengths for {read_count} reads",
+                lengths.len()
+            )));
         }
 
         let bases: u64 = if uniform_length > 0 {
@@ -58,14 +70,30 @@ impl SequenceCompressor for ZstdSequenceCompressor {
         let mut sequences = Vec::with_capacity(read_count as usize);
         let mut cur = Cursor::new(&buf);
 
-        for _ in 0..read_count {
+        for index in 0..read_count as usize {
             let len = cur
                 .read_u32::<LittleEndian>()
                 .map_err(|e| FqcError::Format(format!("Truncated sequence data: {e}")))?;
+            let expected_len = if uniform_length > 0 {
+                uniform_length
+            } else {
+                lengths[index]
+            };
+            if len != expected_len {
+                return Err(FqcError::Format(format!(
+                    "Zstd sequence length {len} disagrees with aux length {expected_len} at read {index}"
+                )));
+            }
             let mut seq = vec![0u8; len as usize];
             cur.read_exact(&mut seq)
                 .map_err(|e| FqcError::Format(format!("Truncated sequence bytes: {e}")))?;
-            sequences.push(String::from_utf8_lossy(&seq).into_owned());
+            sequences.push(
+                String::from_utf8(seq)
+                    .map_err(|e| FqcError::Format(format!("Invalid UTF-8 in sequence stream: {e}")))?,
+            );
+        }
+        if cur.position() as usize != buf.len() {
+            return Err(FqcError::Format("Zstd sequence stream has trailing bytes".to_string()));
         }
 
         Ok(sequences)

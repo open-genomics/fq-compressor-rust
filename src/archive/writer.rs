@@ -138,6 +138,7 @@ impl FqcWriter {
 
     /// Write reorder map. Returns the offset where it was written.
     pub fn write_reorder_map(&mut self, forward_map: &[u64], reverse_map: &[u64]) -> Result<u64> {
+        Self::validate_reorder_maps(forward_map, reverse_map)?;
         let map_offset = self.current_offset;
         self.reorder_map_offset = map_offset;
 
@@ -153,7 +154,7 @@ impl FqcWriter {
 
         // Write reorder map header
         let rmh = ReorderMapHeader {
-            version: 1,
+            version: REORDER_MAP_VERSION,
             total_reads: forward_map.len() as u64,
             forward_map_size: forward_compressed.len() as u64,
             reverse_map_size: reverse_compressed.len() as u64,
@@ -168,6 +169,66 @@ impl FqcWriter {
         self.current_offset += total as u64;
 
         Ok(map_offset)
+    }
+
+    fn validate_reorder_maps(forward: &[u64], reverse: &[u64]) -> Result<()> {
+        if forward.len() != reverse.len() {
+            return Err(FqcError::InvalidArgument(
+                "forward and reverse reorder maps must have the same length".to_string(),
+            ));
+        }
+        if forward
+            .iter()
+            .chain(reverse.iter())
+            .any(|&value| value > i64::MAX as u64)
+        {
+            return Err(FqcError::InvalidArgument(
+                "reorder map values must fit in signed delta encoding".to_string(),
+            ));
+        }
+        let n = forward.len() as u64;
+        let mut seen_forward = vec![false; forward.len()];
+        for (original, &archive) in forward.iter().enumerate() {
+            if archive >= n {
+                return Err(FqcError::InvalidArgument(format!(
+                    "forward reorder map value {archive} is outside 0..{n}"
+                )));
+            }
+            let archive_index = archive as usize;
+            if seen_forward[archive_index] {
+                return Err(FqcError::InvalidArgument(format!(
+                    "forward reorder map contains duplicate archive id {archive}"
+                )));
+            }
+            seen_forward[archive_index] = true;
+            if reverse[archive_index] != original as u64 {
+                return Err(FqcError::InvalidArgument(format!(
+                    "reorder maps disagree at original id {original}"
+                )));
+            }
+        }
+
+        let mut seen_reverse = vec![false; reverse.len()];
+        for (archive, &original) in reverse.iter().enumerate() {
+            if original >= n {
+                return Err(FqcError::InvalidArgument(format!(
+                    "reverse reorder map value {original} is outside 0..{n}"
+                )));
+            }
+            let original_index = original as usize;
+            if seen_reverse[original_index] {
+                return Err(FqcError::InvalidArgument(format!(
+                    "reverse reorder map contains duplicate original id {original}"
+                )));
+            }
+            seen_reverse[original_index] = true;
+            if forward[original_index] != archive as u64 {
+                return Err(FqcError::InvalidArgument(format!(
+                    "reorder maps disagree at archive id {archive}"
+                )));
+            }
+        }
+        Ok(())
     }
 
     /// Finalize the archive: write block index and footer.
