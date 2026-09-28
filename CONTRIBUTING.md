@@ -6,7 +6,7 @@
 
 - 通读 [README.md](README.md) 与 [docs/](docs/README.md)
 - 领域语言见 [CONTEXT.md](CONTEXT.md)
-- 大改动（格式、兼容性、安全/资源）先走 `openspec/` 变更流程，见 [openspec/AGENTS.md](openspec/AGENTS.md)
+- 非平凡改动（行为、架构、跨文件契约、流程/工具链、测试策略、落盘/网络/配置格式）必带一篇 Agent Note，记录动机与被否方案，见 `.agents/notes/`；写完跑 `npm run verify-notes`（原 `openspec/` 变更流程已停用，`openspec/specs/` 仅作能力规范参照）
 
 ## 提交 issue
 
@@ -22,7 +22,7 @@ bug 报告请附上复现命令、输入数据（或最小切片）与期望行�
    - `cargo test --lib --tests`
    - `cargo doc --no-deps`
 3. 提交信息用 Conventional Commits（`feat:` / `fix:` / `docs:` / `refactor:` / `test:` / `chore:` 等）
-4. 若改了 CLI 行为或默认值，同步更新 [README.md](README.md) 与 [docs/guide/cli.md](docs/guide/cli.md)
+4. 若改了 CLI 行为或默认值，同步更新 [README.md](README.md) 与 [docs/reference/cli.md](docs/reference/cli.md)
 
 ## 风格约束
 

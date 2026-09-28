@@ -1,5 +1,11 @@
 # OpenSpec AI Agent Guide
 
+> **Status: superseded.** Decision records moved to `.agents/notes/` (see
+> `.agents/notes/implemented/process/2026-09-27-agent-notes-replace-openspec.md`).
+> Do not create new `openspec/changes/`. The two in-flight changes may finish
+> under this workflow; `openspec/specs/` remains a read-only capability-spec
+> reference. Everything below is kept for the in-flight changes and history.
+
 ## When to use this workflow
 
 Use the lightweight change workflow for high-risk changes:

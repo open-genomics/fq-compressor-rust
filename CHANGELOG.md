@@ -23,6 +23,14 @@
 
 ### Changed
 
+- docs 按 Diátaxis 重组为 `tutorials/`、`how-to/`、`reference/`、`explanation/` 四象限，
+  `docs/README.md` 改为按用户目标索引；`cli.md` 归入 `reference/`、`quick-start.md` 归入
+  `tutorials/`、基准与测量报告归入 `reference/`；README 与 guide 重复的安装/常用命令/
+  `--memory-limit` 段落收敛为指向 canonical 文档的薄链接。
+- 决策记录收敛到 `.agents/notes/`（Agent Note，npm scripts `verify-notes` 校验，
+  不进 CI）：`openspec/` 变更流程停用（`openspec/specs/` 保留为能力规范参照），
+  `docs/architecture/decisions/` 的三篇 ADR 折叠为 `implemented/architecture/` 下的
+  Note 后删除。
 - README 首屏格式族说明重写为两实现对照表（仓库、实现语言、格式族 ID、完整 magic、
   访问模型、对方链接），并新增同名二进制 `fqc` 的 `PATH` 覆盖风险提醒。对应 openspec
   变更 `document-fqc-format-family`（verification 标注 ready-to-archive=no，待独立

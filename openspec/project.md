@@ -1,5 +1,11 @@
 # fqc (Rust) — Project Context
 
+> **Superseded for new work**: the OpenSpec change workflow is retired; record
+> non-trivial decisions as Agent Notes under `.agents/notes/`. `openspec/specs/`
+> below remains the capability-spec reference; `openspec/changes/archive/` is
+> historical evidence.
+
+
 ## Identity
 
 - **Canonical repository**: `open-genomics/fq-compressor-rust`
@@ -44,7 +50,9 @@ cargo doc --no-deps
 - Models must not commit, push, create PRs, or publish without explicit
   authorization.
 - High-risk changes (format, compatibility, security/resource) use the
-  lightweight OpenSpec change workflow described in `openspec/AGENTS.md`.
+  lightweight OpenSpec change workflow described in `openspec/AGENTS.md`
+  (retired for new changes — record decisions as Agent Notes under
+  `.agents/notes/` instead).
 - Low-risk fixes may follow the repository's existing process directly.
 
 ## Decision index

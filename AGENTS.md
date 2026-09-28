@@ -9,10 +9,13 @@ lightweight, nimble, and low-maintenance:
 
 - Prefer fixing drift and simplifying structure over speculative features
 - No heavy process: single lightweight CI workflow (four-gate); no docs-site build
-- High-risk changes (format, compatibility, security/resource) use lightweight
-  pure-Markdown OpenSpec changes under `openspec/changes/`; no Node.js, global CLI,
-  dashboard, or tool-specific configuration directories
-- Small low-risk fixes may follow the repository's existing process directly
+- Non-trivial changes (behavior, architecture, cross-file contracts, process,
+  testing strategy, on-disk/wire/config formats) must carry an Agent Note under
+  `.agents/notes/` recording the why and rejected alternatives; purely mechanical
+  edits are exempt. Convention adopted in
+  `.agents/notes/implemented/process/2026-09-27-agent-notes-replace-openspec.md`
+- The former OpenSpec change workflow under `openspec/changes/` is retired;
+  `openspec/specs/` remains as capability-spec reference
 - Breaking changes are allowed; backward compatibility is not guaranteed
 
 ## Source of truth
@@ -20,9 +23,11 @@ lightweight, nimble, and low-maintenance:
 | Source | Purpose |
 |--------|---------|
 | `src/` | Implementation (wins over any document when they disagree) |
-| `CONTEXT.md` | Domain language and concepts |
+| `CONTEXT.md` | Domain vocabulary (contig, minimizer, SCM, streams); read before `algo/` or `archive/` work when terms are unfamiliar |
 | `docs/` | Plain-Markdown technical docs (whitepaper, architecture, algorithms, format spec) |
 | `CHANGELOG.md` | Single-file change history |
+| `.agents/notes/` | Decision records: why changes were made and what was rejected |
+| `openspec/specs/` | Capability specs (read-only reference; change workflow retired) |
 
 Do not treat old chat context or outdated documents as authoritative when they
 disagree with the code.
@@ -92,14 +97,17 @@ cargo fmt --all -- --check
 cargo clippy --all-targets -- -D warnings
 cargo test --lib --tests
 cargo doc --no-deps
+npm run verify-notes   # only when .agents/notes/ changed (needs Node/tsx via npx)
 ```
 
 ## Editing guardrails
 
 - Keep changes small and complete; delete or rewrite stale material instead of
   preserving low-value legacy content
-- When changing CLI defaults or behavior, sync `README.md` and `docs/guide/cli.md`
+- When changing CLI defaults or behavior, sync `README.md` and `docs/reference/cli.md`
 - Use `log` crate for status logging; keep `stdout`/`stderr` user-facing
+- Facts recorded in an existing Agent Note (paths, names, defaults) are updated
+  in place; a reversed decision gets a new note with interlinks, never a rewrite
 
 ## Troubleshooting
 

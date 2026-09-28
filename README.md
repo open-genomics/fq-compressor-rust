@@ -18,6 +18,9 @@
 扩展名 `.fqc` 不能判定格式：reader 必须检查 archive magic，两个实现以显式的
 unsupported-format-family 错误拒绝对方的 magic，不能互相解码。
 
+> **同名二进制 `PATH` 覆盖风险**：两个实现都安装名为 `fqc` 的二进制，后者（或
+> `PATH` 中更靠前的目录）会覆盖前者，请用 `which fqc` 确认实际调用的实现。
+
 ## 为什么用它
 
 - **FASTQ 感知的归档格式**，而非通用的压缩数据块
@@ -25,72 +28,29 @@ unsupported-format-family 错误拒绝对方的 magic，不能互相解码。
 - **单一二进制 CLI**，提供 `compress`、`decompress`、`info`、`verify`
 - **内存安全的 Rust 实现**，MSRV 固定为 **1.75.0**，除 Windows 内存探测（`GlobalMemoryStatusEx` FFI，见 `src/memory_budget.rs`）外零 `unsafe`
 
-## 安装
-
-从源码构建（需要 Rust 1.75.0+）：
-
-```bash
-git clone https://github.com/open-genomics/fq-compressor-rust.git
-cd fq-compressor-rust
-cargo build --release
-# 或安装到 ~/.cargo/bin
-cargo install --path .
-```
-
-> **同名二进制 `PATH` 覆盖风险**：两个实现都安装名为 `fqc` 的二进制。若两者同时
-> 进入 `PATH`，后安装者（或 `PATH` 中更靠前的目录）会覆盖另一个，请用 `which fqc`
-> 确认实际调用的实现。
-
 ## 快速开始
 
+需要 Rust 1.75.0+：
+
 ```bash
+cargo build --release
 ./target/release/fqc compress -i tests/data/test_se.fastq -o sample.fqc
 ./target/release/fqc info -i sample.fqc
 ./target/release/fqc verify -i sample.fqc
 ./target/release/fqc decompress -i sample.fqc -o sample.fastq
 ```
 
-## 常用命令
-
-```bash
-fqc compress -i reads.fastq -o reads.fqc
-fqc compress -i reads.fastq -o reads.fqc --id-mode exact
-fqc compress -i reads.fastq -o reads.fqc --lossy-quality qvz
-fqc compress -i reads.fastq -o reads.fqc --pipeline
-fqc compress -i reads.fastq -o reads.fqc --streaming
-fqc compress -i reads_R1.fastq -2 reads_R2.fastq -o paired.fqc
-
-fqc decompress -i reads.fqc -o reads.fastq
-fqc decompress -i reads.fqc -o subset.fastq --range 1:1000
-fqc decompress -i reads.fqc -o reads.fastq --original-order
-fqc decompress -i paired.fqc -o paired.fastq --split-pe
-
-fqc info -i reads.fqc --detailed --show-codecs
-fqc verify -i reads.fqc
-fqc verify -i reads.fqc --quick
-```
-
-`--memory-limit` 是全局参数（必须位于子命令之前），对 `compress` / `decompress` / `verify` 均生效。
-`0` 表示自动有限预算（约可用内存的 75%，带硬性结构上限），**并非无限内存**。
-archive 压缩在摄入时按该预算估计峰值，超限会在创建 `.fqc` 前失败并提示 `--streaming`。pipeline 仍是分段执行路径，不是严格低内存摄入：
-
-```bash
-fqc --memory-limit 1024 compress -i reads.fastq -o reads.fqc --streaming
-fqc --memory-limit 512 decompress -i reads.fqc -o reads.fastq
-fqc --memory-limit 512 verify -i reads.fqc
-```
+安装到 PATH、双端输入、`--streaming`/`--pipeline` 模式、区间解压等见
+[快速开始教程](docs/tutorials/quick-start.md)；全部命令与选项（含全局 `--memory-limit`）
+见 [CLI 参考](docs/reference/cli.md)。
 
 ## 文档
 
-技术文档位于 [docs/](docs/README.md)（纯 Markdown）：
+技术文档按 Diátaxis 组织于 [docs/](docs/README.md)：
 
-- [技术白皮书](docs/whitepaper.md)与[理论基础](docs/theory.md)
-- [快速开始](docs/guide/quick-start.md)与 [CLI 参考](docs/guide/cli.md)
-- [架构总览](docs/architecture/index.md)与[决策记录](docs/architecture/decisions/index.md)
-- [算法与 ABC 详解](docs/algorithms/index.md)
-- [.fqc 格式规范](docs/reference/format-spec.md)
-- [基准测试报告](docs/benchmarks/performance-report.md)
-- [热点测量报告](docs/hotspot-report.md)与[真实语料压缩/吞吐](docs/real-corpus.md)（2026-08 收尾）
+- [教程](docs/tutorials/) 与 [操作指南](docs/how-to/) —— 跑通与完成任务
+- [参考](docs/reference/) —— CLI、格式规范、基准报告
+- [解释](docs/explanation/) —— 白皮书、理论、竞品对比、架构与算法
 
 ## 开发
 
@@ -98,18 +58,10 @@ fqc --memory-limit 512 verify -i reads.fqc
 - 领域语言：[`CONTEXT.md`](CONTEXT.md)
 - 变更历史：[`CHANGELOG.md`](CHANGELOG.md)
 - 版本策略与发布流程：[`VERSIONING.md`](VERSIONING.md)
+- 决策记录：`.agents/notes/`（`npm run verify-notes` 校验）
 
-校验命令：
-
-```bash
-cargo fmt --all -- --check
-cargo clippy --all-targets -- -D warnings
-cargo test --lib --tests
-cargo doc --no-deps
-```
-
-以上四件套由 GitHub Actions 自动执行（见 `.github/workflows/ci.yml`），CI 状态见顶部徽章；
-提交 PR 前请在本地先跑一遍。
+提交 PR 前的本地门禁与流程见 [`CONTRIBUTING.md`](CONTRIBUTING.md)；CI 在
+GitHub Actions 跑同一套（`.github/workflows/ci.yml`）。
 
 ## 许可证
 
