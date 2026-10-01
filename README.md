@@ -26,7 +26,7 @@ unsupported-format-family 错误拒绝对方的 magic，不能互相解码。
 - **FASTQ 感知的归档格式**，而非通用的压缩数据块
 - **块级元数据**，支持检视、校验与部分流式工作流
 - **单一二进制 CLI**，提供 `compress`、`decompress`、`info`、`verify`
-- **内存安全的 Rust 实现**，MSRV 固定为 **1.75.0**，除 Windows 内存探测（`GlobalMemoryStatusEx` FFI，见 `src/memory_budget.rs`）外零 `unsafe`
+- **内存安全的 Rust 实现**，MSRV 固定为 **1.75.0**，零 `unsafe`（`unsafe_code = "deny"` 硬性保证）
 
 ## 快速开始
 

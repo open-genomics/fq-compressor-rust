@@ -38,18 +38,6 @@ jobs:
       - name: MSRV 编译检查
         run: cargo check --all-targets --locked
 
-  windows:
-    name: Test (windows-latest)
-    runs-on: windows-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-        with:
-          key: windows
-      - name: 测试
-        run: cargo test --lib --tests --locked
-
   deny:
     name: cargo-deny
     runs-on: ubuntu-latest

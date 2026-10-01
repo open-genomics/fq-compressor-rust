@@ -90,6 +90,9 @@
 - Docs converted to plain Markdown with a `docs/README.md` index.
 - Consolidated all development branches into master; repository moved to the
   open-genomics organization.
+- CI 门禁扩展：在 fmt / clippy / test / doc 四门禁基础上恢复 MSRV（1.75.0 编译
+  检查，已本地实测通过）与 cargo-deny job，全部 job 接入 `Swatinem/rust-cache`
+  缓存与 `concurrency` 并发取消。
 
 ### Fixed
 
@@ -116,8 +119,21 @@
   actual codec families.
 - All stale org links (LessUp -> open-genomics).
 - README CLI example: `--memory-limit` is a global flag and must precede the subcommand.
+- `test_pipeline_concurrency` 移除"秒级时间戳必须变化"的偶发假红断言（三次快速
+  压缩同秒完成属正常行为；测试本意是内容稳定性，予以保留）。
+
+### Security
+
+- `crossbeam-epoch` 0.9.18 -> 0.9.21（RUSTSEC 公告：受影响版本的 `fmt::Display`
+  实现解引用底层指针；由恢复的 cargo-deny 门禁首次运行即捕获）。
 
 ### Removed
+
+- Windows 平台支持：移除 `GlobalMemoryStatusEx` FFI 内存探测（全仓库唯一
+  `unsafe`，从未被 Linux-only CI 编译过），Windows 及其他未适配平台落入
+  8192 MB 默认内存预算（可由 `--memory-limit` 覆盖）；README / SECURITY 的
+  unsafe 声明更新为字面零 unsafe。CI 不含 Windows job。决策见
+  `.agents/notes/implemented/simplification/2026-10-01-drop-windows-support.md`。
 
 - Node.js-based OpenSpec spec tooling（现由 `.agents/notes/` 决策笔记体系取代）.
 - VitePress docs site, GitHub Pages deployment, and all Node.js dependencies.

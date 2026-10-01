@@ -351,10 +351,6 @@ pub fn push_archive_record(
 
 /// Get available system memory in MB.
 pub fn get_available_memory_mb() -> usize {
-    #[cfg(target_os = "windows")]
-    {
-        get_available_memory_windows()
-    }
     #[cfg(target_os = "linux")]
     {
         get_available_memory_linux()
@@ -363,42 +359,9 @@ pub fn get_available_memory_mb() -> usize {
     {
         get_available_memory_macos()
     }
-    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "macos")))]
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     {
         8192 // Default fallback
-    }
-}
-
-#[cfg(target_os = "windows")]
-#[allow(unsafe_code)]
-fn get_available_memory_windows() -> usize {
-    use std::mem;
-
-    #[repr(C)]
-    struct MemoryStatusEx {
-        dw_length: u32,
-        dw_memory_load: u32,
-        ull_total_phys: u64,
-        ull_avail_phys: u64,
-        ull_total_page_file: u64,
-        ull_avail_page_file: u64,
-        ull_total_virtual: u64,
-        ull_avail_virtual: u64,
-        ull_avail_extended_virtual: u64,
-    }
-
-    extern "system" {
-        fn GlobalMemoryStatusEx(lpBuffer: *mut MemoryStatusEx) -> i32;
-    }
-
-    unsafe {
-        let mut status: MemoryStatusEx = mem::zeroed();
-        status.dw_length = mem::size_of::<MemoryStatusEx>() as u32;
-        if GlobalMemoryStatusEx(&mut status) != 0 {
-            (status.ull_avail_phys / (1024 * 1024)) as usize
-        } else {
-            8192
-        }
     }
 }
 
