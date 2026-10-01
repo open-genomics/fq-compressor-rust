@@ -4,6 +4,7 @@
 
 use crate::engine::compression_request::{CompressionExecutionMode, CompressionInputTopology, CompressionRequest};
 use crate::error::{FqcError, Result};
+use crate::println_stdout;
 use crate::types::*;
 use std::path::PathBuf;
 
@@ -227,22 +228,22 @@ impl CompressCommand {
     }
 
     fn print_summary(&self) {
-        println!("\n=== Compression Summary ===");
-        println!("  Total reads:       {}", self.stats.inner.total_reads);
-        println!("  Total bases:       {}", self.stats.inner.total_bases);
-        println!("  Blocks written:    {}", self.stats.inner.blocks_written);
-        println!("  Output size:       {} bytes", self.stats.inner.output_bytes);
-        println!("  Compression ratio: {:.2}x", self.stats.compression_ratio());
-        println!("  Bits per base:     {:.3}", self.stats.bits_per_base());
-        println!("  Elapsed time:      {:.2} s", self.stats.elapsed_seconds);
-        println!("  Throughput:        {:.2} MB/s", self.stats.throughput_mbps());
-        println!(
+        println_stdout!("\n=== Compression Summary ===");
+        println_stdout!("  Total reads:       {}", self.stats.inner.total_reads);
+        println_stdout!("  Total bases:       {}", self.stats.inner.total_bases);
+        println_stdout!("  Blocks written:    {}", self.stats.inner.blocks_written);
+        println_stdout!("  Output size:       {} bytes", self.stats.inner.output_bytes);
+        println_stdout!("  Compression ratio: {:.2}x", self.stats.compression_ratio());
+        println_stdout!("  Bits per base:     {:.3}", self.stats.bits_per_base());
+        println_stdout!("  Elapsed time:      {:.2} s", self.stats.elapsed_seconds);
+        println_stdout!("  Throughput:        {:.2} MB/s", self.stats.throughput_mbps());
+        println_stdout!(
             "  Stage timings:    parse {:.0} ms | reorder {:.0} ms | process {:.0} ms | write {:.0} ms",
             self.stats.inner.parse_ms as f64,
             self.stats.inner.reorder_ms as f64,
             self.stats.inner.process_ms as f64,
             self.stats.inner.write_ms as f64
         );
-        println!("===========================");
+        println_stdout!("===========================");
     }
 }

@@ -136,6 +136,9 @@
 - README CLI example: `--memory-limit` is a global flag and must precede the subcommand.
 - `test_pipeline_concurrency` 移除"秒级时间戳必须变化"的偶发假红断言（三次快速
   压缩同秒完成属正常行为；测试本意是内容稳定性，予以保留）。
+- stdout 管道截断不再崩溃：`fqc info | head` 等场景此前 `println!` 遇
+  `BrokenPipe` 会 panic（exit 101）；现经 `println_stdout!`/`print_stdout!`
+  宏优雅退出（exit 0），其他写错误（如 `/dev/full`）仍保持报错。
 - `AsyncWriter` 死锁：后台线程因写错误提前退出时，在途的 `flush()` 会永久阻塞
   （Flush 应答滞留队列，而主线程持有的 Sender 使队列永不销毁）。后台线程改为
   锁存首个错误并排空队列，保证每个 Flush 都有应答；错误经 flush 返回值或

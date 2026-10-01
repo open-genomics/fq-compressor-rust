@@ -4,6 +4,7 @@
 
 use crate::archive::reader::{ArchiveInfo, FqcReader};
 use crate::error::Result;
+use crate::println_stdout;
 use crate::types::decode_codec_family;
 
 // =============================================================================
@@ -56,59 +57,71 @@ impl InfoCommand {
     }
 
     fn print_json(&self, info: &ArchiveInfo) {
-        println!("{{");
-        println!("  \"file\": \"{}\",", info.file_path);
-        println!("  \"file_size\": {},", info.file_size);
-        println!("  \"total_reads\": {},", info.total_reads);
-        println!("  \"num_blocks\": {},", info.num_blocks);
-        println!("  \"original_filename\": \"{}\",", info.original_filename);
-        println!("  \"timestamp\": {},", info.timestamp);
-        println!("  \"is_paired\": {},", info.is_paired);
-        println!("  \"has_reorder_map\": {},", info.has_reorder_map);
-        println!("  \"preserve_order\": {},", info.preserve_order);
-        println!("  \"streaming_mode\": {},", info.streaming_mode);
-        println!("  \"quality_mode\": \"{}\",", info.quality_mode.as_str());
-        println!("  \"id_mode\": \"{}\",", info.id_mode.as_str());
-        println!("  \"pe_layout\": \"{}\",", info.pe_layout.as_str());
-        println!("  \"read_length_class\": \"{}\"", info.read_length_class.as_str());
-        println!("}}");
+        println_stdout!("{{");
+        println_stdout!("  \"file\": \"{}\",", info.file_path);
+        println_stdout!("  \"file_size\": {},", info.file_size);
+        println_stdout!("  \"total_reads\": {},", info.total_reads);
+        println_stdout!("  \"num_blocks\": {},", info.num_blocks);
+        println_stdout!("  \"original_filename\": \"{}\",", info.original_filename);
+        println_stdout!("  \"timestamp\": {},", info.timestamp);
+        println_stdout!("  \"is_paired\": {},", info.is_paired);
+        println_stdout!("  \"has_reorder_map\": {},", info.has_reorder_map);
+        println_stdout!("  \"preserve_order\": {},", info.preserve_order);
+        println_stdout!("  \"streaming_mode\": {},", info.streaming_mode);
+        println_stdout!("  \"quality_mode\": \"{}\",", info.quality_mode.as_str());
+        println_stdout!("  \"id_mode\": \"{}\",", info.id_mode.as_str());
+        println_stdout!("  \"pe_layout\": \"{}\",", info.pe_layout.as_str());
+        println_stdout!("  \"read_length_class\": \"{}\"", info.read_length_class.as_str());
+        println_stdout!("}}");
     }
 
     fn print_human(&self, info: &ArchiveInfo, reader: &mut FqcReader) -> Result<()> {
-        println!("File:              {}", info.file_path);
-        println!("File size:         {} bytes", info.file_size);
-        println!("Total reads:       {}", info.total_reads);
-        println!("Num blocks:        {}", info.num_blocks);
-        println!("Original filename: {}", info.original_filename);
-        println!("Is paired-end:     {}", info.is_paired);
-        println!("Has reorder map:   {}", info.has_reorder_map);
-        println!("Preserve order:    {}", info.preserve_order);
-        println!("Streaming mode:    {}", info.streaming_mode);
-        println!("Quality mode:      {}", info.quality_mode.as_str());
-        println!("ID mode:           {}", info.id_mode.as_str());
-        println!("PE layout:         {}", info.pe_layout.as_str());
-        println!("Read length class: {}", info.read_length_class.as_str());
+        println_stdout!("File:              {}", info.file_path);
+        println_stdout!("File size:         {} bytes", info.file_size);
+        println_stdout!("Total reads:       {}", info.total_reads);
+        println_stdout!("Num blocks:        {}", info.num_blocks);
+        println_stdout!("Original filename: {}", info.original_filename);
+        println_stdout!("Is paired-end:     {}", info.is_paired);
+        println_stdout!("Has reorder map:   {}", info.has_reorder_map);
+        println_stdout!("Preserve order:    {}", info.preserve_order);
+        println_stdout!("Streaming mode:    {}", info.streaming_mode);
+        println_stdout!("Quality mode:      {}", info.quality_mode.as_str());
+        println_stdout!("ID mode:           {}", info.id_mode.as_str());
+        println_stdout!("PE layout:         {}", info.pe_layout.as_str());
+        println_stdout!("Read length class: {}", info.read_length_class.as_str());
 
         if self.opts.detailed {
-            println!("\nBlock Index:");
-            println!(
+            println_stdout!("\nBlock Index:");
+            println_stdout!(
                 "  {:>6}  {:>12}  {:>12}  {:>10}  {:>10}",
-                "Block", "Offset", "CompSize", "ArchiveID", "Reads"
+                "Block",
+                "Offset",
+                "CompSize",
+                "ArchiveID",
+                "Reads"
             );
             for (i, entry) in reader.block_index.entries.iter().enumerate() {
-                println!(
+                println_stdout!(
                     "  {:>6}  {:>12}  {:>12}  {:>10}  {:>10}",
-                    i, entry.offset, entry.compressed_size, entry.archive_id_start, entry.read_count
+                    i,
+                    entry.offset,
+                    entry.compressed_size,
+                    entry.archive_id_start,
+                    entry.read_count
                 );
             }
         }
 
         if self.opts.show_codecs {
             let num_blocks = reader.block_count();
-            println!("\nBlock Codecs:");
-            println!(
+            println_stdout!("\nBlock Codecs:");
+            println_stdout!(
                 "  {:>6}  {:>12}  {:>12}  {:>12}  {:>12}",
-                "Block", "IDs", "Seq", "Qual", "Aux"
+                "Block",
+                "IDs",
+                "Seq",
+                "Qual",
+                "Aux"
             );
             for i in 0..num_blocks {
                 if let Ok(bh) = reader.read_block_header(i as u32) {
@@ -117,7 +130,7 @@ impl InfoCommand {
                         let version = c & 0x0F;
                         format!("{:?}v{}", family, version)
                     };
-                    println!(
+                    println_stdout!(
                         "  {:>6}  {:>12}  {:>12}  {:>12}  {:>12}",
                         i,
                         fmt_codec(bh.codec_ids),

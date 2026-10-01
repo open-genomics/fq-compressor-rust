@@ -10,6 +10,7 @@ use crate::error::{FqcError, Result};
 use crate::pipeline::decompression::{DecompressionPipeline, DecompressionPipelineConfig};
 use crate::pipeline::decompression_classic::SequentialDecompressor;
 use crate::pipeline::PipelineStats;
+use crate::println_stdout;
 use crate::types::*;
 
 // =============================================================================
@@ -132,27 +133,29 @@ impl DecompressCommand {
 }
 
 fn print_summary(stats: &PipelineStats, elapsed_seconds: f64) {
-    println!("\n=== Decompression Summary ===");
-    println!("  Total reads:       {}", stats.total_reads);
-    println!("  Total bases:       {}", stats.total_bases);
-    println!("  Blocks processed:  {}", stats.total_blocks);
+    println_stdout!("\n=== Decompression Summary ===");
+    println_stdout!("  Total reads:       {}", stats.total_reads);
+    println_stdout!("  Total bases:       {}", stats.total_bases);
+    println_stdout!("  Blocks processed:  {}", stats.total_blocks);
     if stats.corrupted_blocks > 0 {
-        println!("  Corrupted blocks:  {}", stats.corrupted_blocks);
+        println_stdout!("  Corrupted blocks:  {}", stats.corrupted_blocks);
     }
-    println!("  Input size:        {} bytes", stats.input_bytes);
-    println!("  Output size:       {} bytes", stats.output_bytes);
-    println!("  Elapsed time:      {elapsed_seconds:.2} s");
+    println_stdout!("  Input size:        {} bytes", stats.input_bytes);
+    println_stdout!("  Output size:       {} bytes", stats.output_bytes);
+    println_stdout!("  Elapsed time:      {elapsed_seconds:.2} s");
     let throughput = if elapsed_seconds == 0.0 {
         0.0
     } else {
         (stats.output_bytes as f64 / 1_048_576.0) / elapsed_seconds
     };
-    println!("  Throughput:        {throughput:.2} MB/s");
-    println!(
+    println_stdout!("  Throughput:        {throughput:.2} MB/s");
+    println_stdout!(
         "  Stage timings:    parse {:.0} ms | process {:.0} ms | write {:.0} ms",
-        stats.parse_ms as f64, stats.process_ms as f64, stats.write_ms as f64
+        stats.parse_ms as f64,
+        stats.process_ms as f64,
+        stats.write_ms as f64
     );
-    println!("=============================");
+    println_stdout!("=============================");
 }
 
 // =============================================================================

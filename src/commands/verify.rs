@@ -7,6 +7,7 @@ use crate::archive::format::{get_id_mode, get_quality_mode, get_read_length_clas
 use crate::archive::reader::FqcReader;
 use crate::error::{FqcError, Result};
 use crate::memory_budget::DecodeBudget;
+use crate::{print_stdout, println_stdout};
 use xxhash_rust::xxh64::Xxh64;
 
 // =============================================================================
@@ -57,9 +58,10 @@ impl VerifyCommand {
         match self.run() {
             Ok(passed) => {
                 if passed {
-                    println!(
+                    println_stdout!(
                         "Verification PASSED: {} blocks checked, {} reads verified",
-                        self.stats.blocks_checked, self.stats.reads_verified
+                        self.stats.blocks_checked,
+                        self.stats.reads_verified
                     );
                     0
                 } else {
@@ -91,18 +93,18 @@ impl VerifyCommand {
         // Verify footer magic
         if !reader.footer.is_valid() {
             if self.opts.verbose {
-                println!("Footer magic: FAILED");
+                println_stdout!("Footer magic: FAILED");
             }
             return Ok(false);
         }
         if self.opts.verbose {
-            println!("Footer magic: OK");
+            println_stdout!("Footer magic: OK");
         }
 
         // Verify global checksum (if non-zero)
         if reader.footer.global_checksum != 0 {
             if self.opts.verbose {
-                print!("Global checksum: ");
+                print_stdout!("Global checksum: ");
             }
 
             // Recompute: the writer hashes flags + all block compressed streams
@@ -120,15 +122,16 @@ impl VerifyCommand {
             let computed = global_hasher.digest();
             if computed != reader.footer.global_checksum {
                 if self.opts.verbose {
-                    println!(
+                    println_stdout!(
                         "FAILED (expected=0x{:016x}, computed=0x{:016x})",
-                        reader.footer.global_checksum, computed
+                        reader.footer.global_checksum,
+                        computed
                     );
                 }
                 return Ok(false);
             }
             if self.opts.verbose {
-                println!("OK (0x{:016x})", computed);
+                println_stdout!("OK (0x{:016x})", computed);
             }
         }
 
@@ -138,14 +141,14 @@ impl VerifyCommand {
         if reader.has_reorder_map() {
             reader.load_reorder_map()?;
             if self.opts.verbose {
-                println!("Reorder map: OK");
+                println_stdout!("Reorder map: OK");
             }
         }
 
         // In quick mode, we only verify magic + footer + global checksum
         if self.opts.quick_mode {
             if self.opts.verbose {
-                println!("Quick mode: skipping block-level verification");
+                println_stdout!("Quick mode: skipping block-level verification");
             }
             return Ok(true);
         }
@@ -167,7 +170,7 @@ impl VerifyCommand {
             self.stats.blocks_checked += 1;
 
             if self.opts.verbose {
-                print!("Block {}/{}... ", block_id + 1, block_count);
+                print_stdout!("Block {}/{}... ", block_id + 1, block_count);
             }
 
             match self.verify_block(&mut reader, &mut compressor, block_id as u32) {
@@ -175,14 +178,14 @@ impl VerifyCommand {
                     self.stats.blocks_ok += 1;
                     self.stats.reads_verified += reads_in_block;
                     if self.opts.verbose {
-                        println!("OK ({} reads)", reads_in_block);
+                        println_stdout!("OK ({} reads)", reads_in_block);
                     }
                 }
                 Err(e) => {
                     self.stats.blocks_failed += 1;
                     all_ok = false;
                     if self.opts.verbose {
-                        println!("FAILED: {}", e);
+                        println_stdout!("FAILED: {}", e);
                     } else {
                         eprintln!("Block {} failed: {}", block_id, e);
                     }
