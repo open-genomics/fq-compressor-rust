@@ -1,7 +1,7 @@
 # 任务：fqc 架构收敛——统一压缩/解压执行路径
 
 > 计划文件：`subagents/plans/2026-10-01-architecture-convergence.md`
-> 状态：**Phase 0/A 已完成**（每完成一个 Phase，勾选对应复选框并更新本行，不要留下未勾选的僵尸计划）
+> 状态：**Phase 0/A/B 已完成**（每完成一个 Phase，勾选对应复选框并更新本行，不要留下未勾选的僵尸计划）
 
 你在仓库 `fq-compressor-rust`（FASTQ 压缩器 `fqc`）。本次任务是一次**保持行为不变的架构收敛重构**：消除压缩/解压的多套平行实现。除下文明示的 run_paired 并行化外，禁止改变任何用户可见行为。
 
@@ -37,14 +37,14 @@
 
 ## Phase B —— 压缩路径收敛
 
-- [ ] 目标：七条路径收敛为**一个骨架 + 两组参数**（engine 侧 4 个 + pipeline 侧 3 个）——拓扑（Single/Paired/Interleaved）× 执行模式（Archive/Streaming/Pipeline）。骨架内阶段：parse → global analysis/reorder → block 构建 → 压缩 → 写出/commit。涉及：
+- [x] 目标：七条路径收敛为**一个骨架 + 两组参数**（engine 侧 4 个 + pipeline 侧 3 个）——拓扑（Single/Paired/Interleaved）× 执行模式（Archive/Streaming/Pipeline）。骨架内阶段：parse → global analysis/reorder → block 构建 → 压缩 → 写出/commit。涉及：
   - `engine/compression_engine.rs`：`run_archive`（约 :152）与 `run_streaming_single/paired/interleaved`（约 :694/:806/:923）
   - `pipeline/compression.rs`：`run`/`run_paired`/`run_interleaved`（约 :141/:427/:572）
-- [ ] 先依 Phase 0 差异清单定骨架 API，再迁移。逐字重复的 reorder-map 构造（`pipeline/compression.rs:189-193` vs `:467-471`）必须是同一份代码。
-- [ ] **消除 run_paired 的串行不一致**（约 :535-539 单实例串行）：改为与其他拓扑同等的并行。验收标准：roundtrip 解码结果与原输入逐字节一致，`info` 输出的块数等结构与串行版一致。
-- [ ] streaming 三兄弟重复的约 40 行样板（header 构造、timestamp、`ProcessingStats`/`CompressionOutcome` 填充）提取为共享辅助函数。
-- [ ] 内存预算是红线：三模式内存特征一个都不能变，budget 测试原样通过。
-- [ ] 验收：grep 确认无第二份 reorder-map 构造；拓扑×模式矩阵测试全绿；`cargo bench --quiet` 跑 `parser_throughput` 与 `archive_workflow` 确认无明显回退。
+- [x] 先依 Phase 0 差异清单定骨架 API，再迁移。逐字重复的 reorder-map 构造（`pipeline/compression.rs:189-193` vs `:467-471`）必须是同一份代码。
+- [x] **消除 run_paired 的串行不一致**（约 :535-539 单实例串行）：改为与其他拓扑同等的并行。验收标准：roundtrip 解码结果与原输入逐字节一致，`info` 输出的块数等结构与串行版一致。
+- [x] streaming 三兄弟重复的约 40 行样板（header 构造、timestamp、`ProcessingStats`/`CompressionOutcome` 填充）提取为共享辅助函数。
+- [x] 内存预算是红线：三模式内存特征一个都不能变，budget 测试原样通过。
+- [x] 验收：grep 确认无第二份 reorder-map 构造；拓扑×模式矩阵测试全绿；`cargo bench --quiet` 跑 `parser_throughput` 与 `archive_workflow` 确认无明显回退。
 
 ## Phase C —— 拆豁免
 
