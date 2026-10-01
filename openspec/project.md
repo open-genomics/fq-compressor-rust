@@ -26,6 +26,7 @@
 | `decode-budget` | `openspec/specs/decode-budget/` | Operation-scoped decompress/verify memory budget |
 | `compress-budget` | `openspec/specs/compress-budget/` | Archive/pipeline ingest peak budget |
 | `cli-modes` | `openspec/specs/cli-modes/` | `--id-mode` choices and lossy QVZ quality mode |
+| `format-governance` | `openspec/specs/format-governance/` | 同名 `fqc`/`.fqc` 格式族共存的文档约束（对照表、PATH 风险、无迁移措辞） |
 
 ## External boundaries
 
@@ -67,6 +68,8 @@ Completed, merged, and moved under `openspec/changes/archive/`:
 
 | Date | Change | Capability |
 |---|---|---|
+| 2026-10-01 | `harden-indexed-v2-decode-integrity` | `archive-format` |
+| 2026-10-01 | `document-fqc-format-family` | `format-governance` |
 | 2026-08-19 | `complete-id-and-qvz-modes` | `cli-modes` |
 | 2026-08-18 | `correct-indexed-v2-spec` | `archive-format` |
 | 2026-08-18 | `make-file-output-atomic` | `file-output` |

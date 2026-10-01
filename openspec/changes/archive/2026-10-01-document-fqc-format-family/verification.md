@@ -2,11 +2,11 @@
 
 ## Metadata
 
-- Verification status: `Implemented — evidence recorded, awaiting reviewer`
-- Implementation HEAD: `2c5290186f4e2be5498e681e771376674f0c168f`
-- Verifier: `(implementer; independent reviewer pending)`
-- Verified at: `2026-08-19`
-- Ready to archive: `no`
+- Verification status: `Verified — closed by a separate closure session`
+- Implementation HEAD: `2c5290186f4e2be5498e681e771376674f0c168f`（README 落地于 `f46bb69`）
+- Verifier: closure session（2026-10-01，非 2026-08 实现会话；独立复核 grep 证据与 README 现状）
+- Verified at: `2026-10-01`
+- Ready to archive: `yes`
 
 ## Scope audit
 
@@ -62,4 +62,7 @@
 
 ## Verdict
 
-实现完成，验收场景全部通过；`Ready to archive` 等待独立 reviewer 确认后置 yes 再归档。
+实现完成，验收场景全部通过。2026-10-01 收口会话复核上述 grep 证据与 README 现状后签署
+`Ready to archive: yes`；delta 已同步为 `openspec/specs/format-governance/spec.md`。
+收口方式（替代 reviewer 的说明）记录于
+`.agents/notes/implemented/process/2026-10-01-openspec-inflight-changes-closure.md`。

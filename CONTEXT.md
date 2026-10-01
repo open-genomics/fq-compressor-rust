@@ -60,15 +60,16 @@ Quality score compression using:
 
 Categorization of reads affecting compression strategy:
 - **Short**: ≤511 bp (ABC eligible)
-- **Medium**: 512 bp to 10 KB (Zstd)
-- **Long**: >10 KB (Zstd with different settings)
+- **Medium**: 512 bp to <10 KB (Zstd)
+- **Long**: ≥10 KB（10240 bp，`LONG_READ_THRESHOLD`）(Zstd with different settings)
 
 ## Codec Concepts
 
 ### Codec Family
 
-Identifier for compression algorithm used on each stream:
-- `AbcV1`: ABC algorithm
+Identifier for compression algorithm used on each stream（常见取值，全集以
+`src/types.rs` 的 `CodecId` 与 `docs/reference/format-spec.md` 为准）:
+- `AbcV1`: ABC algorithm（低 nibble 为载荷版本，`0x11` 为无损 V3）
 - `ZstdPlain`: Raw Zstd compression
 - `ScmV1`/`ScmOrder1`: Quality compression
 - `DeltaZstd`: Delta-encoded + Zstd (for IDs)

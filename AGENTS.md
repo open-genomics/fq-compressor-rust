@@ -78,7 +78,7 @@ Compression routes through `CompressionEngine` with three distinct modes:
 Read length classification:
 ├── Short (≤511 bp) → ABC consensus/delta + Zstd
 ├── Medium (512 bp-10 KB) → Zstd direct
-└── Long (>10 KB) → Zstd with large-block settings
+└── Long (≥10 KB) → Zstd with large-block settings
 ```
 
 ## Repository facts

@@ -1,6 +1,6 @@
 # CLI 参考
 
-`fqc` 提供四个顶层命令：
+`fqc` 提供四个顶层命令（别名：`compress`=`c`、`decompress`=`d`/`x`、`info`=`i`、`verify`=`v`）：
 
 - `compress`
 - `decompress`
@@ -11,8 +11,8 @@
 
 | 选项 | 含义 |
 | --- | --- |
-| `-t, --threads` | 线程数（`0` 表示自动） |
-| `-v, --verbose` | 增加日志详细度 |
+| `-t, --threads` | 线程数（`0` 表示自动，默认 `0`） |
+| `-v, --verbose` | 增加日志详细度（`-v` 两级详略：`-v` < `-vv`） |
 | `-q, --quiet` | 抑制非错误输出 |
 | `--memory-limit` | 内存预算 MB（`0` = 自动有限预算，非无限；compress/decompress/verify 均生效） |
 | `--no-progress` | 禁用进度摘要 |
@@ -27,16 +27,16 @@ fqc compress -i INPUT -o OUTPUT [OPTIONS]
 | --- | --- |
 | `-2, --input2` | 双端输入的第二个 FASTQ 文件 |
 | `-l, --level` | 压缩级别 `1..9`（默认：`5`） |
-| `--reorder <true|false>` | 启用或禁用全局读段重排 |
+| `--reorder <true|false>` | 启用或禁用全局读段重排（默认：`true`） |
 | `--streaming` | 禁用重排，增量处理输入 |
 | `--lossy-quality` | `none`（无损，`lossless` 为同义别名）、`illumina8`（8 箱）、`qvz`（8 级最近邻码本，有损）或 `discard` |
 | `--id-mode` | `tokenize`（默认：模式检测，失败回退 exact）、`exact` 或 `discard` |
-| `--long-read-mode` | `auto`、`short`、`medium` 或 `long` |
+| `--long-read-mode` | `auto`、`short`、`medium` 或 `long`（默认：`auto`） |
 | `--interleaved` | 将输入视为交错双端 FASTQ |
 | `--max-block-bases` | 限制中长读每块碱基数 |
 | `--scan-all-lengths` | 检查完整输入而非采样检测长度 |
 | `--pipeline` | 使用分段压缩流水线 |
-| `--pe-layout` | 双端归档元数据 `interleaved` 或 `consecutive` |
+| `--pe-layout` | 双端归档元数据 `interleaved` 或 `consecutive`（默认：`interleaved`） |
 | `-f, --force` | 覆盖已存在的输出（仅在成功完成后原子替换；失败时保留旧文件） |
 
 说明：

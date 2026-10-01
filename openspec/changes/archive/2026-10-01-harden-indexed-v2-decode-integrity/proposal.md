@@ -2,7 +2,7 @@
 
 ## Metadata
 
-- Status: `Applying`
+- Status: `Archived`
 - Capability: `archive-format`, `decode-budget`, `cli-modes`
 
 ## Why
