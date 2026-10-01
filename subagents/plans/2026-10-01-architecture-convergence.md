@@ -1,7 +1,7 @@
 # 任务：fqc 架构收敛——统一压缩/解压执行路径
 
 > 计划文件：`subagents/plans/2026-10-01-architecture-convergence.md`
-> 状态：**未开始**（每完成一个 Phase，勾选对应复选框并更新本行，不要留下未勾选的僵尸计划）
+> 状态：**Phase 0/A 已完成**（每完成一个 Phase，勾选对应复选框并更新本行，不要留下未勾选的僵尸计划）
 
 你在仓库 `fq-compressor-rust`（FASTQ 压缩器 `fqc`）。本次任务是一次**保持行为不变的架构收敛重构**：消除压缩/解压的多套平行实现。除下文明示的 run_paired 并行化外，禁止改变任何用户可见行为。
 
@@ -24,16 +24,16 @@
 
 ## Phase 0 —— 摸底与安全网（先做）
 
-- [ ] **行为审计**：逐行对比 `src/commands/decompress.rs` 的编排（`run_parallel`/`process_block`/`run_original_order`，约 :387/:510/:552）与 `src/pipeline/decompression.rs::DecompressionPipeline::run`（约 :162），列出所有语义差异：`skip_corrupted`、`--range`、`original_order`、占位符写入、分批策略、错误处理时机。同样对比 engine 侧与 pipeline 侧的压缩路径差异。产出一份差异清单，附在决策笔记里。
-- [ ] **补齐行为钉死测试**：审计 `tests/` 对 {single, paired, interleaved} × {archive, streaming, pipeline} 的覆盖矩阵，为缺失组合补 roundtrip + verify + `info` 字段断言（数据用 `tests/data/` 现有文件或程序化生成，小而快）。重构前让每条路径都有测试钉住，这是整个任务的安全网。
-- [ ] **注意**：归档输出含时间戳（`src/pipeline/compression.rs:331` 一带），**不要**用"对归档文件做字节级 golden 比对"来钉行为——用 roundtrip（`decompress(compress(x)) == x`）和 `info`/`verify` 字段断言。
+- [x] **行为审计**：逐行对比 `src/commands/decompress.rs` 的编排（`run_parallel`/`process_block`/`run_original_order`，约 :387/:510/:552）与 `src/pipeline/decompression.rs::DecompressionPipeline::run`（约 :162），列出所有语义差异：`skip_corrupted`、`--range`、`original_order`、占位符写入、分批策略、错误处理时机。同样对比 engine 侧与 pipeline 侧的压缩路径差异。产出一份差异清单，附在决策笔记里。
+- [x] **补齐行为钉死测试**：审计 `tests/` 对 {single, paired, interleaved} × {archive, streaming, pipeline} 的覆盖矩阵，为缺失组合补 roundtrip + verify + `info` 字段断言（数据用 `tests/data/` 现有文件或程序化生成，小而快）。重构前让每条路径都有测试钉住，这是整个任务的安全网。
+- [x] **注意**：归档输出含时间戳（`src/pipeline/compression.rs:331` 一带），**不要**用"对归档文件做字节级 golden 比对"来钉行为——用 roundtrip（`decompress(compress(x)) == x`）和 `info`/`verify` 字段断言。
 
 ## Phase A —— 解压路径下沉
 
-- [ ] 目标：`src/commands/decompress.rs` 退化为薄 CLI 层（参数解析 → 调 pipeline/engine API → 汇报结果），不再 import `algo::block_compressor`、`archive::reader`、`archive::traits`、`fastq::parser` 内部符号；`DecompressionPipeline` 成为解压编排的**唯一**实现。
-- [ ] 以 Phase 0 差异清单为准统一语义：两路径行为不一致处，选更防御/更正确的一侧，用测试钉死，并在决策笔记里记录每一次取舍。
-- [ ] `verify.rs` 目前也直接驱动 `FqcReader` + `BlockCompressor`（约 :89、:155-162）：评估是否复用同一批 pipeline 原语。verify 的语义是"校验而非产出"，允许保留独立路径，但结论（复用或保留及原因）必须写进笔记。
-- [ ] 验收：grep 确认 `commands/decompress.rs` 无 algo/archive 内部 import；`test_e2e.rs`、`test_stdin_stdout.rs`、`test_verify_detection.rs`、`test_output_atomic.rs`、`test_compressed_inputs.rs` 原样全绿。
+- [x] 目标：`src/commands/decompress.rs` 退化为薄 CLI 层（参数解析 → 调 pipeline/engine API → 汇报结果），不再 import `algo::block_compressor`、`archive::reader`、`archive::traits`、`fastq::parser` 内部符号；`DecompressionPipeline` 成为解压编排的**唯一**实现。
+- [x] 以 Phase 0 差异清单为准统一语义：两路径行为不一致处，选更防御/更正确的一侧，用测试钉死，并在决策笔记里记录每一次取舍。
+- [x] `verify.rs` 目前也直接驱动 `FqcReader` + `BlockCompressor`（约 :89、:155-162）：评估是否复用同一批 pipeline 原语。verify 的语义是"校验而非产出"，允许保留独立路径，但结论（复用或保留及原因）必须写进笔记。
+- [x] 验收：grep 确认 `commands/decompress.rs` 无 algo/archive 内部 import；`test_e2e.rs`、`test_stdin_stdout.rs`、`test_verify_detection.rs`、`test_output_atomic.rs`、`test_compressed_inputs.rs` 原样全绿。
 
 ## Phase B —— 压缩路径收敛
 

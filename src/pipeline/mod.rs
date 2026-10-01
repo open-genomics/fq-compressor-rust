@@ -16,6 +16,7 @@
 
 pub mod compression;
 pub mod decompression;
+pub mod decompression_classic;
 
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::Arc;
@@ -49,6 +50,8 @@ pub struct PipelineStats {
     pub output_bytes: u64,
     pub processing_time_ms: u64,
     pub reorder_map_written: bool,
+    /// Blocks replaced by placeholders under `--skip-corrupted`.
+    pub corrupted_blocks: u32,
     // Stage timings (ms). Serial stages are wall-clock; process_ms
     // aggregates parallel worker time across threads.
     pub parse_ms: u64,

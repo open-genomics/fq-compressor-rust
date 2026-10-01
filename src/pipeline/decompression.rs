@@ -38,6 +38,8 @@ pub struct DecompressionPipelineConfig {
     pub skip_corrupted: bool,
     pub corrupted_placeholder: Option<String>,
     pub force_overwrite: bool,
+    /// Split paired-end output into R1/R2 files (sequential path only).
+    pub split_pe: bool,
     /// Memory limit in MB (`0` = automatic, still finite).
     pub memory_limit_mb: usize,
 }
@@ -54,6 +56,7 @@ impl Default for DecompressionPipelineConfig {
             skip_corrupted: false,
             corrupted_placeholder: None,
             force_overwrite: false,
+            split_pe: false,
             memory_limit_mb: 0,
         }
     }
@@ -75,7 +78,7 @@ impl DecompressionPipelineConfig {
         self.range_start > 0 || self.range_end > 0
     }
 
-    fn validate_range(&self) -> Result<()> {
+    pub(crate) fn validate_range(&self) -> Result<()> {
         if self.range_start > 0 && self.range_end > 0 && self.range_start > self.range_end {
             return Err(FqcError::InvalidArgument(format!(
                 "Invalid read range: start {} is greater than end {}",
@@ -160,6 +163,16 @@ impl DecompressionPipeline {
     /// Run decompression pipeline
     #[allow(clippy::too_many_lines)]
     pub fn run(&mut self, input_path: &str, output_path: &str) -> Result<()> {
+        if self.config.split_pe {
+            return Err(FqcError::InvalidArgument(
+                "--split-pe requires the sequential decompression path".to_string(),
+            ));
+        }
+        if self.config.original_order {
+            return Err(FqcError::InvalidArgument(
+                "--original-order requires the sequential decompression path".to_string(),
+            ));
+        }
         self.config.validate_range()?;
         let start = Instant::now();
         let threads = self.config.effective_threads();
@@ -324,7 +337,7 @@ impl DecompressionPipeline {
         let range_end = self.config.range_end;
         let has_range = self.config.has_range();
         let force_overwrite = self.config.force_overwrite;
-        let writer_handle = thread::spawn(move || -> Result<(u64, u64, u64)> {
+        let writer_handle = thread::spawn(move || -> Result<(u64, u64, u64, u32, u64)> {
             let t = Instant::now();
             const ASYNC_WRITE_BUF: usize = 4 * 1024 * 1024; // 4 MB write-behind buffer
             const ASYNC_WRITE_DEPTH: usize = 4;
@@ -345,6 +358,8 @@ impl DecompressionPipeline {
             let mut next_expected: u32 = start_block as u32;
             let mut total_output_bytes: u64 = 0;
             let mut total_reads_written: u64 = 0;
+            let mut total_bases: u64 = 0;
+            let mut corrupted_blocks: u32 = 0;
             let mut global_read_idx: u64 = reads_before_start_block;
             let end_block_id: u32 = end_block as u32;
 
@@ -370,6 +385,7 @@ impl DecompressionPipeline {
                                 }
                                 total_output_bytes += write_output_read(output.as_mut(), read, header_only)?;
                                 total_reads_written += 1;
+                                total_bases += read.sequence.len() as u64;
                             }
                         }
                         Err(e) => {
@@ -388,7 +404,9 @@ impl DecompressionPipeline {
                                     total_output_bytes +=
                                         write_output_read(output.as_mut(), &placeholder, header_only)?;
                                     total_reads_written += 1;
+                                    total_bases += placeholder.sequence.len() as u64;
                                 }
+                                corrupted_blocks += 1;
                                 log::warn!("Block {} corrupted, skipping: {}", dr.block_id, e);
                             } else {
                                 return Err(e);
@@ -414,7 +432,13 @@ impl DecompressionPipeline {
             if let Some(tx) = output_tx {
                 tx.commit()?;
             }
-            Ok((total_reads_written, total_output_bytes, t.elapsed().as_millis() as u64))
+            Ok((
+                total_reads_written,
+                total_output_bytes,
+                total_bases,
+                corrupted_blocks,
+                t.elapsed().as_millis() as u64,
+            ))
         });
 
         // ---- Wait ----
@@ -426,19 +450,20 @@ impl DecompressionPipeline {
                 .map_err(|_| FqcError::Decompression("Decompressor thread panicked".to_string()))??;
         }
         let decode_ms = decode_ns.load(std::sync::atomic::Ordering::Relaxed) / 1_000_000;
-        let (reads_written, output_bytes, writer_write_ms) = writer_handle
+        let (reads_written, output_bytes, total_bases, corrupted_blocks, writer_write_ms) = writer_handle
             .join()
             .map_err(|_| FqcError::Decompression("Writer thread panicked".to_string()))??;
 
         let elapsed = start.elapsed();
         self.stats = PipelineStats {
             total_reads: reads_written,
-            total_bases: 0,
+            total_bases,
             total_blocks: (end_block - start_block) as u32,
             input_bytes: file_size,
             output_bytes,
             processing_time_ms: elapsed.as_millis() as u64,
             reorder_map_written: false,
+            corrupted_blocks,
             parse_ms: reader_read_ms,
             reorder_ms: 0,
             process_ms: decode_ms,
