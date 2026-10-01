@@ -163,19 +163,15 @@ fn pipeline_many_small_blocks_roundtrip_many_threads() {
 #[test]
 fn pipeline_repeated_runs_are_stable() {
     // Same input, three independent runs: the decompressed reads must be
-    // identical (no data races or nondeterministic block ordering). Note the
+    // identical (no data races or nondeterministic block ordering). The
     // archive bytes themselves legitimately differ because the global header
-    // embeds a unix timestamp.
+    // embeds a unix timestamp, and three quick runs can land in the same
+    // second — timestamp collision is not a correctness signal.
     let records = make_records(20 * MIN_BLOCK_SIZE, 150);
 
     let mut restored_first: Option<Vec<ReadRecord>> = None;
-    let mut timestamps = Vec::new();
     for _ in 0..3 {
         let (archive, _dir) = run_pipeline_to_archive(&records, 4, MIN_BLOCK_SIZE, 4);
-
-        let reader = fqc::archive::reader::FqcReader::open(archive.to_string_lossy().as_ref()).unwrap();
-        timestamps.push(reader.global_header.timestamp);
-        drop(reader);
 
         let restored = decompress_archive(&archive);
         if let Some(first) = &restored_first {
@@ -185,13 +181,7 @@ fn pipeline_repeated_runs_are_stable() {
         }
     }
 
-    // Sanity: content is stable and the archive metadata really is the only
-    // varying field (timestamps differ across runs).
-    assert!(restored_first.is_some());
-    assert!(
-        timestamps.windows(2).any(|w| w[0] != w[1]) || timestamps.len() < 2,
-        "timestamps should vary across runs (or there was only one run)"
-    );
+    assert!(restored_first.is_some(), "at least one run must produce output");
 }
 
 #[test]
