@@ -75,25 +75,43 @@ impl AsyncWriter {
         let bg_stats = stats.clone();
 
         let handle = thread::spawn(move || -> io::Result<()> {
+            // Latch the first failure and keep draining the queue: an early
+            // return would leave a foreground flush() blocked on an ack that
+            // is never sent (the pending Flush message stays queued while the
+            // foreground keeps its Sender alive). Every Flush must be acked.
+            let mut failure: Option<(io::ErrorKind, String)> = None;
             for msg in rx.iter() {
                 match msg {
                     WriteMessage::Data(wb) => {
-                        writer.write_all(&wb.data)?;
-                        bg_stats.add_transfer(wb.data.len() as u64);
+                        if failure.is_none() {
+                            if let Err(e) = writer.write_all(&wb.data) {
+                                failure = Some((e.kind(), e.to_string()));
+                            } else {
+                                bg_stats.add_transfer(wb.data.len() as u64);
+                            }
+                        }
+                        // In failed state the target stream is already
+                        // undefined; drop payloads but keep receiving so
+                        // foreground senders never block on a full queue.
                     }
-                    WriteMessage::Flush(ack_tx) => match writer.flush() {
-                        Ok(()) => {
-                            let _ = ack_tx.send(Ok(()));
+                    WriteMessage::Flush(ack_tx) => {
+                        if failure.is_none() {
+                            if let Err(e) = writer.flush() {
+                                failure = Some((e.kind(), e.to_string()));
+                            }
                         }
-                        Err(err) => {
-                            let _ = ack_tx.send(Err(io::Error::new(err.kind(), err.to_string())));
-                            return Err(err);
-                        }
-                    },
+                        let ack = match &failure {
+                            Some((kind, msg)) => Err(io::Error::new(*kind, msg.clone())),
+                            None => Ok(()),
+                        };
+                        let _ = ack_tx.send(ack);
+                    }
                 }
             }
-            writer.flush()?;
-            Ok(())
+            match failure {
+                Some((kind, msg)) => Err(io::Error::new(kind, msg)),
+                None => writer.flush(),
+            }
         });
 
         Self {
