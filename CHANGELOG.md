@@ -50,6 +50,14 @@
   `.github/ISSUE_TEMPLATE/`（bug / feature 表单）。
 - `Cargo.toml` 补 `homepage` 字段；`openspec/project.md` 记录 `fqc-indexed/v2`
   身份、决策 `FQC-DEC-001` 与外部边界。
+- 面防御测试：归档解码器对 frozen fixture 的全部截断点、逐字节单比特翻转与
+  确定性伪随机垃圾输入均不 panic（fail closed 的手工用例原由
+  `test_decode_budget` 覆盖，此处补穷举广度）；`FastqParser` 对随机与变异
+  FASTQ 输入不 panic。
+- `ZstdSequenceCompressor` 直接测试（roundtrip、空流、计数/长度不一致、长度
+  分歧、截断、尾随字节）；`AsyncWriter` 直接测试（字节顺序、flush 应答、
+  后台写失败传播）；`FqcReader::info()` 字段断言钉住 frozen fixture 的
+  MANIFEST 数字。
 
 ### Changed
 
@@ -121,6 +129,10 @@
 - README CLI example: `--memory-limit` is a global flag and must precede the subcommand.
 - `test_pipeline_concurrency` 移除"秒级时间戳必须变化"的偶发假红断言（三次快速
   压缩同秒完成属正常行为；测试本意是内容稳定性，予以保留）。
+- `AsyncWriter` 死锁：后台线程因写错误提前退出时，在途的 `flush()` 会永久阻塞
+  （Flush 应答滞留队列，而主线程持有的 Sender 使队列永不销毁）。后台线程改为
+  锁存首个错误并排空队列，保证每个 Flush 都有应答；错误经 flush 返回值或
+  Drop 日志浮出。由新增的直接测试发现。
 
 ### Security
 
