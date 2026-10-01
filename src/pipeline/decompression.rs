@@ -417,7 +417,6 @@ impl DecompressionPipeline {
 
     /// Writer stage: receives decompressed blocks in archive order, applies
     /// range filtering, and writes transactionally (or to stdout).
-    #[allow(clippy::too_many_arguments)]
     fn spawn_writer_thread(
         &self,
         input: WriterThreadInput,
