@@ -123,7 +123,7 @@ fn archive_execution_returns_outcome_metadata() {
     };
 
     // Test that CompressionEngine::run takes CompressionRequest by value
-    let outcome = CompressionEngine::new().run(opts.to_request()).unwrap();
+    let outcome = CompressionEngine::new().run(&opts.to_request()).unwrap();
 
     assert_eq!(outcome.mode, CompressionExecutionMode::Archive);
     assert!(outcome.blocks_written >= 1);
@@ -154,7 +154,7 @@ fn pipeline_request_reports_pipeline_mode_in_outcome() {
         ..CompressOptions::default()
     };
 
-    let outcome = CompressionEngine::new().run(opts.to_request()).unwrap();
+    let outcome = CompressionEngine::new().run(&opts.to_request()).unwrap();
     assert_eq!(outcome.mode, CompressionExecutionMode::Pipeline);
 }
 
@@ -170,7 +170,7 @@ fn streaming_request_reports_streaming_mode_in_outcome() {
         ..CompressOptions::default()
     };
 
-    let outcome = CompressionEngine::new().run(opts.to_request()).unwrap();
+    let outcome = CompressionEngine::new().run(&opts.to_request()).unwrap();
     assert_eq!(outcome.mode, CompressionExecutionMode::Streaming);
 }
 
@@ -186,7 +186,7 @@ fn pipeline_outcome_tracks_total_bases_for_summary_metrics() {
         ..CompressOptions::default()
     };
 
-    let outcome = CompressionEngine::new().run(opts.to_request()).unwrap();
+    let outcome = CompressionEngine::new().run(&opts.to_request()).unwrap();
 
     let mut parser = open_fastq("tests/data/test_se.fastq").unwrap();
     let expected_total_bases: u64 = parser
@@ -212,7 +212,7 @@ fn pipeline_outcome_reports_written_reorder_map() {
         ..CompressOptions::default()
     };
 
-    let outcome = CompressionEngine::new().run(opts.to_request()).unwrap();
+    let outcome = CompressionEngine::new().run(&opts.to_request()).unwrap();
 
     assert!(outcome.reorder_map_written);
 }
@@ -237,7 +237,7 @@ fn archive_execution_accepts_non_utf8_output_path() {
         ..CompressionRequest::for_tests()
     };
 
-    CompressionEngine::new().run(request).unwrap();
+    CompressionEngine::new().run(&request).unwrap();
 
     let bytes = std::fs::read(&output_path).unwrap();
     assert!(bytes.starts_with(&fqc::archive::format::MAGIC_BYTES));

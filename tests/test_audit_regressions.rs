@@ -304,7 +304,7 @@ fn repro_6_inverted_range_stats() {
         scan_all_lengths: false,
     };
     fqc::engine::compression_engine::CompressionEngine::new()
-        .run(req)
+        .run(&req)
         .unwrap();
 
     // Now run the decompress command with inverted range

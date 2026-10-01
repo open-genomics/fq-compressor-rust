@@ -32,7 +32,7 @@ fn archive_stats_carry_stage_timings() {
         show_progress: false,
         ..Default::default()
     };
-    let outcome = CompressionEngine::new().run(opts.to_request()).unwrap();
+    let outcome = CompressionEngine::new().run(&opts.to_request()).unwrap();
     assert!(
         outcome.stats.parse_ms + outcome.stats.process_ms + outcome.stats.write_ms > 0,
         "archive compression should fill stage timings (parse={}, reorder={}, process={}, write={})",

@@ -132,7 +132,7 @@ impl CompressionEngine {
     /// This is the main entry point for compression operations.
     /// It dispatches to the appropriate mode-specific handler based
     /// on the request's execution mode.
-    pub fn run(&self, request: CompressionRequest) -> Result<CompressionOutcome> {
+    pub fn run(&self, request: &CompressionRequest) -> Result<CompressionOutcome> {
         match request.mode {
             CompressionExecutionMode::Archive => self.run_archive(request),
             CompressionExecutionMode::Streaming => self.run_streaming(request),
@@ -148,8 +148,7 @@ impl CompressionEngine {
     /// 3. Perform global analysis (reordering)
     /// 4. Compress blocks in parallel
     /// 5. Write archive with optional reorder map
-    #[allow(clippy::needless_pass_by_value)]
-    fn run_archive(&self, request: CompressionRequest) -> Result<CompressionOutcome> {
+    fn run_archive(&self, request: &CompressionRequest) -> Result<CompressionOutcome> {
         let input = request.input.resolve();
 
         let t_parse = std::time::Instant::now();
@@ -396,8 +395,7 @@ impl CompressionEngine {
     /// 1. Read blocks incrementally
     /// 2. No global analysis/reordering
     /// 3. Lower memory footprint
-    #[allow(clippy::needless_pass_by_value)]
-    fn run_streaming(&self, request: CompressionRequest) -> Result<CompressionOutcome> {
+    fn run_streaming(&self, request: &CompressionRequest) -> Result<CompressionOutcome> {
         log::info!("Streaming compression mode");
 
         let input = request.input.resolve();
@@ -440,7 +438,7 @@ impl CompressionEngine {
             Self::run_streaming_paired(
                 &input.primary_path,
                 &path2,
-                &request,
+                request,
                 effective_length_class,
                 block_size,
                 input.archive_layout,
@@ -448,13 +446,13 @@ impl CompressionEngine {
         } else if input.is_interleaved {
             Self::run_streaming_interleaved(
                 &input.primary_path,
-                &request,
+                request,
                 effective_length_class,
                 block_size,
                 input.archive_layout,
             )
         } else {
-            Self::run_streaming_single(&input.primary_path, &request, effective_length_class, block_size)
+            Self::run_streaming_single(&input.primary_path, request, effective_length_class, block_size)
         }
     }
 
@@ -464,8 +462,7 @@ impl CompressionEngine {
     /// 1. 3-stage pipeline: Reader → Compressor → Writer
     /// 2. Parallel compression with bounded channels
     /// 3. Optional reordering for single-end reads
-    #[allow(clippy::needless_pass_by_value)]
-    fn run_pipeline(&self, request: CompressionRequest) -> Result<CompressionOutcome> {
+    fn run_pipeline(&self, request: &CompressionRequest) -> Result<CompressionOutcome> {
         use crate::pipeline::compression::{CompressionPipeline, CompressionPipelineConfig};
 
         log::info!("Pipeline compression mode");

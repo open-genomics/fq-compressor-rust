@@ -1,7 +1,7 @@
 # 任务：fqc 架构收敛——统一压缩/解压执行路径
 
 > 计划文件：`subagents/plans/2026-10-01-architecture-convergence.md`
-> 状态：**Phase 0/A/B 已完成**（每完成一个 Phase，勾选对应复选框并更新本行，不要留下未勾选的僵尸计划）
+> 状态：**Phase 0/A/B/C 已完成**（每完成一个 Phase，勾选对应复选框并更新本行，不要留下未勾选的僵尸计划）
 
 你在仓库 `fq-compressor-rust`（FASTQ 压缩器 `fqc`）。本次任务是一次**保持行为不变的架构收敛重构**：消除压缩/解压的多套平行实现。除下文明示的 run_paired 并行化外，禁止改变任何用户可见行为。
 
@@ -48,9 +48,9 @@
 
 ## Phase C —— 拆豁免
 
-- [ ] `grep -rn "allow(clippy::too_many_lines)\|allow(clippy::needless_pass_by_value)" src/`（扫描时确认：`pipeline/compression.rs:140`、`pipeline/decompression.rs:161` 的 too_many_lines，`engine/compression_engine.rs:151/399/467` 一带的 needless_pass_by_value，共 2+3 处（已逐条实测确认））：把相关函数拆到 `clippy.toml` 阈值（200 行）以内、修正参数传递方式，删除豁免。Phase A/B 完成后这些函数应已大幅缩短，剩余工作多是顺势拆分。
-- [ ] `src/main.rs:7` 的 bin 侧 crate 级 `#![allow(dead_code)]`（代码注释表明作者知情，但豁免仍覆盖整个 bin）：先查 git 历史与笔记搞清 bin 为什么重声明整个模块树；优先方案是 `main.rs` 只留 CLI 薄层、复用 lib target（`fqc::…`），彻底删除该豁免；若确有原因不可行，把 allow 缩到最小范围并写进笔记。
-- [ ] 验收：上述 allow 零命中（或仅剩最小范围且有笔记说明）；四门禁 + `cargo doc --no-deps` 通过。
+- [x] `grep -rn "allow(clippy::too_many_lines)\|allow(clippy::needless_pass_by_value)" src/`（扫描时确认：`pipeline/compression.rs:140`、`pipeline/decompression.rs:161` 的 too_many_lines，`engine/compression_engine.rs:151/399/467` 一带的 needless_pass_by_value，共 2+3 处（已逐条实测确认））：把相关函数拆到 `clippy.toml` 阈值（200 行）以内、修正参数传递方式，删除豁免。Phase A/B 完成后这些函数应已大幅缩短，剩余工作多是顺势拆分。
+- [x] `src/main.rs:7` 的 bin 侧 crate 级 `#![allow(dead_code)]`（代码注释表明作者知情，但豁免仍覆盖整个 bin）：先查 git 历史与笔记搞清 bin 为什么重声明整个模块树；优先方案是 `main.rs` 只留 CLI 薄层、复用 lib target（`fqc::…`），彻底删除该豁免；若确有原因不可行，把 allow 缩到最小范围并写进笔记。
+- [x] 验收：上述 allow 零命中（或仅剩最小范围且有笔记说明）；四门禁 + `cargo doc --no-deps` 通过。
 
 ## 过程要求
 

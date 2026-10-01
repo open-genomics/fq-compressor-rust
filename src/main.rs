@@ -1,32 +1,21 @@
 // =============================================================================
 // fqc - High-performance FASTQ compressor with random access support
 // =============================================================================
-// The bin re-declares the crate's module tree, so lib-level public API used by
-// integration tests (e.g. dna helpers, parser stats) is "unused" from the bin
-// perspective. Keep this allow scoped to the bin only.
-#![allow(dead_code)]
+// Thin CLI layer over the `fqc` library target. Re-declaring the module tree
+// here (as this file once did) made every lib-public API look "unused" from
+// the bin perspective and forced a crate-wide `#![allow(dead_code)]`.
+// =============================================================================
 
 #[cfg(target_env = "musl")]
 #[global_allocator]
 static GLOBAL: tikv_jemallocator::Jemalloc = tikv_jemallocator::Jemalloc;
 
-mod algo;
-mod archive;
-mod commands;
-mod engine;
-mod error;
-mod fastq;
-mod io;
-mod memory_budget;
-mod pipeline;
-mod types;
-
 use clap::{Parser, Subcommand};
-use commands::compress::{CompressCommand, CompressOptions};
-use commands::decompress::{parse_range, DecompressCommand, DecompressOptions};
-use commands::info::{InfoCommand, InfoOptions};
-use commands::verify::{VerifyCommand, VerifyOptions};
-use types::*;
+use fqc::commands::compress::{CompressCommand, CompressOptions};
+use fqc::commands::decompress::{parse_range, DecompressCommand, DecompressOptions};
+use fqc::commands::info::{InfoCommand, InfoOptions};
+use fqc::commands::verify::{VerifyCommand, VerifyOptions};
+use fqc::types::*;
 
 // =============================================================================
 // CLI Definitions

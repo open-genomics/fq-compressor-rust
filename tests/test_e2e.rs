@@ -1303,7 +1303,7 @@ fn test_e2e_archive_mode_honors_reorder_flag() {
     req_on.output_path = reordered.path().into();
     req_on.force_overwrite = true;
     req_on.enable_reorder = true;
-    let outcome_on = CompressionEngine::new().run(req_on).unwrap();
+    let outcome_on = CompressionEngine::new().run(&req_on).unwrap();
     assert!(outcome_on.reorder_map_written);
 
     let mut req_off = CompressionRequest::for_tests();
@@ -1313,7 +1313,7 @@ fn test_e2e_archive_mode_honors_reorder_flag() {
     req_off.output_path = plain.path().into();
     req_off.force_overwrite = true;
     req_off.enable_reorder = false;
-    let outcome_off = CompressionEngine::new().run(req_off).unwrap();
+    let outcome_off = CompressionEngine::new().run(&req_off).unwrap();
     assert!(!outcome_off.reorder_map_written);
 
     let reader = FqcReader::open(plain.path()).unwrap();

@@ -330,7 +330,6 @@ impl SequentialDecompressor {
     }
 
     /// Parallel decompression: read blocks sequentially, decompress in parallel batches, write sequentially.
-    #[allow(clippy::too_many_lines)]
     fn run_parallel(
         &mut self,
         reader: &mut FqcReader,
@@ -450,7 +449,6 @@ impl SequentialDecompressor {
         Ok(())
     }
 
-    #[allow(clippy::too_many_lines)]
     fn process_block(
         &mut self,
         reader: &mut FqcReader,

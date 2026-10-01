@@ -202,7 +202,7 @@ impl CompressCommand {
         // All modes now route through the engine
         use crate::engine::compression_engine::CompressionEngine;
         let request = self.opts.to_request();
-        let outcome = CompressionEngine::new().run(request)?;
+        let outcome = CompressionEngine::new().run(&request)?;
 
         // Update stats from outcome
         self.stats.inner = outcome.stats.clone();
