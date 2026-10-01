@@ -62,9 +62,9 @@
 
 ## 完成定义（DoD）
 
-- [ ] Phase 0：语义差异清单落盘 + 覆盖矩阵补齐，钉死测试全绿
-- [ ] Phase A：解压单一路径，commands 层无算法/归档内部依赖
-- [ ] Phase B：压缩骨架 + 拓扑×模式参数化，run_paired 并行，budget 测试原样通过
-- [ ] Phase C：too_many_lines / needless_pass_by_value 豁免清零，dead_code 豁免删除或最小化
-- [ ] 四门禁全绿 + verify-notes 通过 + bench 无明显回退
-- [ ] Agent Note 落盘；docs 中描述模块职责的段落已同步
+- [x] Phase 0：语义差异清单落盘 + 覆盖矩阵补齐，钉死测试全绿
+- [x] Phase A：解压单一路径，commands 层无算法/归档内部依赖
+- [x] Phase B：压缩骨架 + 拓扑×模式参数化，run_paired 并行，budget 测试原样通过
+- [x] Phase C：too_many_lines / needless_pass_by_value 豁免清零，dead_code 豁免删除或最小化
+- [x] 四门禁全绿 + verify-notes 通过 + bench 无明显回退
+- [x] Agent Note 落盘；docs 中描述模块职责的段落已同步

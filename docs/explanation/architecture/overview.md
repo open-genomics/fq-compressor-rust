@@ -34,6 +34,7 @@ flowchart TD
     subgraph PIPELINE["流水线层"]
         PL_COMP[pipeline/compression.rs]
         PL_DECOMP[pipeline/decompression.rs]
+        PL_DECOMP2[pipeline/decompression_classic.rs]
     end
     
     CLI --> ENGINE

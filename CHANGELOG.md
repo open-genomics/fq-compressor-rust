@@ -98,6 +98,13 @@
 - Docs converted to plain Markdown with a `docs/README.md` index.
 - Consolidated all development branches into master; repository moved to the
   open-genomics organization.
+- 内部重构（行为不变，T4 架构收敛）：解压编排下沉至
+  `pipeline/decompression_classic.rs`（`commands/decompress.rs` 退化为薄 CLI
+  层）；压缩 7 条执行路径收敛为"骨架 + 拓扑参数"（`pipeline/compression.rs`
+  共享重排与三阶段写核心，engine streaming 三兄弟收敛为一个核心 + 薄适配
+  器）；`run_paired` 由串行改为并行；清零全部 `too_many_lines` /
+  `needless_pass_by_value` / `dead_code` 豁免（`main.rs` 改为复用 lib
+  target）。决策见 `.agents/notes/implemented/architecture/2026-10-01-converge-execution-paths.md`。
 - CI 门禁扩展：在 fmt / clippy / test / doc 四门禁基础上恢复 MSRV（1.75.0 编译
   检查，已本地实测通过）与 cargo-deny job，全部 job 接入 `Swatinem/rust-cache`
   缓存与 `concurrency` 并发取消。
