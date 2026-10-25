@@ -49,7 +49,7 @@ fn roundtrip_with_uniform_length() {
 #[test]
 fn empty_stream_with_zero_reads_is_ok() {
     let out = codec().decompress(&[], 0, 0, &[]).unwrap();
-    assert!(out.is_empty());
+    assert_eq!(out, [] as [String; 0]);
 }
 
 #[test]

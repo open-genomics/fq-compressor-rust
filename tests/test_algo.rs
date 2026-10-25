@@ -15,7 +15,7 @@ use fqc::types::*;
 fn test_id_compress_decompress_exact() {
     let ids = vec!["read_0", "read_1", "read_2", "read_3", "read_4"];
     let compressed = compress_ids(&ids, 3, IdMode::Tokenize).unwrap();
-    assert!(!compressed.is_empty());
+    assert_ne!(compressed, Vec::<u8>::new());
 
     let decompressed = decompress_ids(&compressed, 5, "read").unwrap();
     assert_eq!(decompressed.len(), 5);
@@ -33,7 +33,7 @@ fn test_id_compress_decompress_discard() {
     assert_eq!(decompressed.len(), 3);
     // Discarded IDs should be synthetic placeholders
     for id in &decompressed {
-        assert!(!id.is_empty());
+        assert_ne!(id, "");
     }
 }
 
@@ -42,7 +42,7 @@ fn test_id_compress_decompress_empty() {
     let ids: Vec<&str> = vec![];
     let compressed = compress_ids(&ids, 3, IdMode::Tokenize).unwrap();
     let decompressed = decompress_ids(&compressed, 0, "").unwrap();
-    assert!(decompressed.is_empty());
+    assert_eq!(decompressed, Vec::<String>::new());
 }
 
 #[test]
@@ -101,7 +101,7 @@ fn test_quality_compress_decompress_lossless() {
     };
     let mut compressor = QualityCompressor::new(config.clone());
     let compressed = compressor.compress(&refs).unwrap();
-    assert!(!compressed.is_empty());
+    assert_ne!(compressed, Vec::<u8>::new());
 
     let mut decompressor = QualityCompressor::new(config);
     let decompressed = decompressor.decompress(&compressed, &lengths).unwrap();
@@ -122,7 +122,7 @@ fn test_quality_compress_decompress_discard() {
     };
     let mut compressor = QualityCompressor::new(config.clone());
     let compressed = compressor.compress(&refs).unwrap();
-    assert!(compressed.is_empty());
+    assert_eq!(compressed, Vec::<u8>::new());
 
     let lengths = vec![5u32, 5];
     let mut decompressor = QualityCompressor::new(config);
@@ -146,7 +146,7 @@ fn test_quality_compress_decompress_empty() {
 
     let mut decompressor = QualityCompressor::new(config);
     let decompressed = decompressor.decompress(&compressed, &[]).unwrap();
-    assert!(decompressed.is_empty());
+    assert_eq!(decompressed, Vec::<String>::new());
 }
 
 #[test]

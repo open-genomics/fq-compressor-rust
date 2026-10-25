@@ -231,8 +231,8 @@ fn reorder_disabled_produces_identity_maps() {
     let result = analyzer.analyze(&seqs).unwrap();
 
     assert!(!result.reordering_performed);
-    assert!(result.forward_map.is_empty());
-    assert!(result.reverse_map.is_empty());
+    assert_eq!(result.forward_map, [] as [u64; 0]);
+    assert_eq!(result.reverse_map, [] as [u64; 0]);
 }
 
 // =============================================================================

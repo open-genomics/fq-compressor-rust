@@ -47,7 +47,7 @@ fn assert_resource_limit(err: FqcError) {
             declared,
             allowed,
         } => {
-            assert!(!location.is_empty());
+            assert_ne!(location, "");
             assert!(declared > allowed || allowed == 0);
         }
         other => panic!("expected ResourceLimit, got {other}"),

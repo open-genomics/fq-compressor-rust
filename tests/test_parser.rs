@@ -81,7 +81,7 @@ fn test_read_chunk() {
     assert_eq!(chunk3[0].id, "r5");
 
     let chunk4 = parser.read_chunk(2).unwrap();
-    assert!(chunk4.is_empty());
+    assert_eq!(chunk4, [] as [_; 0]);
 }
 
 // =============================================================================

@@ -141,7 +141,7 @@ fn test_block_compress_decompress_variable_length() {
     let compressed = compressor.compress(&reads, 2).unwrap();
     assert_eq!(compressed.read_count, 15);
     assert_eq!(compressed.uniform_read_length, 0); // variable
-    assert!(!compressed.aux_stream.is_empty()); // aux needed for lengths
+    assert_ne!(compressed.aux_stream, Vec::<u8>::new()); // aux needed for lengths
 
     let decompressed = decompress_block(&mut compressor, &compressed);
     for (orig, dec) in reads.iter().zip(decompressed.reads.iter()) {
@@ -167,7 +167,7 @@ fn test_block_compress_quality_discard() {
     let mut compressor = BlockCompressor::new(config);
 
     let compressed = compressor.compress(&reads, 0).unwrap();
-    assert!(compressed.qual_stream.is_empty());
+    assert_eq!(compressed.qual_stream, Vec::<u8>::new());
 
     let decompressed = decompress_block(&mut compressor, &compressed);
     for (orig, dec) in reads.iter().zip(decompressed.reads.iter()) {
@@ -289,7 +289,7 @@ fn test_block_compress_decompress_empty() {
             &compressed.aux_stream,
         )
         .unwrap();
-    assert!(decompressed.reads.is_empty());
+    assert_eq!(decompressed.reads, [] as [ReadRecord; 0]);
 }
 
 #[test]

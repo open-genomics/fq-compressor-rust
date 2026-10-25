@@ -152,7 +152,7 @@ fn quality_discard_placeholder_is_ascii33() {
     let mut compressor = QualityCompressor::new(config.clone());
     let compressed = compressor.compress(&qualities).unwrap();
     // Discard mode produces no quality payload.
-    assert!(compressed.is_empty());
+    assert_eq!(compressed, Vec::<u8>::new());
 
     let lengths = vec![5u32, 5, 2];
     let mut decompressor = QualityCompressor::new(config);
