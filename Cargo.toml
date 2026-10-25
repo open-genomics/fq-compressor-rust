@@ -25,7 +25,7 @@ clap = { version = "=4.5.60", features = ["derive"] }
 zstd = "=0.13.3"
 xxhash-rust = { version = "=0.8.15", features = ["xxh64"] }
 rayon = "=1.10.0"
-thiserror = "=1.0.69"
+thiserror = "=2.0.21"
 byteorder = "=1.5.0"
 log = "=0.4.29"
 env_logger = "=0.11.9"
