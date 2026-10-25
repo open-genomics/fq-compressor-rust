@@ -123,4 +123,4 @@ name = "archive_workflow"
 harness = false
 
 [dev-dependencies]
-criterion = "0.5"
+criterion = "0.8"
