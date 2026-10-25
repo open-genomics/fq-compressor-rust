@@ -1,10 +1,13 @@
-# fqc
+# fq-compressor-rust
 
 [![License](https://img.shields.io/badge/license-GPL--3.0-green)](https://www.gnu.org/licenses/gpl-3.0.en.html)
 [![CI](https://github.com/open-genomics/fq-compressor-rust/actions/workflows/ci.yml/badge.svg)](https://github.com/open-genomics/fq-compressor-rust/actions/workflows/ci.yml)
+[![Rust](https://img.shields.io/badge/rust-1.75%2B-orange)](Cargo.toml)
 
 `fqc` 是一个用 Rust 编写的 FASTQ 压缩工具，围绕块索引的 `.fqc` 归档格式构建。
 它将短读 ABC 路径、Zstd 支撑的中/长读压缩与质量分编码整合进单一 CLI，支持压缩、解压、检视与校验。
+
+*A block-indexed FASTQ archive format and CLI in Rust — compress, inspect, verify, partially stream.*
 
 > **格式族：`fqc-indexed/v2`**。`fqc` 与 `.fqc` 是两个**同名、不同格式族**的产品：
 > 本仓库（Rust）与 [`fq-compressor`](https://github.com/open-genomics/fq-compressor)（C++）
@@ -66,3 +69,14 @@ GitHub Actions 跑同一套（`.github/workflows/ci.yml`）。
 ## 许可证
 
 GPL-3.0-or-later，见 [LICENSE](LICENSE)。
+
+## 相关项目
+
+- [fq-compressor](https://github.com/open-genomics/fq-compressor) — 同题 C++23 实现（顺序流式 `.fqc`，同名不同格式族、互不兼容）
+- [minibwa-rust](https://github.com/open-genomics/minibwa-rust) — 短读比对器（同属组织 Rust 线）
+
+<div align="center">
+
+本仓库属于 [**Open Genomics**](https://github.com/open-genomics) · 高性能生物信息学系统软件与中文知识库
+
+</div>
