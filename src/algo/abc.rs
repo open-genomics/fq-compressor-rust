@@ -1026,7 +1026,7 @@ mod tests {
         );
 
         let decoded = compressor.decompress(&encoded.data, 0).unwrap();
-        assert!(decoded.is_empty());
+        assert_eq!(decoded, [] as [String; 0]);
     }
 
     #[test]
