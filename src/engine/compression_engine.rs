@@ -188,6 +188,7 @@ impl CompressionEngine {
             effective_length_class,
             &length_stats,
             request.max_block_bases,
+            true,
         );
         let enable_reorder =
             request.enable_reorder && !input.is_paired && effective_length_class == ReadLengthClass::Short;
@@ -420,6 +421,7 @@ impl CompressionEngine {
             effective_length_class,
             &length_stats,
             request.max_block_bases,
+            false,
         );
 
         log::info!(
@@ -660,12 +662,13 @@ impl CompressionEngine {
         class: ReadLengthClass,
         stats: &LengthStats,
         max_block_bases: usize,
+        auto_split_long_reads: bool,
     ) -> usize {
         if requested_block_size > 0 {
             return requested_block_size;
         }
 
-        let mut block_size = if stats.max_length < SPRING_MAX_READ_LENGTH {
+        let block_size = if stats.max_length < SPRING_MAX_READ_LENGTH {
             DEFAULT_BLOCK_SIZE_SHORT
         } else {
             match class {
@@ -675,13 +678,40 @@ impl CompressionEngine {
             }
         };
 
-        // Apply max_block_bases limit for non-short reads
-        if max_block_bases > 0 && class != ReadLengthClass::Short {
-            let per_read_bases = stats.max_length.max(1);
-            block_size = block_size.min((max_block_bases / per_read_bases).max(1));
+        Self::apply_block_bases_limit(block_size, class, stats, max_block_bases, auto_split_long_reads)
+    }
+
+    fn apply_block_bases_limit(
+        block_size: usize,
+        class: ReadLengthClass,
+        stats: &LengthStats,
+        max_block_bases: usize,
+        auto_split_long_reads: bool,
+    ) -> usize {
+        if class == ReadLengthClass::Short {
+            return block_size;
         }
 
-        block_size.max(1)
+        let limit = if max_block_bases > 0 {
+            Some(max_block_bases)
+        } else if auto_split_long_reads && class == ReadLengthClass::Long {
+            Some(DEFAULT_LONG_READ_BLOCK_BASES)
+        } else {
+            None
+        };
+        let Some(limit) = limit else {
+            return block_size;
+        };
+
+        // Explicit limits keep the historical max-length bound; the automatic
+        // long-read limit uses the observed average so one outlier does not
+        // suppress useful split parallelism.
+        let per_read_bases = if max_block_bases > 0 {
+            stats.max_length.max(1)
+        } else {
+            stats.avg_length.max(1)
+        };
+        block_size.min((limit / per_read_bases).max(1)).max(1)
     }
 
     // =============================================================================
@@ -963,15 +993,10 @@ impl CompressionEngine {
 
         let budget = auto_memory_budget(memory_limit_mb);
         let estimator = MemoryEstimator::new(budget);
-        let mut block_size =
+        let block_size =
             crate::types::recommended_block_size(class).min(estimator.optimal_block_size(effective_threads));
 
-        if max_block_bases > 0 && class != ReadLengthClass::Short {
-            let per_read_bases = stats.max_length.max(1);
-            block_size = block_size.min((max_block_bases / per_read_bases).max(1));
-        }
-
-        block_size.max(1)
+        Self::apply_block_bases_limit(block_size, class, stats, max_block_bases, true)
     }
 
     fn effective_in_flight_blocks(block_size: usize, stats: &LengthStats, memory_limit_mb: usize) -> usize {

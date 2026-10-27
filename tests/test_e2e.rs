@@ -966,6 +966,37 @@ fn test_e2e_max_block_bases_limits_long_read_block_count() {
     assert_eq!(capped_reader.block_count(), 5);
 }
 
+#[test]
+fn test_e2e_long_reads_auto_split_blocks() {
+    // Long starts at 10,240 bp; keep the fixture above the boundary so this
+    // test covers automatic detection, not just a forced read-length class.
+    let lengths = vec![12_000; 600];
+    let records = synthetic_reads(&lengths, "longread");
+    let input = TempFile::new("e2e_long_auto_split.fastq");
+    write_fastq_records(input.path(), &records);
+
+    for (suffix, use_pipeline) in [("archive", false), ("pipeline", true)] {
+        let archive = TempFile::new(&format!("e2e_long_auto_split_{suffix}.fqc"));
+        let exit = CompressCommand::new(CompressOptions {
+            input_path: input.path().to_string(),
+            output_path: archive.path().to_string(),
+            use_pipeline,
+            show_progress: false,
+            force_overwrite: true,
+            ..CompressOptions::default()
+        })
+        .execute();
+        assert_eq!(exit, 0, "{suffix} compression failed");
+
+        let reader = FqcReader::open(archive.path()).unwrap();
+        assert!(
+            reader.block_count() > 1,
+            "{suffix} should auto-split long reads, got {} block(s)",
+            reader.block_count()
+        );
+    }
+}
+
 // =============================================================================
 // E2E: Pipeline Compression Round-Trip
 // =============================================================================

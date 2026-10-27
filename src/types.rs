@@ -35,6 +35,9 @@ pub const DEFAULT_BLOCK_SIZE_MEDIUM: usize = 50_000;
 /// Default block size for long reads
 pub const DEFAULT_BLOCK_SIZE_LONG: usize = 10_000;
 
+/// Default maximum bases per auto-split long-read block.
+pub const DEFAULT_LONG_READ_BLOCK_BASES: usize = 5_000_000;
+
 /// Spring ABC max read length
 pub const SPRING_MAX_READ_LENGTH: usize = 511;
 
