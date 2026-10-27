@@ -26,6 +26,22 @@ jobs:
       - name: 文档构建
         run: cargo doc --no-deps --locked
 
+  check-aarch64:
+    name: build / test (aarch64)
+    # Public repositories get the free GitHub-hosted arm64 runner. Private
+    # mirrors need an arm64 larger runner or a self-hosted label instead.
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: aarch64
+      - name: Release build
+        run: cargo build --release --locked
+      - name: Test
+        run: cargo test --lib --tests --locked
+
   msrv:
     name: MSRV (1.75)
     runs-on: ubuntu-latest
