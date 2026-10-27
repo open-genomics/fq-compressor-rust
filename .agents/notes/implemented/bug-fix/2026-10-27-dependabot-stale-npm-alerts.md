@@ -43,4 +43,6 @@ dismiss comment 中指向本 Note；不通过升级未使用的 VitePress 依赖
 - `npm audit --package-lock-only --omit=dev`：`found 0 vulnerabilities`。
 - 锁文件解析为 `lockfileVersion: 3`，`packages` 只有根条目，`npm ls --all`
   显示空依赖树。
-- 推送后检查 Dependabot open alerts 数量；必要时逐条 dismiss 为 `not_used`。
+- 推送 `d134e7d` 后等待 90 秒，open alerts 仍为 19；随后将旧告警逐条
+  dismiss 为 `not_used`，复查 API：`open=0`（18 条显示 `dismissed`，另一条
+  withdrawn advisory 已不再出现在列表中）。
