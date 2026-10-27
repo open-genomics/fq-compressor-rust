@@ -226,8 +226,8 @@ impl SequentialDecompressor {
             }
 
             let (r1_path, r2_path) = derive_split_output_paths(output_path);
-            let mut r1_tx = OutputTransaction::begin(&r1_path, self.config.force_overwrite)?;
-            let mut r2_tx = OutputTransaction::begin(&r2_path, self.config.force_overwrite)?;
+            let mut r1_tx = OutputTransaction::begin(r1_path, self.config.force_overwrite)?;
+            let mut r2_tx = OutputTransaction::begin(r2_path, self.config.force_overwrite)?;
             let pe_layout = get_pe_layout(flags);
             OutputWriters::Split {
                 r1: Box::new(BufWriter::new(r1_tx.take_file()?)),

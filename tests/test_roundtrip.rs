@@ -460,7 +460,7 @@ fn test_archive_with_reorder_map() {
 fn test_writer_rejects_invalid_reorder_map() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("invalid-map.fqc");
-    let mut writer = FqcWriter::create(&path).unwrap();
+    let mut writer = FqcWriter::create(path).unwrap();
 
     let err = writer.write_reorder_map(&[0, 0], &[0, 1]).unwrap_err();
     assert!(matches!(err, fqc::error::FqcError::InvalidArgument(_)));
