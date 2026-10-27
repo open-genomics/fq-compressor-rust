@@ -2,6 +2,11 @@
 
 ## [Unreleased]
 
+### Security
+
+- 为当前无依赖的 note 工具补充最小 `package-lock.json`，替换 GitHub npm 依赖图中
+  残留的旧 VitePress 锁文件；`npm audit --package-lock-only` 返回 0 vulnerabilities。
+
 ### Added
 
 - CI 增加原生 aarch64 job（GitHub 公共仓库免费 ARM runner）：release 构建 +
