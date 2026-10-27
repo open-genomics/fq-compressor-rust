@@ -6,7 +6,7 @@ use crate::algo::dna::BASE_TO_INDEX;
 use crate::error::Result;
 use crate::types::*;
 use rayon::prelude::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, VecDeque};
 
 // =============================================================================
 // Minimizer Extraction
@@ -17,40 +17,40 @@ pub struct Minimizer {
     pub hash: u64,
 }
 
+const MAX_ROLLING_KMER: usize = 32;
+
+fn base_value(byte: u8) -> u64 {
+    // The minimizer hash uses a two-bit alphabet. Ambiguous/unknown symbols
+    // are mapped deterministically to A instead of allowing the N marker
+    // (index 4) to underflow the reverse-complement calculation.
+    match BASE_TO_INDEX[byte as usize] {
+        index @ 0..=3 => u64::from(index),
+        _ => 0,
+    }
+}
+
 fn compute_kmer_hash(seq: &[u8]) -> u64 {
     let k = seq.len();
     let mut hash: u64 = 0;
     let mut rc_hash: u64 = 0;
     for i in 0..k {
-        // The minimizer hash uses a two-bit alphabet. Ambiguous/unknown
-        // symbols are mapped deterministically to A instead of allowing the
-        // N marker (index 4) to underflow the reverse-complement calculation.
-        let base = match BASE_TO_INDEX[seq[i] as usize] {
-            index @ 0..=3 => u64::from(index),
-            _ => 0,
-        };
+        let base = base_value(seq[i]);
         hash = (hash << 2) | base;
-        let rc_index = match BASE_TO_INDEX[seq[k - 1 - i] as usize] {
-            index @ 0..=3 => u64::from(index),
-            _ => 0,
-        };
-        let rc_base = 3 - rc_index;
+        let rc_base = 3 - base_value(seq[k - 1 - i]);
         rc_hash = (rc_hash << 2) | rc_base;
     }
     hash.min(rc_hash)
 }
 
-pub fn extract_minimizers(seq: &[u8], k: usize, w: usize) -> Vec<Minimizer> {
-    let mut minimizers = Vec::new();
-    if k == 0 || w == 0 || seq.len() < k {
-        return minimizers;
-    }
-
+/// Old linear-window implementation, retained for exotic k values and as a
+/// test oracle. The normal short-read path uses `extract_minimizers`.
+fn extract_minimizers_legacy(seq: &[u8], k: usize, w: usize) -> Vec<Minimizer> {
     let num_kmers = seq.len() - k + 1;
     let hashes: Vec<u64> = (0..num_kmers).map(|i| compute_kmer_hash(&seq[i..i + k])).collect();
 
     let window_size = w.min(num_kmers);
     let mut prev_min_pos = usize::MAX;
+    let mut minimizers = Vec::new();
 
     for window_start in 0..=(num_kmers.saturating_sub(window_size)) {
         let mut min_hash = u64::MAX;
@@ -67,6 +67,79 @@ pub fn extract_minimizers(seq: &[u8], k: usize, w: usize) -> Vec<Minimizer> {
         if min_pos != prev_min_pos {
             minimizers.push(Minimizer { hash: min_hash });
             prev_min_pos = min_pos;
+        }
+    }
+
+    minimizers
+}
+
+pub fn extract_minimizers(seq: &[u8], k: usize, w: usize) -> Vec<Minimizer> {
+    if k == 0 || w == 0 || seq.len() < k {
+        return Vec::new();
+    }
+
+    // k > 32 would make the 2-bit rolling state wider than u64. Keep the
+    // historical behavior for those unusual parameters instead of silently
+    // changing hash boundaries.
+    if k > MAX_ROLLING_KMER {
+        return extract_minimizers_legacy(seq, k, w);
+    }
+
+    let num_kmers = seq.len() - k + 1;
+    let window_size = w.min(num_kmers);
+    let mask = if k == MAX_ROLLING_KMER {
+        u64::MAX
+    } else {
+        (1_u64 << (2 * k)) - 1
+    };
+    let high_shift = 2 * (k - 1);
+
+    let mut forward: u64 = 0;
+    let mut reverse_complement: u64 = 0;
+    for &byte in &seq[..k] {
+        forward = (forward << 2) | base_value(byte);
+    }
+    for &byte in seq[..k].iter().rev() {
+        reverse_complement = (reverse_complement << 2) | (3 - base_value(byte));
+    }
+
+    let mut minimizers = Vec::new();
+    let mut window_minima = VecDeque::with_capacity(window_size);
+    let mut prev_min_pos = usize::MAX;
+
+    for i in 0..num_kmers {
+        let hash = forward.min(reverse_complement);
+
+        // Strict `>` keeps the leftmost position when hashes tie, matching the
+        // legacy scan's `<` comparison.
+        while let Some(&(_, back_hash)) = window_minima.back() {
+            if back_hash > hash {
+                window_minima.pop_back();
+            } else {
+                break;
+            }
+        }
+        window_minima.push_back((i, hash));
+
+        while let Some(&(front_pos, _)) = window_minima.front() {
+            if front_pos + window_size > i {
+                break;
+            }
+            window_minima.pop_front();
+        }
+
+        if i + 1 >= window_size {
+            let &(min_pos, min_hash) = window_minima.front().expect("a non-empty window must have a minimum");
+            if min_pos != prev_min_pos {
+                minimizers.push(Minimizer { hash: min_hash });
+                prev_min_pos = min_pos;
+            }
+        }
+
+        if i + 1 < num_kmers {
+            let next_base = base_value(seq[i + k]);
+            forward = ((forward << 2) & mask) | next_base;
+            reverse_complement = (reverse_complement >> 2) | ((3 - next_base) << high_shift);
         }
     }
 
@@ -218,7 +291,9 @@ impl GlobalAnalyzer {
             }
         }
 
-        // Step 2: Greedy reordering (approximate Hamiltonian path)
+        // Step 2: Greedy reordering (approximate Hamiltonian path).
+        // Reuse the minimizers from step 1; recomputing them for every visited
+        // read doubles the scalar extraction work in the reorder hot path.
         let mut used = vec![false; total_reads];
         let mut ordered: Vec<ReadId> = Vec::with_capacity(total_reads);
 
@@ -227,18 +302,15 @@ impl GlobalAnalyzer {
 
         while ordered.len() < total_reads {
             let last_read = *ordered.last().expect("ordered is never empty - initialized with 0") as usize;
-            let last_seq = sequences[last_read].as_bytes();
-
-            let last_mins = extract_minimizers(last_seq, self.config.minimizer_k, self.config.minimizer_w);
+            let last_len = sequences[last_read].len();
 
             let mut best_match: Option<u64> = None;
             let mut best_score = usize::MAX;
 
-            let last_len = last_seq.len();
             let mut searched = 0;
 
-            'outer: for m in &last_mins {
-                if let Some(bucket) = bucket_map.get(&m.hash) {
+            'outer: for &(hash, _) in &all_buckets[last_read] {
+                if let Some(bucket) = bucket_map.get(&hash) {
                     for &candidate_id in bucket {
                         let cid = candidate_id as usize;
                         if used[cid] {
@@ -294,5 +366,65 @@ impl GlobalAnalyzer {
         }
 
         boundaries
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{extract_minimizers, extract_minimizers_legacy};
+
+    fn sample_sequence(len: usize, seed: u64) -> Vec<u8> {
+        let alphabet = b"ACGTNacgt.-";
+        let mut state = seed | 1;
+        (0..len)
+            .map(|_| {
+                state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                alphabet[((state >> 33) as usize) % alphabet.len()]
+            })
+            .collect()
+    }
+
+    fn hashes(seq: &[u8], k: usize, w: usize) -> Vec<u64> {
+        extract_minimizers(seq, k, w)
+            .into_iter()
+            .map(|minimizer| minimizer.hash)
+            .collect()
+    }
+
+    fn legacy_hashes(seq: &[u8], k: usize, w: usize) -> Vec<u64> {
+        extract_minimizers_legacy(seq, k, w)
+            .into_iter()
+            .map(|minimizer| minimizer.hash)
+            .collect()
+    }
+
+    #[test]
+    fn rolling_minimizers_match_legacy_scan() {
+        for k in 1..=40 {
+            for len in [k, k + 1, k + 8, 64, 257] {
+                let seq = sample_sequence(len, k as u64 * 1_000 + len as u64);
+                for w in [1, 2, 5, 17, 64, 257] {
+                    assert_eq!(
+                        hashes(&seq, k, w),
+                        legacy_hashes(&seq, k, w),
+                        "fast minimizer scan diverged for k={k}, len={len}, w={w}"
+                    );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn rolling_minimizers_preserve_ambiguous_base_mapping() {
+        let seq = b"ACGTNNacgt..ACGT".repeat(5);
+        for k in [1, 3, 15, 32, 33] {
+            for w in [1, 2, 10] {
+                assert_eq!(
+                    hashes(&seq, k, w),
+                    legacy_hashes(&seq, k, w),
+                    "ambiguous-base minimizers diverged for k={k}, w={w}"
+                );
+            }
+        }
     }
 }
