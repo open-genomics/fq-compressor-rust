@@ -108,6 +108,7 @@ flowchart LR
 - **compress archive**：摄入时估计峰值（含额外拷贝因子），超限失败并提示 `--streaming`
 - **compress streaming**：不走全量摄入检查
 - **compress pipeline**：与 archive 共用摄入峰值预算，超限同样失败；仍不是块级流式低内存路径
+- Linux 自动预算会取宿主机 `MemAvailable` 与 cgroup v2/v1 剩余额度的较小值；容器内仍建议对超大文件显式设置 `--memory-limit`
 
 ```bash
 # 显式限制 MB（archive 超预算会失败）
@@ -123,5 +124,6 @@ fqc --memory-limit 0 compress -i reads.fastq -o reads.fqc
 |------|----------|
 | 标准压缩 | `fqc compress -i in.fq -o out.fqc` |
 | 大文件、内存有限 | `fqc compress -i in.fq -o out.fqc --streaming --memory-limit 1024` |
+| 长读 | `fqc compress -i long.fq -o out.fqc`（默认自动分块；可用 `--max-block-bases` 覆盖） |
 | 最大吞吐量 | `fqc compress -i in.fq -o out.fqc --pipeline` |
 | 双端输入 | `fqc compress -i R1.fq -2 R2.fq -o out.fqc` |

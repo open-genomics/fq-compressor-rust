@@ -1,6 +1,9 @@
 # 热点测量报告（阶段计时）
 
 > 范围：`docs/explanation/architecture/performance-roadmap.md` 中"热点测量"切片（2026-08-18 起，7d）的收口。
+>
+> **2026-10-26 说明**：长读 archive/pipeline 已改为默认自动分块；下表中的 ONT 单 block
+> 与吞吐是改动前的历史测量，保留用于对照，不代表当前默认。
 > 环境：WSL2（Linux 6.18 / 12 核），release 构建，`--threads 8`，默认参数。机器为共享环境、测量时存在并发任务，
 > 墙钟波动约 ±20–30%；结论只看量级与相对关系，不把绝对值当基准。语料见 `docs/reference/real-corpus.md`（与 C++ 侧同一切片）。
 

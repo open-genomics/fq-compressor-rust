@@ -4,6 +4,8 @@
 
 ### Added
 
+- CI 增加原生 aarch64 job（GitHub 公共仓库免费 ARM runner）：release 构建 +
+  lib/集成测试，防止后续改动引入 x86-only 假设。
 - 阶段计时：compress / decompress 的 summary 打印 `Stage timings`（parse / reorder /
   process / write，单位 ms；process 为并行 worker 聚合 CPU 时间）。覆盖 archive、pipeline、
   streaming 三种模式，单 block 与 `--original-order` 路径同样计时。
@@ -61,6 +63,14 @@
 
 ### Changed
 
+- 重排阶段复用首次并行提取的 minimizer，删除每条 read 的重复提取；aarch64
+  100k × 150 bp 合成短读上重排墙钟约降低 7%，解压内容与归档 payload 不变。
+- minimizer 提取改为 2-bit 滚动哈希 + 单调队列；同一微基准中提取阶段约
+  3.07 s → 0.27 s（约 11×），`k > 32` 仍保留旧线性路径以保证哈希边界不变。
+- Linux 自动内存预算现在同时参考 `/proc/meminfo` 与 cgroup v2/v1 的剩余内存额度；
+  容器内 `--memory-limit 0` 不再按宿主机内存高估，显式 `--memory-limit` 仍覆盖。
+- 长读 archive/pipeline 在 `--max-block-bases 0` 时按 5M bases/block 自动切块，
+  提升多核压缩/解压吞吐；显式值仍覆盖，streaming 不自动改块。
 - docs 按 Diátaxis 重组为 `tutorials/`、`how-to/`、`reference/`、`explanation/` 四象限，
   `docs/README.md` 改为按用户目标索引；`cli.md` 归入 `reference/`、`quick-start.md` 归入
   `tutorials/`、基准与测量报告归入 `reference/`；README 与 guide 重复的安装/常用命令/

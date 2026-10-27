@@ -45,7 +45,11 @@ cargo build --release
 
 安装到 PATH、双端输入、`--streaming`/`--pipeline` 模式、区间解压等见
 [快速开始教程](docs/tutorials/quick-start.md)；全部命令与选项（含全局 `--memory-limit`）
-见 [CLI 参考](docs/reference/cli.md)。
+见 [CLI 参考](docs/reference/cli.md)。长读 archive/pipeline 默认按约 5M bases/block
+自动切块；容器内 `--memory-limit 0` 会自动参考 cgroup 剩余额度，大文件仍建议显式限制。
+
+Linux aarch64 / Kunpeng 服务器的构建、线程和部署注意事项见
+[安装指南的 ARM 小节](docs/how-to/installation.md#arm64--aarch64-linux-服务器)。
 
 ## 文档
 

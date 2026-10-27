@@ -33,7 +33,7 @@ fqc compress -i INPUT -o OUTPUT [OPTIONS]
 | `--id-mode` | `tokenize`（默认：模式检测，失败回退 exact）、`exact` 或 `discard` |
 | `--long-read-mode` | `auto`、`short`、`medium` 或 `long`（默认：`auto`） |
 | `--interleaved` | 将输入视为交错双端 FASTQ |
-| `--max-block-bases` | 限制中长读每块碱基数 |
+| `--max-block-bases` | 限制中长读每块碱基数（`0` = 长读按 5M bases 自动切块） |
 | `--scan-all-lengths` | 检查完整输入而非采样检测长度 |
 | `--pipeline` | 使用分段压缩流水线 |
 | `--pe-layout` | 双端归档元数据 `interleaved` 或 `consecutive`（默认：`interleaved`） |
@@ -42,7 +42,8 @@ fqc compress -i INPUT -o OUTPUT [OPTIONS]
 说明：
 
 - archive 模式将完整读段集保留在内存中进行全局分析和可选重排
-- `--memory-limit 0` 在 compress / decompress / verify 上都是有限预算（约可用内存 75%，带硬性结构上限），不是无限内存。archive 与 pipeline 压缩按摄入峰值估计拒绝超预算，并提示改 `--streaming`
+- 长读在 archive 与 pipeline 的 `--max-block-bases 0` 下按 5M bases/block 自动切块；显式值覆盖自动选择，streaming 保持其原有块大小（显式值仍生效）
+- `--memory-limit 0` 在 compress / decompress / verify 上都是有限预算（约可用内存 75%，带硬性结构上限），不是无限内存。Linux 自动预算取 `/proc/meminfo` 的 `MemAvailable` 与 cgroup v2/v1 剩余额度的较小值；archive 与 pipeline 压缩按摄入峰值估计拒绝超预算，并提示改 `--streaming`
 - `--id-mode tokenize` 会尝试公共前缀 + 可变字段编码，模式不稳定则该块回退 exact；归档 flags 仍记录所选模式。`--id-mode exact` 从不 tokenize
 - `--lossy-quality qvz` 把每个 Phred 值量化到固定 8 级码本 `[7, 15, 20, 25, 30, 35, 40, 41]` 后再走 SCM，不是无损别名，也不是训练过的率失真 QVZ
 - pipeline 模式是分段执行路径，非严格低内存摄入模式

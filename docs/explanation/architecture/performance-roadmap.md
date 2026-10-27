@@ -83,5 +83,6 @@ flowchart LR
 
 - archive 压缩自动内存选择已落地；pipeline 全量摄入仍单独处理
 - 解析器/重排/管道/归档写入热点已测量（2026-08-20，见 `docs/reference/hotspot-report.md`）：短读热点在全局重排（且负收益），长读热点在单 block 串行
-- 下一刀（有数据支撑）：重排自适应 / 默认关闭；长读 `--max-block-bases` 自动切块
+- 下一刀（有数据支撑）：重排自适应 / 默认关闭；长读 archive/pipeline 已按 5M bases/block
+  自动切块（2026-10-26，`--max-block-bases` 可覆盖）
 - 将任何较大的算法或数据结构变更限定在可单独审查的小切片中
