@@ -22,7 +22,7 @@ path = "src/lib.rs"
 
 [dependencies]
 clap = { version = "=4.5.60", features = ["derive"] }
-zstd = "=0.13.3"
+zstd = "=0.14.3"
 xxhash-rust = { version = "=0.8.19", features = ["xxh64"] }
 rayon = "=1.10.0"
 thiserror = "=1.0.69"
