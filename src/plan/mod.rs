@@ -9,11 +9,13 @@
 pub mod block_plan;
 pub mod compress;
 pub mod decompress;
+pub mod length;
 
 pub use block_plan::{
-    avg_read_length, codec_thread_limit, effective_worker_count, plan_compression_layout, worker_budget_bytes,
-    CompressionPlan, CompressionPlanInput,
+    avg_read_length, codec_thread_limit, effective_in_flight_blocks, effective_worker_count, plan_compression_layout,
+    worker_budget_bytes, CompressionPlan, CompressionPlanInput,
 };
+pub use length::{effective_read_length_class, length_stats_from_records_sampled, DEFAULT_LENGTH_SAMPLE_READS};
 
 /// Execution mode for compression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

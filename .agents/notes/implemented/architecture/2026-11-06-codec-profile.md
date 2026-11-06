@@ -33,8 +33,10 @@ archive / pipeline / streaming 会静默产生不同码流。`CompressionPipelin
 
 archive、pipeline、streaming 都只调用 `common::codec_profile(...)`。同时：
 
-- `CompressionPipelineConfig` 用 `compressor_config: BlockCompressorConfig` 取代
-  四个 codec 字段，删除内部的 `block_compressor_config()` 二次映射；
+- `CompressionPipelineConfig` 用与类别无关的 `codec: BlockCodecSettings` 取代
+  四个 codec 字段，删除内部的 `block_compressor_config()` 二次映射；读长类别由
+  pipeline 在完整摄入后解析（见
+  `2026-11-06-pipeline-full-ingest-classification.md`）；
 - `build_flags`、`GlobalAnalyzer`、`BlockPipelineConfig` 需要的 codec 字段直接读
   `compressor_config`；
 - 删除只做转发的 `common::codec_thread_limit` 包装。

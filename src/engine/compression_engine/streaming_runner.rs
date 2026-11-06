@@ -36,7 +36,7 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
     });
 
     let effective_length_class =
-        common::effective_length_class(request.settings().requested_read_length_class, &length_stats);
+        crate::plan::effective_read_length_class(request.settings().requested_read_length_class, &length_stats);
     let block_size = common::effective_block_size(
         request.settings().block_size,
         effective_length_class,

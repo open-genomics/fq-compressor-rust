@@ -2,14 +2,13 @@
 // fqc - Shared compression planning and input helpers
 // =============================================================================
 
-use crate::algo::block_compressor::BlockCompressorConfig;
+use crate::algo::block_compressor::{BlockCodecSettings, BlockCompressorConfig};
 use crate::error::Result;
 use crate::fastq::parser::{open_fastq, open_fastq_interleaved, open_fastq_paired, open_fastq_stdin};
 use crate::plan::compress::CompressionSettings;
+use crate::plan::DEFAULT_LENGTH_SAMPLE_READS;
 use crate::types::*;
 use std::path::Path;
-
-pub(super) const DEFAULT_LENGTH_SAMPLE_READS: usize = 4_096;
 
 /// Compression settings resolved once for codec construction and layout planning.
 ///
@@ -23,13 +22,8 @@ pub(super) struct CodecProfile {
 }
 
 pub(super) fn codec_profile(settings: &CompressionSettings, read_length_class: ReadLengthClass) -> CodecProfile {
-    let config = BlockCompressorConfig {
-        read_length_class,
-        quality_mode: settings.quality_mode,
-        id_mode: settings.id_mode,
-        zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(settings.level),
-        ..Default::default()
-    };
+    let config = BlockCodecSettings::from_compression_level(settings.quality_mode, settings.id_mode, settings.level)
+        .with_read_length_class(read_length_class);
     let model_bytes = config.to_quality_config().estimated_model_bytes();
     CodecProfile {
         config,
@@ -77,26 +71,6 @@ pub(super) fn read_all_interleaved_records(
     parser.collect_pairs_within_archive_budget(pe_layout, memory_limit_mb)
 }
 
-pub(super) fn length_stats_from_records_sampled(records: &[ReadRecord], scan_all: bool) -> LengthStats {
-    if scan_all || records.len() <= DEFAULT_LENGTH_SAMPLE_READS {
-        let lengths: Vec<usize> = records.iter().map(|r| r.sequence.len()).collect();
-        return LengthStats::from_lengths(&lengths);
-    }
-
-    let sample_size = DEFAULT_LENGTH_SAMPLE_READS.min(records.len());
-    let lengths: Vec<usize> = (0..sample_size)
-        .map(|i| {
-            let idx = i * records.len() / sample_size;
-            records[idx].sequence.len()
-        })
-        .collect();
-    LengthStats::from_lengths(&lengths)
-}
-
-pub(super) fn effective_length_class(requested: Option<ReadLengthClass>, stats: &LengthStats) -> ReadLengthClass {
-    requested.unwrap_or_else(|| crate::types::classify_read_length(stats.median_length, stats.max_length))
-}
-
 pub(super) fn effective_block_size(
     requested_block_size: usize,
     class: ReadLengthClass,
@@ -123,10 +97,11 @@ pub(super) fn effective_block_size(
 // Streaming mode helpers
 // =============================================================================
 
-/// Convergence core for all streaming topologies. Pulls pre-batched blocks
-/// (in archive order) from `next_block` and writes them without ever
-/// holding the full read set in memory. Single-end and paired adapters own
-/// the accumulation/arrangement and hand the core complete blocks.
+/// Inspect read lengths before streaming so block sizing fits the input.
+///
+/// Reads at most `scan_all ? all : DEFAULT_LENGTH_SAMPLE_READS` lengths and
+/// never buffers full records; stdin has no seekable pre-scan and returns
+/// `None` so callers fall back to their default class.
 pub(super) fn inspect_input_lengths_for_streaming(
     input_path: &Path,
     input2_path: Option<&Path>,
@@ -176,21 +151,4 @@ pub(super) fn inspect_input_lengths_for_streaming(
     } else {
         Ok(Some(LengthStats::from_lengths(&lengths)))
     }
-}
-
-pub(super) fn effective_in_flight_blocks(block_size: usize, stats: &LengthStats, memory_limit_mb: usize) -> usize {
-    use crate::memory::auto_memory_budget;
-    use crate::pipeline::DEFAULT_MAX_IN_FLIGHT_BLOCKS;
-
-    let budget = auto_memory_budget(memory_limit_mb);
-    let bytes_per_read = stats.avg_length.max(1).saturating_mul(3).saturating_add(80);
-    let chunk_bytes = block_size.saturating_mul(bytes_per_read);
-    if chunk_bytes == 0 {
-        return DEFAULT_MAX_IN_FLIGHT_BLOCKS;
-    }
-
-    budget
-        .block_buffer_bytes()
-        .saturating_div(chunk_bytes)
-        .clamp(1, DEFAULT_MAX_IN_FLIGHT_BLOCKS)
 }

@@ -83,6 +83,47 @@ impl Default for BlockCompressorConfig {
     }
 }
 
+/// Codec parameters that do not depend on the detected read-length class.
+///
+/// The pipeline cannot know the class until it has ingested the whole input,
+/// so its configuration carries these settings and resolves the class once.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BlockCodecSettings {
+    pub quality_mode: QualityMode,
+    pub id_mode: IdMode,
+    pub zstd_level: i32,
+}
+
+impl Default for BlockCodecSettings {
+    fn default() -> Self {
+        Self {
+            quality_mode: QualityMode::Lossless,
+            id_mode: IdMode::Exact,
+            zstd_level: 3,
+        }
+    }
+}
+
+impl BlockCodecSettings {
+    pub fn from_compression_level(quality_mode: QualityMode, id_mode: IdMode, level: CompressionLevel) -> Self {
+        Self {
+            quality_mode,
+            id_mode,
+            zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(level),
+        }
+    }
+
+    pub fn with_read_length_class(self, read_length_class: ReadLengthClass) -> BlockCompressorConfig {
+        BlockCompressorConfig {
+            read_length_class,
+            quality_mode: self.quality_mode,
+            id_mode: self.id_mode,
+            zstd_level: self.zstd_level,
+            ..Default::default()
+        }
+    }
+}
+
 impl BlockCompressorConfig {
     pub fn zstd_level_for_compression_level(level: CompressionLevel) -> i32 {
         match level {

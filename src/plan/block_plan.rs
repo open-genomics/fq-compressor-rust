@@ -7,7 +7,7 @@
 //! configuration describes how to encode, while this module decides how many
 //! blocks and workers fit the thread and memory budget.
 
-use crate::types::{adaptive_block_size, ReadLengthClass};
+use crate::types::{adaptive_block_size, LengthStats, ReadLengthClass};
 
 /// Inputs for the shared block/worker planner used by archive and pipeline.
 #[derive(Debug, Clone, Copy)]
@@ -126,4 +126,27 @@ pub fn avg_read_length(total_bases: u64, total_reads: u64) -> usize {
     usize::try_from(total_bases / total_reads.max(1))
         .unwrap_or(usize::MAX)
         .max(1)
+}
+
+/// Bound the number of compressed blocks in flight by the block buffer budget.
+///
+/// `max_in_flight` is the caller's configured ceiling (pipeline tests use small
+/// values to force out-of-order completion); memory pressure can only lower it.
+pub fn effective_in_flight_blocks(
+    block_size: usize,
+    stats: &LengthStats,
+    memory_limit_mb: usize,
+    max_in_flight: usize,
+) -> usize {
+    let max_in_flight = max_in_flight.max(1);
+    let budget = crate::memory::auto_memory_budget(memory_limit_mb);
+    let bytes_per_read = stats.avg_length.max(1).saturating_mul(3).saturating_add(80);
+    let chunk_bytes = block_size.saturating_mul(bytes_per_read);
+    if chunk_bytes == 0 {
+        return max_in_flight;
+    }
+    budget
+        .block_buffer_bytes()
+        .saturating_div(chunk_bytes)
+        .clamp(1, max_in_flight)
 }

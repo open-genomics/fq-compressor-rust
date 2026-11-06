@@ -2,74 +2,35 @@
 // fqc - Pipeline compression runner
 // =============================================================================
 
+use crate::algo::block_compressor::BlockCodecSettings;
 use crate::engine::compression_engine::CompressionOutcome;
-use crate::error::Result;
+use crate::error::{FqcError, Result};
 use crate::pipeline::compression::{CompressionPipeline, CompressionPipelineConfig};
+use crate::pipeline::DEFAULT_MAX_IN_FLIGHT_BLOCKS;
 use crate::plan::compress::CompressionRequest;
 use crate::plan::CompressionExecutionMode;
 use crate::plan::ReorderMode;
-use crate::types::*;
-
-use super::common;
 
 pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
     log::info!("Pipeline compression mode");
+    log::info!("pipeline mode applies the archive ingest budget; use --streaming for bounded memory");
 
     let input = request.input().resolve();
 
-    // Inspect input lengths
-    let length_stats = common::inspect_input_lengths_for_streaming(
-        &input.primary_path,
-        input.secondary_path.as_deref(),
-        input.is_interleaved,
-        request.settings().scan_all_lengths,
-    )?
-    .unwrap_or(LengthStats {
-        sample_size: 0,
-        avg_length: 150,
-        median_length: 150,
-        max_length: 150,
-    });
-
-    let effective_length_class =
-        common::effective_length_class(request.settings().requested_read_length_class, &length_stats);
-    let codec = common::codec_profile(request.settings(), effective_length_class);
-    // This is only a sizing hint for the bounded channel; the pipeline
-    // recomputes the real block/worker plan once it knows exact totals.
-    let block_size_hint = common::effective_block_size(
-        request.settings().block_size,
-        effective_length_class,
-        &length_stats,
-        request.settings().max_block_bases,
-        codec.thread_limit,
-        None,
-        None,
-        true,
-    );
-    let max_in_flight_blocks =
-        common::effective_in_flight_blocks(block_size_hint, &length_stats, request.settings().memory_limit_mb);
-
-    log::info!("pipeline mode applies the archive ingest budget; use --streaming for bounded memory");
-
-    log::info!(
-        "Pipeline profile: sample={} avg={}bp median={}bp max={}bp, class={}, block_size_hint={}, in_flight_blocks={}",
-        length_stats.sample_size,
-        length_stats.avg_length,
-        length_stats.median_length,
-        length_stats.max_length,
-        effective_length_class.as_str(),
-        block_size_hint,
-        max_in_flight_blocks
-    );
-
-    // Get archive layout for paired/interleaved
-    // Create pipeline config. Keep the explicit user block override only:
-    // an auto value is resolved by the pipeline after exact totals arrive.
+    // The pipeline classifies the complete ingest itself, so no prefix
+    // pre-scan is needed here. `codec` deliberately omits the read-length
+    // class; it is resolved once exact records are available.
     let pipeline_config = CompressionPipelineConfig {
-        num_threads: codec.thread_limit,
-        max_in_flight_blocks,
+        num_threads: request.settings().threads,
+        max_in_flight_blocks: DEFAULT_MAX_IN_FLIGHT_BLOCKS,
         block_size: request.settings().block_size,
-        compressor_config: codec.config,
+        codec: BlockCodecSettings::from_compression_level(
+            request.settings().quality_mode,
+            request.settings().id_mode,
+            request.settings().level,
+        ),
+        requested_read_length_class: request.settings().requested_read_length_class,
+        scan_all_lengths: request.settings().scan_all_lengths,
         reorder: if input.is_paired {
             ReorderMode::Never
         } else {
@@ -109,6 +70,9 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
         pipeline.run(&input.primary_path, request.output_path(), input_filename)?;
     }
 
+    let detected_read_length_class = pipeline
+        .detected_read_length_class()
+        .ok_or_else(|| FqcError::Compression("pipeline finished without classifying the input".to_string()))?;
     let stats = pipeline.stats().clone();
 
     log::info!(
@@ -119,7 +83,7 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
 
     Ok(CompressionOutcome {
         mode: CompressionExecutionMode::Pipeline,
-        detected_read_length_class: effective_length_class,
+        detected_read_length_class,
         stats,
     })
 }

@@ -1079,10 +1079,7 @@ fn test_e2e_pipeline_long_reads_no_reorder_nonempty_archive() {
     let config = CompressionPipelineConfig {
         num_threads: 2,
         block_size: 100,
-        compressor_config: BlockCompressorConfig {
-            read_length_class: ReadLengthClass::Long,
-            ..Default::default()
-        },
+        requested_read_length_class: Some(ReadLengthClass::Long),
         reorder: fqc::plan::ReorderMode::Always,
         save_reorder_map: false,
         pe_layout: PeLayout::Interleaved,

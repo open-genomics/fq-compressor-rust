@@ -50,9 +50,9 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
     log::info!("Loaded {} reads ({} bases)", records.len(), total_bases);
 
     // Detect read length class
-    let length_stats = common::length_stats_from_records_sampled(&records, request.settings().scan_all_lengths);
+    let length_stats = crate::plan::length_stats_from_records_sampled(&records, request.settings().scan_all_lengths);
     let effective_length_class =
-        common::effective_length_class(request.settings().requested_read_length_class, &length_stats);
+        crate::plan::effective_read_length_class(request.settings().requested_read_length_class, &length_stats);
 
     // Resolve codec settings and worker budgets once before global analysis.
     let codec = common::codec_profile(request.settings(), effective_length_class);
@@ -170,8 +170,12 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
     if max_workers < num_blocks {
         log::info!("Compression worker cap: {} ({} blocks)", max_workers, num_blocks);
     }
-    let max_in_flight_blocks =
-        common::effective_in_flight_blocks(block_size, &length_stats, request.settings().memory_limit_mb);
+    let max_in_flight_blocks = crate::plan::effective_in_flight_blocks(
+        block_size,
+        &length_stats,
+        request.settings().memory_limit_mb,
+        crate::pipeline::DEFAULT_MAX_IN_FLIGHT_BLOCKS,
+    );
     let reorder_map = if reorder_map_written {
         Some((analysis.forward_map, analysis.reverse_map))
     } else {

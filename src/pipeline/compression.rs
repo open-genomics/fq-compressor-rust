@@ -10,7 +10,7 @@
 use std::path::Path;
 use std::time::Instant;
 
-use crate::algo::block_compressor::BlockCompressorConfig;
+use crate::algo::block_compressor::{BlockCodecSettings, BlockCompressorConfig};
 use crate::algo::global_analyzer::{GlobalAnalyzer, GlobalAnalyzerConfig};
 use crate::archive::format::build_flags;
 use crate::error::{FqcError, Result};
@@ -32,8 +32,12 @@ pub struct CompressionPipelineConfig {
     pub num_threads: usize,
     pub max_in_flight_blocks: usize,
     pub block_size: usize,
-    /// Codec settings produced by the engine's single settings-to-codec mapping.
-    pub compressor_config: BlockCompressorConfig,
+    /// Codec choices that do not depend on the detected read-length class.
+    pub codec: BlockCodecSettings,
+    /// Explicit class override; `None` classifies the ingested reads.
+    pub requested_read_length_class: Option<ReadLengthClass>,
+    /// Scan every read for classification instead of evenly spaced samples.
+    pub scan_all_lengths: bool,
     pub reorder: ReorderMode,
     pub save_reorder_map: bool,
     pub pe_layout: PeLayout,
@@ -48,7 +52,9 @@ impl Default for CompressionPipelineConfig {
             num_threads: 0,
             max_in_flight_blocks: DEFAULT_MAX_IN_FLIGHT_BLOCKS,
             block_size: 0,
-            compressor_config: BlockCompressorConfig::default(),
+            codec: BlockCodecSettings::default(),
+            requested_read_length_class: None,
+            scan_all_lengths: false,
             reorder: ReorderMode::Auto,
             save_reorder_map: true,
             pe_layout: PeLayout::Interleaved,
@@ -60,7 +66,8 @@ impl Default for CompressionPipelineConfig {
 }
 
 impl CompressionPipelineConfig {
-    fn block_plan(&self, total_reads: usize, total_bases: u64) -> CompressionPlan {
+    fn block_plan(&self, total_reads: usize, total_bases: u64, read_length_class: ReadLengthClass) -> CompressionPlan {
+        let compressor_config = self.codec.with_read_length_class(read_length_class);
         let avg_length = crate::plan::avg_read_length(total_bases, total_reads as u64);
         let worker_budget = crate::plan::worker_budget_bytes(self.memory_limit_mb);
         plan_compression_layout(CompressionPlanInput {
@@ -71,8 +78,8 @@ impl CompressionPipelineConfig {
             worker_budget_bytes: worker_budget,
             total_reads: Some(total_reads as u64),
             total_bases: Some(total_bases),
-            read_length_class: self.compressor_config.read_length_class,
-            codec_model_bytes: self.compressor_config.to_quality_config().estimated_model_bytes(),
+            read_length_class,
+            codec_model_bytes: compressor_config.to_quality_config().estimated_model_bytes(),
         })
     }
 
@@ -203,6 +210,8 @@ struct PreparedCompression {
     parse_ms: u64,
     reorder_ms: u64,
     reorder_map: Option<(Vec<ReadId>, Vec<ReadId>)>,
+    compressor_config: BlockCompressorConfig,
+    max_in_flight_blocks: usize,
 }
 
 // =============================================================================
@@ -212,6 +221,7 @@ struct PreparedCompression {
 pub struct CompressionPipeline {
     config: CompressionPipelineConfig,
     stats: OperationStats,
+    detected_read_length_class: Option<ReadLengthClass>,
 }
 
 impl CompressionPipeline {
@@ -219,11 +229,17 @@ impl CompressionPipeline {
         Self {
             config,
             stats: OperationStats::default(),
+            detected_read_length_class: None,
         }
     }
 
     pub fn stats(&self) -> &OperationStats {
         &self.stats
+    }
+
+    /// Class resolved from the last completed run; `None` before the first run.
+    pub fn detected_read_length_class(&self) -> Option<ReadLengthClass> {
+        self.detected_read_length_class
     }
 
     /// Run compression on a single-end input file
@@ -253,76 +269,17 @@ impl CompressionPipeline {
         let parse_ms = t_parse.elapsed().as_millis() as u64;
         let (parsed_bytes, total_bases) = fold_read_bytes(&all_reads);
         let input_bytes = input_bytes_for_paths(&[input_path], parsed_bytes);
-        let total_reads = all_reads.len();
-        let plan = self.config.block_plan(total_reads, total_bases);
-        let block_size = plan.block_size;
-
-        log::info!(
-            "Read {} records ({} bytes); pipeline block_size={}, workers={}",
-            all_reads.len(),
-            input_bytes,
-            block_size,
-            plan.workers
-        );
-
-        // ---- Phase 1b: Global analysis (reordering) ----
-        let t_reorder = Instant::now();
-        if self.config.reorder.enabled() {
-            log::info!("Running global analysis...");
-        }
-        let reorder = analyze_and_reorder(
+        self.finish_ingest(
             all_reads,
-            block_size,
-            self.config.reorder,
-            self.config.compressor_config.read_length_class,
-        )?;
-        let reorder_ms = t_reorder.elapsed().as_millis() as u64;
-
-        let ReorderOutput {
-            ordered_reads,
-            forward_map,
-            reverse_map,
-            reordering_performed,
-        } = reorder;
-        let reorder_map_written = reordering_performed && self.config.save_reorder_map;
-        let reorder_map = if reorder_map_written {
-            Some((
-                forward_map.ok_or_else(|| {
-                    FqcError::Compression("Reorder map metadata missing despite reorder_map_written=true".to_string())
-                })?,
-                reverse_map.ok_or_else(|| {
-                    FqcError::Compression("Reorder map metadata missing despite reorder_map_written=true".to_string())
-                })?,
-            ))
-        } else {
-            None
-        };
-
-        // ---- Phase 2+3: parallel compression and ordered write ----
-        let compressor_config = &self.config.compressor_config;
-        let flags = build_flags(
-            false,
-            !reordering_performed,
-            compressor_config.quality_mode,
-            compressor_config.id_mode,
-            reorder_map_written,
-            self.config.pe_layout,
-            compressor_config.read_length_class,
-            false,
-        );
-
-        let prepared = PreparedCompression {
-            chunks: split_into_chunks(ordered_reads, block_size),
-            flags,
-            total_reads,
-            input_bytes,
             total_bases,
-            planned_workers: plan.workers,
+            input_bytes,
             parse_ms,
-            reorder_ms,
-            reorder_map,
-        };
-        self.write_blocks_parallel(prepared, start, output_path, original_filename)
+            start,
+            output_path,
+            original_filename,
+            false,
+            PeLayout::Interleaved,
+        )
     }
 
     /// Run compression on paired-end input files
@@ -403,10 +360,8 @@ impl CompressionPipeline {
         )
     }
 
-    /// Shared tail of the paired topologies: global analysis, then the same
-    /// parallel compress-and-write core as single-end. Replaces the former
-    /// serial single-compressor loops (behavior: identical block content and
-    /// order; wall time now on par with the other topologies).
+    /// Shared tail of the paired topologies. Pairing is kept as one flat
+    /// stream, so reordering is disabled exactly like archive mode.
     fn run_pair_based(
         &mut self,
         all_reads: Vec<ReadRecord>,
@@ -418,18 +373,74 @@ impl CompressionPipeline {
         pe_layout: PeLayout,
     ) -> Result<()> {
         let (_, total_bases) = fold_read_bytes(&all_reads);
+        self.finish_ingest(
+            all_reads,
+            total_bases,
+            input_bytes,
+            parse_ms,
+            start,
+            output_path,
+            original_filename,
+            true,
+            pe_layout,
+        )
+    }
+
+    /// Classify once from the complete ingest, then plan, reorder and write.
+    ///
+    /// This is the single convergence point for all topologies. It replaces
+    /// the previous prefix pre-scan, which could classify a mixed-length input
+    /// differently from archive mode when long reads appeared past the sample.
+    #[allow(clippy::too_many_arguments)]
+    fn finish_ingest(
+        &mut self,
+        all_reads: Vec<ReadRecord>,
+        total_bases: u64,
+        input_bytes: u64,
+        parse_ms: u64,
+        start: Instant,
+        output_path: impl AsRef<Path>,
+        original_filename: &str,
+        is_paired: bool,
+        pe_layout: PeLayout,
+    ) -> Result<()> {
         let total_reads = all_reads.len();
-        let plan = self.config.block_plan(total_reads, total_bases);
+        let length_stats = crate::plan::length_stats_from_records_sampled(&all_reads, self.config.scan_all_lengths);
+        let read_length_class =
+            crate::plan::effective_read_length_class(self.config.requested_read_length_class, &length_stats);
+        self.detected_read_length_class = Some(read_length_class);
+        let compressor_config = self.config.codec.with_read_length_class(read_length_class);
+
+        let plan = self.config.block_plan(total_reads, total_bases, read_length_class);
         let block_size = plan.block_size;
-        let planned_workers = plan.workers;
+        let max_in_flight_blocks = crate::plan::effective_in_flight_blocks(
+            block_size,
+            &length_stats,
+            self.config.memory_limit_mb,
+            self.config.max_in_flight_blocks,
+        );
+
+        log::info!(
+            "Read {} records ({} bytes); class={}, pipeline block_size={}, workers={}, in_flight_blocks={}",
+            total_reads,
+            input_bytes,
+            read_length_class.as_str(),
+            block_size,
+            plan.workers,
+            max_in_flight_blocks
+        );
+
+        let reorder = if is_paired {
+            ReorderMode::Never
+        } else {
+            self.config.reorder
+        };
 
         let t_reorder = Instant::now();
-        let reorder = analyze_and_reorder(
-            all_reads,
-            block_size,
-            self.config.reorder,
-            self.config.compressor_config.read_length_class,
-        )?;
+        if reorder.enabled() {
+            log::info!("Running global analysis...");
+        }
+        let reorder = analyze_and_reorder(all_reads, block_size, reorder, read_length_class)?;
         let reorder_ms = t_reorder.elapsed().as_millis() as u64;
 
         let ReorderOutput {
@@ -452,15 +463,14 @@ impl CompressionPipeline {
             None
         };
 
-        let compressor_config = &self.config.compressor_config;
         let flags = build_flags(
-            true,
+            is_paired,
             !reordering_performed,
             compressor_config.quality_mode,
             compressor_config.id_mode,
             reorder_map_written,
             pe_layout,
-            compressor_config.read_length_class,
+            read_length_class,
             false,
         );
 
@@ -470,10 +480,12 @@ impl CompressionPipeline {
             total_reads,
             input_bytes,
             total_bases,
-            planned_workers,
+            planned_workers: plan.workers,
             parse_ms,
             reorder_ms,
             reorder_map,
+            compressor_config,
+            max_in_flight_blocks,
         };
         self.write_blocks_parallel(prepared, start, output_path, original_filename)
     }
@@ -496,6 +508,8 @@ impl CompressionPipeline {
             parse_ms,
             reorder_ms,
             reorder_map,
+            compressor_config,
+            max_in_flight_blocks,
         } = prepared;
         let reorder_map_written = reorder_map.is_some();
 
@@ -504,13 +518,13 @@ impl CompressionPipeline {
             output_path,
             BlockPipelineConfig {
                 num_workers: planned_workers,
-                max_in_flight_blocks: self.config.max_in_flight_blocks,
+                max_in_flight_blocks,
                 force_overwrite: self.config.force_overwrite,
                 flags,
                 total_reads: total_reads as u64,
                 original_filename: original_filename.to_string(),
                 reorder_map,
-                compressor_config: self.config.compressor_config.clone(),
+                compressor_config,
             },
         )?;
 

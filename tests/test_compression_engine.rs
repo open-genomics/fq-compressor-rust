@@ -333,3 +333,73 @@ fn archive_execution_accepts_non_utf8_output_path() {
     let bytes = std::fs::read(&output_path).unwrap();
     assert!(bytes.starts_with(&fqc::archive::format::MAGIC_BYTES));
 }
+
+#[test]
+fn archive_and_pipeline_classify_mixed_length_tail_identically() {
+    use std::io::Write as _;
+
+    // 4,100 short reads followed by 100 long reads: a prefix-only scan sees
+    // only short reads, while an even sample across the file sees the long
+    // tail. Both modes must classify from the complete ingest and agree on
+    // the block plan.
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("mixed.fastq");
+    let archive = dir.path().join("archive.fqc");
+    let pipeline = dir.path().join("pipeline.fqc");
+
+    let mut writer = std::io::BufWriter::new(std::fs::File::create(&input).unwrap());
+    for i in 0..4_100 {
+        let record = ReadRecord::new(format!("short_{i}"), "A".repeat(100), "I".repeat(100));
+        fqc::fastq::parser::write_record(&mut writer, &record).unwrap();
+    }
+    for i in 0..100 {
+        let record = ReadRecord::new(format!("long_{i}"), "ACGT".repeat(1_250), "I".repeat(5_000));
+        fqc::fastq::parser::write_record(&mut writer, &record).unwrap();
+    }
+    writer.flush().unwrap();
+
+    let base = CompressOptions {
+        input_path: input.to_string_lossy().into_owned(),
+        threads: 2,
+        reorder: fqc::plan::ReorderMode::Never,
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    };
+
+    let archive_outcome = CompressionEngine::new()
+        .run(
+            CompressOptions {
+                output_path: archive.to_string_lossy().into_owned(),
+                ..base.clone()
+            }
+            .to_request(),
+        )
+        .unwrap();
+    let pipeline_outcome = CompressionEngine::new()
+        .run(
+            CompressOptions {
+                output_path: pipeline.to_string_lossy().into_owned(),
+                use_pipeline: true,
+                ..base
+            }
+            .to_request(),
+        )
+        .unwrap();
+
+    assert_eq!(
+        archive_outcome.detected_read_length_class,
+        ReadLengthClass::Medium,
+        "the long tail must be visible to the archive classifier"
+    );
+    assert_eq!(
+        pipeline_outcome.detected_read_length_class,
+        archive_outcome.detected_read_length_class
+    );
+    assert_eq!(pipeline_outcome.stats.blocks, archive_outcome.stats.blocks);
+    assert_eq!(
+        std::fs::metadata(&pipeline).unwrap().len(),
+        std::fs::metadata(&archive).unwrap().len(),
+        "same class and settings must produce the same archive layout"
+    );
+}
