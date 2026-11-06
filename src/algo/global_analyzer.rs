@@ -322,7 +322,6 @@ pub struct BlockBoundary {
 
 #[derive(Debug, Default)]
 pub struct GlobalAnalysisResult {
-    pub max_read_length: usize,
     pub length_class: ReadLengthClass,
     pub reordering_performed: bool,
     pub forward_map: Vec<ReadId>,
@@ -353,23 +352,15 @@ impl GlobalAnalyzer {
             return Ok(result);
         }
 
-        // When the caller already classified the input, only the maximum
-        // length is needed. Avoid a full lengths vector and its sort on the
-        // hot archive/pipeline path.
-        let (length_class, max_read_length) = if let Some(length_class) = self.config.read_length_class {
-            let max_read_length = reads.iter().map(|read| read.sequence.len()).max().unwrap_or(0);
-            (length_class, max_read_length)
+        // When the caller already classified the input, avoid a full lengths
+        // vector and its sort on the hot archive/pipeline path.
+        result.length_class = if let Some(length_class) = self.config.read_length_class {
+            length_class
         } else {
             let lengths: Vec<usize> = reads.iter().map(|read| read.sequence.len()).collect();
             let stats = LengthStats::from_lengths(&lengths);
-            (
-                classify_read_length(stats.median_length, stats.max_length),
-                stats.max_length,
-            )
+            classify_read_length(stats.median_length, stats.max_length)
         };
-
-        result.max_read_length = max_read_length;
-        result.length_class = length_class;
 
         let mut should_reorder = self.config.reorder.enabled() && result.length_class == ReadLengthClass::Short;
 

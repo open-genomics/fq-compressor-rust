@@ -27,9 +27,10 @@ owned 副本：
 
 在此之上补两个同源的小优化：
 
-- `GlobalAnalyzerConfig.read_length_class` 已由调用方给出时，只扫描最大读长，
+- `GlobalAnalyzerConfig.read_length_class` 已由调用方给出时，直接使用该类别，
   不再构造整个 `Vec<usize>` 并排序；pipeline 也把自己的 effective class 传入
-  分析器，避免默认 `None` 重新走全量统计。
+  分析器，避免默认 `None` 重新走全量统计。`GlobalAnalysisResult.max_read_length`
+  没有任何消费者，已一并删除。
 - `perform_reordering` 的 reverse map 直接 move 进 `GlobalAnalysisResult`，不再
   `clone_from` 一份 O(n) 的 `Vec<u64>`。
 
@@ -48,8 +49,8 @@ owned 副本：
 - `GlobalAnalyzer` 的内部 API 发生 breaking change；它本来就是 `#[doc(hidden)]`
   的内部模块，测试已同步迁移。
 - 重排 map、块边界、codec 输入和 `.fqc` 字节均不改变。
-- 长度统计仍会在分析器内部构造一个 `Vec<usize>`；这是 O(reads) 的小对象，
-  与整库 sequence 副本不是一个量级，暂不为它增加额外抽象。
+- 当调用方没有提供读长类别时，分析器仍会构造一个 `Vec<usize>` 计算中位数；
+  这是兼容路径，archive/pipeline 正常路径都会传入已知类别。
 
 ## 验证
 
@@ -59,6 +60,5 @@ owned 副本：
 - `cargo doc --no-deps --locked`
 - `cargo +1.75.0 check --all-targets --locked`
 - release 冒烟（100k × 150bp 随机读段，`--block-reads 1000 --reorder false`，
-  `-t 4`）：archive 峰值 RSS 139,188 KB -> 120,944 KB，0.26 s -> 0.25 s；
-  pipeline 111,556 KB / 0.24 s；两者均产出 100 blocks、4,725,031 字节，
-  解压结果与输入逐字节一致。
+  `-t 4`）：archive 峰值 RSS 139,188 KB -> 120,876 KB；pipeline 111,752 KB /
+  0.24 s；两者均产出 100 blocks、4,725,031 字节，解压结果与输入逐字节一致。
