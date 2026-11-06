@@ -23,7 +23,7 @@ use crate::io::OutputTransaction;
 use crate::memory::DecodeBudget;
 use crate::types::DEFAULT_AUTO_CODEC_WORKERS;
 
-use super::{PipelineControl, DEFAULT_MAX_IN_FLIGHT_BLOCKS};
+use super::DEFAULT_MAX_IN_FLIGHT_BLOCKS;
 use crate::stats::OperationStats;
 
 // =============================================================================
@@ -177,7 +177,6 @@ struct WriterThreadInput {
 
 pub struct DecompressionPipeline {
     config: DecompressionConfig,
-    control: PipelineControl,
     stats: OperationStats,
 }
 
@@ -185,7 +184,6 @@ impl DecompressionPipeline {
     pub fn new(config: DecompressionConfig) -> Self {
         Self {
             config,
-            control: PipelineControl::new(),
             stats: OperationStats::default(),
         }
     }
@@ -226,20 +224,14 @@ impl DecompressionPipeline {
         let (task_tx, task_rx): (Sender<BlockTask>, Receiver<BlockTask>) = bounded(max_inflight);
         let (result_tx, result_rx): (Sender<DecompressedResult>, Receiver<DecompressedResult>) = bounded(max_inflight);
 
-        let control = self.control.clone();
         let skip_corrupted = self.config.skip_corrupted;
         let reader_result_tx = result_tx.clone();
 
         // ---- Reader thread ----
-        let reader_control = control.clone();
         let reader_handle = thread::spawn(move || -> Result<u64> {
             let mut reader = reader;
             let t = Instant::now();
             for block_id in start_block..end_block {
-                if reader_control.is_cancelled() {
-                    break;
-                }
-
                 let expected_read_count = reader
                     .block_index
                     .entries
@@ -280,23 +272,16 @@ impl DecompressionPipeline {
             let rx = task_rx.clone();
             let tx = result_tx.clone();
             let cfg = compressor_config.clone();
-            let ctrl = control.clone();
             let decode_ns = Arc::clone(&decode_ns);
 
             let handle = thread::spawn(move || -> Result<()> {
                 let mut compressor = BlockCompressor::new((*cfg).clone());
 
                 for task in rx.iter() {
-                    if ctrl.is_cancelled() {
-                        break;
-                    }
-
                     let bh = &task.block_data.meta;
                     let t = Instant::now();
                     let decomp_result = compressor.decompress_block(&task.block_data);
                     decode_ns.fetch_add(t.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
-
-                    ctrl.add_reads(bh.read_count as u64);
 
                     tx.send(DecompressedResult {
                         block_id: task.block_id,
@@ -313,7 +298,7 @@ impl DecompressionPipeline {
         drop(result_tx);
 
         // ---- Writer thread ----
-        let writer_handle = self.spawn_writer_thread(writer_input, result_rx, control.clone());
+        let writer_handle = self.spawn_writer_thread(writer_input, result_rx);
 
         // ---- Wait ----
         let reader_read_ms = reader_handle
@@ -449,7 +434,6 @@ impl DecompressionPipeline {
         &self,
         input: WriterThreadInput,
         result_rx: Receiver<DecompressedResult>,
-        control: PipelineControl,
     ) -> thread::JoinHandle<Result<(u64, u64, u64, u32, u64)>> {
         let output_path_owned = input.output_path;
         let force_overwrite = input.force_overwrite;
@@ -490,9 +474,6 @@ impl DecompressionPipeline {
             let end_block_id: u32 = end_block as u32;
 
             for dr in result_rx.iter() {
-                if control.is_cancelled() {
-                    break;
-                }
                 pending.insert(dr.block_id, dr);
 
                 while let Some(dr) = pending.remove(&next_expected) {
@@ -543,9 +524,9 @@ impl DecompressionPipeline {
                 }
             }
 
-            // A worker error or cancellation closes the channel early. Never
-            // commit a partial output: the transaction drops the temp file.
-            if !pending.is_empty() || (next_expected < end_block_id && !control.is_cancelled()) {
+            // A worker error closes the channel early. Never commit a partial
+            // output: the transaction drops the temp file.
+            if !pending.is_empty() || next_expected < end_block_id {
                 return Err(FqcError::Decompression(format!(
                     "Decompression incomplete: processed {} of blocks up to {}; output aborted",
                     next_expected - start_block as u32,

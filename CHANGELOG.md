@@ -13,6 +13,8 @@
 
 ### Changed
 
+- 移除未实现的 `PipelineControl` 取消/进度状态；解压 pipeline 的退出条件只由
+  channel 关闭、worker 错误和事务完整性决定，热路径少一次原子读。
 - 移除 crate 根部的 compressor trait 再导出；`fqc::api` 是稳定入口，内部 trait
   需从 `fqc::algo::compressor_traits` 导入。新增根级内部再导出守卫。
 - `GlobalAnalyzer` 直接接收 `&[ReadRecord]`，archive 与 pipeline 不再为了全局
