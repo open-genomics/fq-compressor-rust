@@ -13,6 +13,9 @@
 
 ### Changed
 
+- `GlobalAnalyzer` 直接接收 `&[ReadRecord]`，archive 与 pipeline 不再为了全局
+  分析复制整库 sequence；100k 随机读段的 release 冒烟 archive 峰值 RSS 从约
+  139 MB 降到约 121 MB。
 - archive 与 pipeline 共享同一套有界块级流水线：并行压缩、按 block id 顺序写入、
   reorder map 和事务提交只保留一份实现；archive 不再在写盘前保留全部压缩块。
   两种模式仍先完整摄入以支持全局分析/重排，因此这不是 bounded ingest。

@@ -218,14 +218,14 @@ fn sampled_indices(total: usize) -> Vec<usize> {
 /// overlapping reads. Sampling a few contiguous windows separates that case
 /// from a shuffled stream by orders of magnitude without a full minimizer
 /// index. Returns `None` when the input is too small to judge.
-fn adjacent_shared_fraction(sequences: &[String]) -> Option<f64> {
+fn adjacent_shared_fraction(reads: &[ReadRecord]) -> Option<f64> {
     let mut pairs = 0usize;
     let mut shared_pairs = 0usize;
 
-    for (start, window_len) in sample_windows(sequences.len()) {
-        let mut previous = sorted_kmers(sequences[start].as_bytes(), ORDER_DETECTION_KMER);
+    for (start, window_len) in sample_windows(reads.len()) {
+        let mut previous = sorted_kmers(reads[start].sequence.as_bytes(), ORDER_DETECTION_KMER);
         for offset in 1..window_len {
-            let current = sorted_kmers(sequences[start + offset].as_bytes(), ORDER_DETECTION_KMER);
+            let current = sorted_kmers(reads[start + offset].sequence.as_bytes(), ORDER_DETECTION_KMER);
             if has_shared_kmer(&previous, &current) {
                 shared_pairs += 1;
             }
@@ -248,8 +248,8 @@ fn adjacent_shared_fraction(sequences: &[String]) -> Option<f64> {
 /// WXS stream has low adjacent overlap but high global sharing, while a stream
 /// of independent random reads has both scores near zero. Only the former
 /// should pay for global reordering.
-fn global_shared_fraction(sequences: &[String]) -> Option<f64> {
-    let indices = sampled_indices(sequences.len());
+fn global_shared_fraction(reads: &[ReadRecord]) -> Option<f64> {
+    let indices = sampled_indices(reads.len());
     if indices.len() < 2 {
         return None;
     }
@@ -257,7 +257,7 @@ fn global_shared_fraction(sequences: &[String]) -> Option<f64> {
     let mut first_owner: HashMap<u64, u32> = HashMap::new();
     let mut linked = vec![false; indices.len()];
     for (local_index, &read_index) in indices.iter().enumerate() {
-        for hash in sorted_kmers(sequences[read_index].as_bytes(), ORDER_DETECTION_KMER) {
+        for hash in sorted_kmers(reads[read_index].sequence.as_bytes(), ORDER_DETECTION_KMER) {
             match first_owner.get(&hash).copied() {
                 Some(previous) => {
                     let previous = previous as usize;
@@ -344,17 +344,17 @@ impl GlobalAnalyzer {
         Self { config }
     }
 
-    pub fn analyze(&self, sequences: &[String]) -> Result<GlobalAnalysisResult> {
-        let total_reads = sequences.len() as u64;
+    pub fn analyze(&self, reads: &[ReadRecord]) -> Result<GlobalAnalysisResult> {
+        let total_reads = reads.len() as u64;
 
         let mut result = GlobalAnalysisResult::default();
 
-        if sequences.is_empty() {
+        if reads.is_empty() {
             return Ok(result);
         }
 
         // Compute length statistics
-        let lengths: Vec<usize> = sequences.iter().map(|s| s.len()).collect();
+        let lengths: Vec<usize> = reads.iter().map(|read| read.sequence.len()).collect();
         let stats = LengthStats::from_lengths(&lengths);
 
         result.max_read_length = stats.max_length;
@@ -367,14 +367,14 @@ impl GlobalAnalyzer {
         let mut should_reorder = self.config.reorder.enabled() && result.length_class == ReadLengthClass::Short;
 
         if should_reorder && self.config.reorder.auto() {
-            if let Some(adjacent_fraction) = adjacent_shared_fraction(sequences) {
+            if let Some(adjacent_fraction) = adjacent_shared_fraction(reads) {
                 if adjacent_fraction >= ORDER_DETECTION_ADJACENT_FRACTION {
                     log::info!(
                         "Reorder auto: adjacent overlap {:.1}%; input already spatially ordered, skipping reorder",
                         adjacent_fraction * 100.0
                     );
                     should_reorder = false;
-                } else if let Some(global_fraction) = global_shared_fraction(sequences) {
+                } else if let Some(global_fraction) = global_shared_fraction(reads) {
                     if global_fraction >= ORDER_DETECTION_GLOBAL_FRACTION {
                         log::info!(
                             "Reorder auto: adjacent overlap {:.3}%, global shared reads {:.1}%; input looks unordered with reorderable redundancy, enabling reorder",
@@ -395,7 +395,7 @@ impl GlobalAnalyzer {
 
         if should_reorder {
             log::info!("Performing global reordering on {} reads", total_reads);
-            let reorder_map = self.perform_reordering(sequences)?;
+            let reorder_map = self.perform_reordering(reads)?;
             result.reverse_map.clone_from(&reorder_map);
             result.forward_map = self.build_forward_map(&reorder_map);
             result.reordering_performed = true;
@@ -429,15 +429,19 @@ impl GlobalAnalyzer {
         forward
     }
 
-    fn perform_reordering(&self, sequences: &[String]) -> Result<Vec<ReadId>> {
-        let total_reads = sequences.len();
+    fn perform_reordering(&self, reads: &[ReadRecord]) -> Result<Vec<ReadId>> {
+        let total_reads = reads.len();
 
         // Step 1: Extract minimizers in parallel
-        let all_buckets: Vec<Vec<(u64, u64)>> = sequences
+        let all_buckets: Vec<Vec<(u64, u64)>> = reads
             .par_iter()
             .enumerate()
-            .map(|(i, seq)| {
-                let mins = extract_minimizers(seq.as_bytes(), self.config.minimizer_k, self.config.minimizer_w);
+            .map(|(i, read)| {
+                let mins = extract_minimizers(
+                    read.sequence.as_bytes(),
+                    self.config.minimizer_k,
+                    self.config.minimizer_w,
+                );
                 mins.into_iter().map(|m| (m.hash, i as u64)).collect()
             })
             .collect();
@@ -465,7 +469,7 @@ impl GlobalAnalyzer {
 
         while ordered.len() < total_reads {
             let last_read = *ordered.last().expect("ordered is never empty - initialized with 0") as usize;
-            let last_len = sequences[last_read].len();
+            let last_len = reads[last_read].sequence.len();
 
             let mut best_match: Option<u64> = None;
             let mut best_score = usize::MAX;
@@ -480,7 +484,7 @@ impl GlobalAnalyzer {
                             continue;
                         }
 
-                        let clen = sequences[cid].len();
+                        let clen = reads[cid].sequence.len();
                         let len_diff = last_len.abs_diff(clen);
 
                         if len_diff < best_score {

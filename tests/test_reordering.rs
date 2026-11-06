@@ -203,7 +203,6 @@ fn extract_minimizers_canonical_rc_invariance() {
 #[test]
 fn forward_and_reverse_maps_are_inverses() {
     let reads = make_reads(200, 100);
-    let seqs: Vec<String> = reads.iter().map(|r| r.sequence.clone()).collect();
 
     let analyzer = GlobalAnalyzer::new(GlobalAnalyzerConfig {
         reads_per_block: 50,
@@ -212,16 +211,16 @@ fn forward_and_reverse_maps_are_inverses() {
         reorder: fqc::plan::ReorderMode::Always,
         ..Default::default()
     });
-    let result = analyzer.analyze(&seqs).unwrap();
+    let result = analyzer.analyze(&reads).unwrap();
 
     assert!(result.reordering_performed, "short reads with reorder enabled");
-    assert_eq!(result.forward_map.len(), seqs.len());
-    assert_eq!(result.reverse_map.len(), seqs.len());
+    assert_eq!(result.forward_map.len(), reads.len());
+    assert_eq!(result.reverse_map.len(), reads.len());
 
     // forward[reverse[i]] == i  for every archive id i.
     for (archive_id, &orig_id) in result.reverse_map.iter().enumerate() {
         let orig = orig_id as usize;
-        assert!(orig < seqs.len(), "orig id out of range");
+        assert!(orig < reads.len(), "orig id out of range");
         assert_eq!(
             result.forward_map[orig] as usize, archive_id,
             "forward[reverse[{archive_id}]] != {archive_id}"
@@ -232,7 +231,6 @@ fn forward_and_reverse_maps_are_inverses() {
 #[test]
 fn reorder_map_is_a_permutation() {
     let reads = make_reads(120, 80);
-    let seqs: Vec<String> = reads.iter().map(|r| r.sequence.clone()).collect();
 
     let analyzer = GlobalAnalyzer::new(GlobalAnalyzerConfig {
         reads_per_block: 40,
@@ -241,19 +239,18 @@ fn reorder_map_is_a_permutation() {
         reorder: fqc::plan::ReorderMode::Always,
         ..Default::default()
     });
-    let result = analyzer.analyze(&seqs).unwrap();
+    let result = analyzer.analyze(&reads).unwrap();
 
     // reverse_map must contain every original id exactly once.
     let mut sorted = result.reverse_map.clone();
     sorted.sort_unstable();
-    let expected: Vec<u64> = (0..seqs.len() as u64).collect();
+    let expected: Vec<u64> = (0..reads.len() as u64).collect();
     assert_eq!(sorted, expected, "reverse map is not a permutation");
 }
 
 #[test]
 fn reorder_disabled_produces_identity_maps() {
     let reads = make_reads(60, 100);
-    let seqs: Vec<String> = reads.iter().map(|r| r.sequence.clone()).collect();
 
     let analyzer = GlobalAnalyzer::new(GlobalAnalyzerConfig {
         reads_per_block: 30,
@@ -262,7 +259,7 @@ fn reorder_disabled_produces_identity_maps() {
         reorder: fqc::plan::ReorderMode::Never,
         ..Default::default()
     });
-    let result = analyzer.analyze(&seqs).unwrap();
+    let result = analyzer.analyze(&reads).unwrap();
 
     assert!(!result.reordering_performed);
     assert_eq!(result.forward_map, [] as [u64; 0]);
@@ -272,14 +269,13 @@ fn reorder_disabled_produces_identity_maps() {
 #[test]
 fn auto_reorder_skips_already_ordered_input() {
     let reads = make_ordered_reads(200, 150, 8);
-    let seqs: Vec<String> = reads.iter().map(|r| r.sequence.clone()).collect();
     let analyzer = GlobalAnalyzer::new(GlobalAnalyzerConfig {
         reads_per_block: 50,
         reorder: fqc::plan::ReorderMode::Auto,
         read_length_class: Some(ReadLengthClass::Short),
         ..Default::default()
     });
-    let result = analyzer.analyze(&seqs).unwrap();
+    let result = analyzer.analyze(&reads).unwrap();
     assert!(
         !result.reordering_performed,
         "auto reorder must skip an already spatially ordered stream"
@@ -297,28 +293,26 @@ fn auto_reorder_keeps_unordered_input_eligible() {
         let j = (state as usize) % (i + 1);
         reads.swap(i, j);
     }
-    let seqs: Vec<String> = reads.iter().map(|r| r.sequence.clone()).collect();
     let analyzer = GlobalAnalyzer::new(GlobalAnalyzerConfig {
         reads_per_block: 50,
         reorder: fqc::plan::ReorderMode::Auto,
         read_length_class: Some(ReadLengthClass::Short),
         ..Default::default()
     });
-    let result = analyzer.analyze(&seqs).unwrap();
+    let result = analyzer.analyze(&reads).unwrap();
     assert!(result.reordering_performed, "auto reorder must run for unordered input");
 }
 
 #[test]
 fn auto_reorder_skips_unordered_input_without_shared_structure() {
     let reads = make_independent_reads(500, 150);
-    let seqs: Vec<String> = reads.iter().map(|r| r.sequence.clone()).collect();
     let analyzer = GlobalAnalyzer::new(GlobalAnalyzerConfig {
         reads_per_block: 100,
         reorder: fqc::plan::ReorderMode::Auto,
         read_length_class: Some(ReadLengthClass::Short),
         ..Default::default()
     });
-    let result = analyzer.analyze(&seqs).unwrap();
+    let result = analyzer.analyze(&reads).unwrap();
     assert!(
         !result.reordering_performed,
         "independent reads have no adjacent or global k-mer structure; auto must not reorder them"
@@ -328,19 +322,18 @@ fn auto_reorder_skips_unordered_input_without_shared_structure() {
 #[test]
 fn reorder_without_shared_kmers_returns_a_permutation() {
     let reads = make_independent_reads(2_000, 150);
-    let seqs: Vec<String> = reads.iter().map(|r| r.sequence.clone()).collect();
     let analyzer = GlobalAnalyzer::new(GlobalAnalyzerConfig {
         reads_per_block: 500,
         reorder: fqc::plan::ReorderMode::Always,
         read_length_class: Some(ReadLengthClass::Short),
         ..Default::default()
     });
-    let result = analyzer.analyze(&seqs).unwrap();
+    let result = analyzer.analyze(&reads).unwrap();
     assert!(result.reordering_performed);
 
     let mut sorted = result.reverse_map.clone();
     sorted.sort_unstable();
-    let expected: Vec<u64> = (0..seqs.len() as u64).collect();
+    let expected: Vec<u64> = (0..reads.len() as u64).collect();
     assert_eq!(sorted, expected, "fallback reorder must remain a permutation");
 }
 

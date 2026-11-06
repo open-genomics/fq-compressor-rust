@@ -97,7 +97,6 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
 
     // Phase 1: Global analysis (reordering)
     let t_reorder = std::time::Instant::now();
-    let sequences: Vec<String> = records.iter().map(|r| r.sequence.clone()).collect();
 
     let analyzer_config = GlobalAnalyzerConfig {
         reads_per_block: block_size,
@@ -107,7 +106,7 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
     };
 
     let analyzer = GlobalAnalyzer::new(analyzer_config);
-    let analysis = analyzer.analyze(&sequences)?;
+    let analysis = analyzer.analyze(&records)?;
 
     log::info!(
         "Analysis: {} blocks, reordering={}",

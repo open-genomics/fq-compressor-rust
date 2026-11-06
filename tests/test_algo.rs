@@ -259,7 +259,9 @@ fn test_quality_qvz_quantizes_to_codebook() {
 
 #[test]
 fn test_global_analyzer_respects_requested_block_size() {
-    let sequences: Vec<String> = (0..10).map(|_| "ACGTACGT".to_string()).collect();
+    let reads: Vec<ReadRecord> = (0..10)
+        .map(|i| ReadRecord::new(format!("r{i}"), "ACGTACGT".to_string(), "IIIIIIII".to_string()))
+        .collect();
     let analyzer = GlobalAnalyzer::new(GlobalAnalyzerConfig {
         reads_per_block: 3,
         reorder: fqc::plan::ReorderMode::Never,
@@ -267,7 +269,7 @@ fn test_global_analyzer_respects_requested_block_size() {
         ..Default::default()
     });
 
-    let result = analyzer.analyze(&sequences).unwrap();
+    let result = analyzer.analyze(&reads).unwrap();
 
     assert_eq!(result.num_blocks, 4);
     assert_eq!(result.block_boundaries[0].archive_id_start, 0);

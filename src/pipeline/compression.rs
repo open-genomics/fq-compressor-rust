@@ -171,9 +171,8 @@ fn analyze_and_reorder(
         reorder,
         ..Default::default()
     };
-    let sequences: Vec<String> = all_reads.iter().map(|r| r.sequence.clone()).collect();
     let analyzer = GlobalAnalyzer::new(ga_config);
-    let result = analyzer.analyze(&sequences)?;
+    let result = analyzer.analyze(&all_reads)?;
     let reordering_performed = result.reordering_performed;
     // reverse_map[archive_id] = original_id. When the analyzer skips
     // reordering (e.g. long reads) the maps are empty and all reads must
