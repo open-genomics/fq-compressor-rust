@@ -202,7 +202,7 @@ src/
   archive/                # .fqc 归档（不依赖 algo）
     format.rs / reader.rs / writer.rs
   pipeline/               # 块级并行压缩/解压
-    compression.rs / decompression.rs / decompression_writer.rs
+    compression.rs / decompression.rs（调度） / decompression_writer.rs（输出组装）
   fastq/                  # FASTQ 解析
     parser.rs
   io/                     # 压缩输入流与通用事务输出
