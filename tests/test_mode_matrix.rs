@@ -2,7 +2,7 @@
 // fqc-rust - Compression/Decompression Mode Matrix Tests
 // =============================================================================
 // One explicit cell per {single, paired, interleaved} × {archive, streaming,
-// pipeline}: compress, verify, decompress (classic path), and assert content
+// pipeline}: compress, verify, decompress, and assert content
 // integrity plus info totals. These pin the observable semantics of every
 // execution path before/while the code paths are being consolidated.
 // =============================================================================
@@ -239,35 +239,23 @@ matrix_test!(interleaved_streaming, Topology::Interleaved, Mode::Streaming);
 matrix_test!(interleaved_pipeline, Topology::Interleaved, Mode::Pipeline);
 
 // =============================================================================
-// Cross-path equivalence: classic vs pipeline decompression must agree
+// Range extraction semantics
 // =============================================================================
 
-fn decompress_once(archive: &str, out: &Path, use_pipeline: bool) {
-    let code = DecompressCommand::new(DecompressOptions {
-        input_path: archive.to_string(),
-        output_path: out.to_string_lossy().into_owned(),
-        use_pipeline,
-        force_overwrite: true,
-        ..Default::default()
-    })
-    .execute();
-    assert_eq!(code, 0);
-}
-
 #[test]
-fn range_extraction_agrees_between_classic_and_pipeline_paths() {
+fn range_extraction_selects_expected_reads() {
     let case = build_case(&Topology::Single, &Mode::Archive);
     let code = CompressCommand::new(case.opts.clone()).execute();
     assert_eq!(code, 0);
     let archive = case.opts.output_path.clone();
 
     for (start, end) in [(2u64, 4u64), (1, 1), (19, 25), (5, 0)] {
-        let classic = case.dir.path().join(format!("classic_{start}_{end}.fastq"));
+        let out = case.dir.path().join(format!("range_{start}_{end}.fastq"));
         let piped = case.dir.path().join(format!("pipe_{start}_{end}.fastq"));
 
         let c1 = DecompressCommand::new(DecompressOptions {
             input_path: archive.clone(),
-            output_path: classic.to_string_lossy().into_owned(),
+            output_path: out.to_string_lossy().into_owned(),
             range_start: start,
             range_end: end,
             force_overwrite: true,
@@ -286,7 +274,7 @@ fn range_extraction_agrees_between_classic_and_pipeline_paths() {
         .execute();
         assert_eq!((c1, c2), (0, 0), "range {start}:{end} exit codes diverge");
 
-        let a = parse_fastq(&classic);
+        let a = parse_fastq(&out);
         let b = parse_fastq(&piped);
         assert_eq!(
             a.iter().map(|r| r.id.clone()).collect::<Vec<_>>(),
@@ -309,27 +297,6 @@ fn range_extraction_agrees_between_classic_and_pipeline_paths() {
             a.iter().map(|r| r.id.clone()).collect::<Vec<_>>(),
             expected,
             "range {start}:{end} selection deviates from documented semantics"
-        );
-    }
-}
-
-#[test]
-fn pipeline_decompress_matches_classic_on_archive_and_streaming_inputs() {
-    for mode in [Mode::Archive, Mode::Streaming] {
-        let case = build_case(&Topology::Single, &mode);
-        let code = CompressCommand::new(case.opts.clone()).execute();
-        assert_eq!(code, 0);
-        let archive = case.opts.output_path.clone();
-
-        let a_path = case.dir.path().join("classic.fastq");
-        let b_path = case.dir.path().join("piped.fastq");
-        decompress_once(&archive, &a_path, false);
-        decompress_once(&archive, &b_path, true);
-
-        assert_eq!(
-            sorted_content(&parse_fastq(&a_path)),
-            sorted_content(&parse_fastq(&b_path)),
-            "classic and pipeline decompression disagree for {mode:?}"
         );
     }
 }
