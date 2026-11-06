@@ -451,7 +451,7 @@ impl DecompressionPipeline {
             const ASYNC_WRITE_DEPTH: usize = 4;
 
             let mut output = if split_pe {
-                OutputWriters::buffered(&output_path_owned, force_overwrite, true, archive_flags)?
+                OutputWriters::split(&output_path_owned, force_overwrite, archive_flags)?
             } else if output_path_owned.as_path() == Path::new("-") {
                 OutputWriters::single_raw(Box::new(std::io::BufWriter::new(std::io::stdout())), None)
             } else {

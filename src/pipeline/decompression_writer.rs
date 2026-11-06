@@ -29,51 +29,33 @@ pub(crate) enum OutputWriters {
 }
 
 impl OutputWriters {
-    /// Open one file/stdout or split R1/R2 files derived from `output_path`.
-    pub(crate) fn buffered(
-        output_path: &Path,
-        force_overwrite: bool,
-        split_pe: bool,
-        archive_flags: u64,
-    ) -> Result<Self> {
+    /// Open split R1/R2 destinations derived from `output_path`.
+    pub(crate) fn split(output_path: &Path, force_overwrite: bool, archive_flags: u64) -> Result<Self> {
         let is_paired = (archive_flags & format_flags::IS_PAIRED) != 0;
-        if split_pe {
-            if !is_paired {
-                return Err(FqcError::InvalidArgument(
-                    "--split-pe requires a paired-end archive".to_string(),
-                ));
-            }
-            if output_path == Path::new("-") {
-                return Err(FqcError::InvalidArgument(
-                    "--split-pe cannot be used with stdout output".to_string(),
-                ));
-            }
-
-            let (r1_path, r2_path) = derive_split_output_paths(output_path);
-            let mut r1_tx = OutputTransaction::begin(r1_path, force_overwrite)?;
-            let mut r2_tx = OutputTransaction::begin(r2_path, force_overwrite)?;
-            let pe_layout = get_pe_layout(archive_flags);
-            Ok(Self::Split {
-                r1: Box::new(BufWriter::new(r1_tx.take_file()?)),
-                r2: Box::new(BufWriter::new(r2_tx.take_file()?)),
-                r1_tx,
-                r2_tx,
-                pe_layout,
-                streaming_block_layout: (archive_flags & format_flags::STREAMING_MODE) != 0
-                    && pe_layout == PeLayout::Consecutive,
-            })
-        } else if output_path == Path::new("-") {
-            Ok(Self::Single {
-                writer: Box::new(std::io::stdout()),
-                tx: None,
-            })
-        } else {
-            let mut tx = OutputTransaction::begin(output_path, force_overwrite)?;
-            Ok(Self::Single {
-                writer: Box::new(BufWriter::new(tx.take_file()?)),
-                tx: Some(tx),
-            })
+        if !is_paired {
+            return Err(FqcError::InvalidArgument(
+                "--split-pe requires a paired-end archive".to_string(),
+            ));
         }
+        if output_path == Path::new("-") {
+            return Err(FqcError::InvalidArgument(
+                "--split-pe cannot be used with stdout output".to_string(),
+            ));
+        }
+
+        let (r1_path, r2_path) = derive_split_output_paths(output_path);
+        let mut r1_tx = OutputTransaction::begin(r1_path, force_overwrite)?;
+        let mut r2_tx = OutputTransaction::begin(r2_path, force_overwrite)?;
+        let pe_layout = get_pe_layout(archive_flags);
+        Ok(Self::Split {
+            r1: Box::new(BufWriter::new(r1_tx.take_file()?)),
+            r2: Box::new(BufWriter::new(r2_tx.take_file()?)),
+            r1_tx,
+            r2_tx,
+            pe_layout,
+            streaming_block_layout: (archive_flags & format_flags::STREAMING_MODE) != 0
+                && pe_layout == PeLayout::Consecutive,
+        })
     }
 
     /// Wrap an already-opened single destination (the pipeline uses an
