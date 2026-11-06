@@ -17,7 +17,8 @@ streaming 是串行循环，三个阶段的边界清楚，不需要额外的线�
 
 在 `streaming_runner::run_core` 的串行循环中分别累计：
 
-- `next_block()` 调用时间 → `parse_ns`（包含 parser 读取与块组装）；
+- `inspect_input_lengths_for_streaming` 预扫描时间 + `next_block()` 调用时间 →
+  `parse_ns`（包含 parser 读取、块组装与 `--scan-all-lengths` 的全量预扫描）；
 - `BlockCompressor::compress` → `process_ns`；
 - `begin_fqc_writer` / global header / `write_block_with_id` /
   `patch_total_read_count` / `finalize` / `commit` → `write_ns`；

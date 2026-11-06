@@ -22,7 +22,8 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
 
     let input = request.input().resolve();
 
-    // Inspect input lengths
+    // Inspect input lengths. This pre-scan is part of streaming's parser cost.
+    let t_inspect = Instant::now();
     let length_stats = common::inspect_input_lengths_for_streaming(
         &input.primary_path,
         input.secondary_path.as_deref(),
@@ -35,6 +36,7 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
         median_length: MEDIUM_READ_THRESHOLD,
         max_length: MEDIUM_READ_THRESHOLD,
     });
+    let inspect_ns = t_inspect.elapsed().as_nanos() as u64;
 
     let effective_length_class =
         crate::plan::effective_read_length_class(request.settings().requested_read_length_class, &length_stats);
@@ -69,6 +71,7 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
             effective_length_class,
             block_size,
             input.archive_layout,
+            inspect_ns,
         )
     } else if input.is_interleaved {
         run_interleaved(
@@ -77,23 +80,27 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
             effective_length_class,
             block_size,
             input.archive_layout,
+            inspect_ns,
         )
     } else {
-        run_single(&input.primary_path, request, effective_length_class, block_size)
+        run_single(
+            &input.primary_path,
+            request,
+            effective_length_class,
+            block_size,
+            inspect_ns,
+        )
     }
 }
 
-/// Execute pipeline mode compression.
-///
-/// This method implements pipeline compression:
-/// 1. 3-stage pipeline: Reader → Compressor → Writer
-/// 2. Parallel compression with bounded channels
-/// 3. Optional reordering for single-end reads
+/// Execute streaming compression: pull one block at a time through a single
+/// compressor and the ordered writer, so memory is bounded by the block size.
 fn run_core(
     request: &CompressionRequest,
     effective_length_class: ReadLengthClass,
     pe_layout: PeLayout,
     single_end: bool,
+    initial_parse_ns: u64,
     mut next_block: impl FnMut() -> Result<Option<Vec<ReadRecord>>>,
 ) -> Result<CompressionOutcome> {
     let t_setup = Instant::now();
@@ -126,7 +133,7 @@ fn run_core(
     let mut total_reads = 0u64;
     let mut total_bases = 0u64;
     let mut blocks_written = 0;
-    let mut parse_ns = 0u64;
+    let mut parse_ns = initial_parse_ns;
     let mut process_ns = 0u64;
 
     loop {
@@ -186,6 +193,7 @@ fn run_single(
     request: &CompressionRequest,
     effective_length_class: ReadLengthClass,
     block_size: usize,
+    inspect_ns: u64,
 ) -> Result<CompressionOutcome> {
     let mut parser = if input_path == Path::new("-") {
         open_fastq_stdin()
@@ -197,6 +205,7 @@ fn run_single(
         effective_length_class,
         PeLayout::Interleaved,
         true,
+        inspect_ns,
         move || {
             let mut buf: Vec<ReadRecord> = Vec::with_capacity(block_size);
             loop {
@@ -222,31 +231,39 @@ fn run_paired(
     effective_length_class: ReadLengthClass,
     block_size: usize,
     pe_layout: PeLayout,
+    inspect_ns: u64,
 ) -> Result<CompressionOutcome> {
     let mut pe_reader = open_fastq_paired(input_path, input2_path)?;
     let target_pairs = (block_size.max(2)) / 2;
-    run_core(request, effective_length_class, pe_layout, false, move || {
-        let mut r1_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
-        let mut r2_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
-        loop {
-            match pe_reader.next_pair()? {
-                Some((r1, r2)) => {
-                    r1_buf.push(r1);
-                    r2_buf.push(r2);
-                    if r1_buf.len() >= target_pairs {
-                        break;
+    run_core(
+        request,
+        effective_length_class,
+        pe_layout,
+        false,
+        inspect_ns,
+        move || {
+            let mut r1_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
+            let mut r2_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
+            loop {
+                match pe_reader.next_pair()? {
+                    Some((r1, r2)) => {
+                        r1_buf.push(r1);
+                        r2_buf.push(r2);
+                        if r1_buf.len() >= target_pairs {
+                            break;
+                        }
                     }
+                    None => break,
                 }
-                None => break,
             }
-        }
-        if r1_buf.is_empty() && r2_buf.is_empty() {
-            Ok(None)
-        } else {
-            let block_buf = pe_layout.arrange(r1_buf, r2_buf);
-            Ok(if block_buf.is_empty() { None } else { Some(block_buf) })
-        }
-    })
+            if r1_buf.is_empty() && r2_buf.is_empty() {
+                Ok(None)
+            } else {
+                let block_buf = pe_layout.arrange(r1_buf, r2_buf);
+                Ok(if block_buf.is_empty() { None } else { Some(block_buf) })
+            }
+        },
+    )
 }
 
 fn run_interleaved(
@@ -255,6 +272,7 @@ fn run_interleaved(
     effective_length_class: ReadLengthClass,
     block_size: usize,
     pe_layout: PeLayout,
+    inspect_ns: u64,
 ) -> Result<CompressionOutcome> {
     let mut parser = if input_path == Path::new("-") {
         crate::fastq::parser::InterleavedPeParser::new(open_fastq_stdin())
@@ -262,26 +280,33 @@ fn run_interleaved(
         open_fastq_interleaved(input_path)?
     };
     let target_pairs = (block_size.max(2)) / 2;
-    run_core(request, effective_length_class, pe_layout, false, move || {
-        let mut r1_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
-        let mut r2_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
-        loop {
-            match parser.next_pair()? {
-                Some((r1, r2)) => {
-                    r1_buf.push(r1);
-                    r2_buf.push(r2);
-                    if r1_buf.len() >= target_pairs {
-                        break;
+    run_core(
+        request,
+        effective_length_class,
+        pe_layout,
+        false,
+        inspect_ns,
+        move || {
+            let mut r1_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
+            let mut r2_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
+            loop {
+                match parser.next_pair()? {
+                    Some((r1, r2)) => {
+                        r1_buf.push(r1);
+                        r2_buf.push(r2);
+                        if r1_buf.len() >= target_pairs {
+                            break;
+                        }
                     }
+                    None => break,
                 }
-                None => break,
             }
-        }
-        if r1_buf.is_empty() && r2_buf.is_empty() {
-            Ok(None)
-        } else {
-            let block_buf = pe_layout.arrange(r1_buf, r2_buf);
-            Ok(if block_buf.is_empty() { None } else { Some(block_buf) })
-        }
-    })
+            if r1_buf.is_empty() && r2_buf.is_empty() {
+                Ok(None)
+            } else {
+                let block_buf = pe_layout.arrange(r1_buf, r2_buf);
+                Ok(if block_buf.is_empty() { None } else { Some(block_buf) })
+            }
+        },
+    )
 }
