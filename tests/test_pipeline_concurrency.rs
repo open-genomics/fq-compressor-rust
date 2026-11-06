@@ -225,3 +225,32 @@ fn pipeline_empty_input_is_rejected() {
     assert!(result.is_err(), "empty input must be rejected");
     assert!(!archive.exists(), "no output must be left behind");
 }
+
+#[test]
+fn writer_root_error_is_not_masked_by_closed_channel_symptoms() {
+    // Regression: a writer that fails before draining its channel used to
+    // surface as "Reader: channel closed" or "Compressor: channel closed",
+    // hiding the actual I/O cause. Rank root failures above derived symptoms.
+    let dir = tempfile::tempdir().unwrap();
+    let fastq = dir.path().join("in.fastq");
+    write_fastq(&fastq, &make_records(20 * MIN_BLOCK_SIZE, 150));
+    let archive = dir.path().join("missing-parent").join("out.fqc");
+
+    let config = CompressionPipelineConfig {
+        num_threads: 2,
+        max_in_flight_blocks: 1,
+        block_size: MIN_BLOCK_SIZE,
+        reorder: fqc::plan::ReorderMode::Never,
+        save_reorder_map: false,
+        force_overwrite: true,
+        ..Default::default()
+    };
+    let mut pipeline = CompressionPipeline::new(config);
+    let error = pipeline.run(&fastq, &archive, "in.fastq").unwrap_err();
+
+    assert!(
+        matches!(error, fqc::error::FqcError::Io(_)),
+        "expected the writer's I/O root cause, got: {error}"
+    );
+    assert!(!archive.exists(), "no output must be left behind");
+}

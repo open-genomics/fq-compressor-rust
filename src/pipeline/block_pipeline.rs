@@ -54,6 +54,49 @@ struct OrderedBlock {
     compressed: EncodedBlock,
 }
 
+/// Result of one pipeline stage.
+///
+/// `Root` is a failure of the stage's own work. `Derived` only reports that a
+/// peer stopped; without this distinction the first thread to observe a closed
+/// channel can hide the writer or compressor error that caused it.
+enum StageFailure {
+    Root(FqcError),
+    Derived(String),
+    Panicked(&'static str),
+}
+
+impl StageFailure {
+    /// Lower rank wins. Stable sorting keeps writer failures ahead of equally
+    /// ranked worker failures so the reported cause is deterministic.
+    fn rank(&self) -> u8 {
+        match self {
+            Self::Root(_) => 0,
+            Self::Panicked(_) => 1,
+            Self::Derived(_) => 2,
+        }
+    }
+
+    fn into_error(self) -> FqcError {
+        match self {
+            Self::Root(error) => error,
+            Self::Derived(message) => FqcError::Compression(message),
+            Self::Panicked(stage) => FqcError::Compression(format!("{stage} thread panicked")),
+        }
+    }
+}
+
+impl From<FqcError> for StageFailure {
+    fn from(error: FqcError) -> Self {
+        Self::Root(error)
+    }
+}
+
+type StageResult<T> = std::result::Result<T, StageFailure>;
+
+fn join_stage<T>(handle: thread::JoinHandle<StageResult<T>>, stage: &'static str) -> StageResult<T> {
+    handle.join().unwrap_or_else(|_| Err(StageFailure::Panicked(stage)))
+}
+
 /// Compress chunks in parallel and write complete blocks in archive order.
 ///
 /// The input chunk order defines block order; block IDs are assigned from the
@@ -89,14 +132,18 @@ pub(crate) fn run(
     let (block_tx, block_rx): (Sender<OrderedBlock>, Receiver<OrderedBlock>) = bounded(max_inflight);
 
     // ---- Reader thread: feed pre-chunked reads in order ----
-    let reader_handle = thread::spawn(move || -> Result<()> {
+    let reader_handle = thread::spawn(move || -> StageResult<()> {
         for (chunk_id, reads) in chunks.into_iter().enumerate() {
             chunk_tx
                 .send(ReadChunk {
                     reads,
                     chunk_id: chunk_id as u32,
                 })
-                .map_err(|_| FqcError::Compression("Reader: channel closed".to_string()))?;
+                .map_err(|_| {
+                    StageFailure::Derived(
+                        "Compression aborted: compressor stage stopped before reading all blocks".to_string(),
+                    )
+                })?;
         }
         Ok(())
     });
@@ -111,7 +158,7 @@ pub(crate) fn run(
         let cfg = Arc::clone(&compressor_config);
         let process_ns = Arc::clone(&process_ns);
 
-        let handle = thread::spawn(move || -> Result<()> {
+        let handle = thread::spawn(move || -> StageResult<()> {
             let mut compressor = BlockCompressor::new((*cfg).clone());
             for chunk in rx.iter() {
                 let t = Instant::now();
@@ -122,7 +169,11 @@ pub(crate) fn run(
                     chunk_id: chunk.chunk_id,
                     compressed,
                 })
-                .map_err(|_| FqcError::Compression("Compressor: channel closed".to_string()))?;
+                .map_err(|_| {
+                    StageFailure::Derived(
+                        "Compression aborted: writer stage stopped before receiving all blocks".to_string(),
+                    )
+                })?;
             }
             Ok(())
         });
@@ -133,7 +184,7 @@ pub(crate) fn run(
     drop(block_tx);
 
     // ---- Writer thread: reorder completed blocks and commit atomically ----
-    let writer_handle = thread::spawn(move || -> Result<(u64, u64)> {
+    let writer_handle = thread::spawn(move || -> StageResult<(u64, u64)> {
         let t_setup = Instant::now();
         let (mut writer, output_tx) = begin_fqc_writer(&output_path_owned, force_overwrite)?;
         write_global_header(&mut writer, flags, total_reads, &original_filename)?;
@@ -152,10 +203,11 @@ pub(crate) fn run(
             }
         }
 
-        // A worker error or cancellation closes the channel early. Never
-        // commit a partial archive: the transaction drops the temp file.
+        // A compressor error closes the channel early. Never commit a partial
+        // archive: the transaction drops the temp file. This is a symptom of
+        // the upstream failure, so it ranks below every stage's own error.
         if next_expected < num_chunks_u32 || !pending.is_empty() {
-            return Err(FqcError::Compression(format!(
+            return Err(StageFailure::Derived(format!(
                 "Compression incomplete: wrote {}/{} blocks; output aborted",
                 next_expected + pending.len() as u32,
                 num_chunks
@@ -176,36 +228,34 @@ pub(crate) fn run(
     });
 
     // Join every stage before returning so no detached worker can keep writing
-    // after the caller observes an error.
-    let reader_result = reader_handle
-        .join()
-        .map_err(|_| FqcError::Compression("Reader thread panicked".to_string()))
-        .and_then(|result| result);
-    let mut compressor_result = Ok(());
+    // after the caller observes an error. Root failures outrank panics and
+    // channel-closed symptoms; see `StageFailure::rank`.
+    let mut failures = Vec::new();
+    let writer_report = match join_stage(writer_handle, "writer") {
+        Ok(report) => Some(report),
+        Err(failure) => {
+            failures.push(failure);
+            None
+        }
+    };
     for handle in compressor_handles {
-        match handle.join() {
-            Ok(Ok(())) => {}
-            Ok(Err(error)) => {
-                if compressor_result.is_ok() {
-                    compressor_result = Err(error);
-                }
-            }
-            Err(_) => {
-                if compressor_result.is_ok() {
-                    compressor_result = Err(FqcError::Compression("Compressor thread panicked".to_string()));
-                }
-            }
+        if let Err(failure) = join_stage(handle, "compressor") {
+            failures.push(failure);
         }
     }
-    let process_ms = process_ns.load(Ordering::Relaxed) / 1_000_000;
-    let writer_result = writer_handle
-        .join()
-        .map_err(|_| FqcError::Compression("Writer thread panicked".to_string()))
-        .and_then(|result| result);
+    if let Err(failure) = join_stage(reader_handle, "reader") {
+        failures.push(failure);
+    }
 
-    reader_result?;
-    compressor_result?;
-    let (output_bytes, write_ms) = writer_result?;
+    let process_ms = process_ns.load(Ordering::Relaxed) / 1_000_000;
+
+    failures.sort_by_key(StageFailure::rank);
+    if let Some(failure) = failures.into_iter().next() {
+        return Err(failure.into_error());
+    }
+
+    let (output_bytes, write_ms) = writer_report
+        .ok_or_else(|| FqcError::Compression("Compression aborted without a recorded stage error".to_string()))?;
 
     Ok(BlockPipelineReport {
         output_bytes,
