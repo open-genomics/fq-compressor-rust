@@ -2,8 +2,7 @@
 // fqc-rust - Shared decompression output writers
 // =============================================================================
 // Single file/stdout and split R1/R2 destinations, transactional commit and
-// FASTQ/header-only record formatting shared by the threaded pipeline and the
-// sequential path.
+// FASTQ/header-only record formatting used by the decompression pipeline.
 
 use std::io::{BufWriter, Write};
 use std::path::{Path, PathBuf};
@@ -30,8 +29,7 @@ pub(crate) enum OutputWriters {
 }
 
 impl OutputWriters {
-    /// Open the destinations used by the sequential path: one file/stdout, or
-    /// split R1/R2 files derived from `output_path`.
+    /// Open one file/stdout or split R1/R2 files derived from `output_path`.
     pub(crate) fn buffered(
         output_path: &Path,
         force_overwrite: bool,
@@ -79,7 +77,7 @@ impl OutputWriters {
     }
 
     /// Wrap an already-opened single destination (the pipeline uses an
-    /// `AsyncWriter` here instead of the sequential `BufWriter`).
+    /// `AsyncWriter` here; split outputs use buffered writers).
     pub(crate) fn single_raw(writer: Box<dyn Write>, tx: Option<OutputTransaction>) -> Self {
         Self::Single { writer, tx }
     }

@@ -19,6 +19,7 @@ use fqc::error::ExitCode;
 use fqc::fastq::parser::{FastqParser, ParserOptions};
 use fqc::io::compressed_stream::*;
 use fqc::plan::compress::CompressionInputTopology;
+use fqc::plan::ReorderMode;
 use fqc::types::*;
 
 // =============================================================================
@@ -878,6 +879,70 @@ fn test_pipeline_skip_corrupted_emits_placeholder_reads() {
         assert_eq!(read.quality, "!!!!");
     }
     assert_roundtrip_match(&original[4..], &restored[4..]);
+}
+
+#[test]
+fn test_original_order_skip_corrupted_emits_placeholders() {
+    let input = TempFile::new("original_skip_corrupted.fastq");
+    let archive = TempFile::new("original_skip_corrupted.fqc");
+    let output = TempFile::new("original_skip_corrupted.out.fastq");
+    let original = synthetic_reads(&[40; 24], "original_skip");
+
+    write_fastq_records(input.path(), &original);
+    let compress_exit = CompressCommand::new(CompressOptions {
+        input_path: input.path().to_string(),
+        output_path: archive.path().to_string(),
+        block_size: 6,
+        reorder: ReorderMode::Always,
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(compress_exit, 0);
+
+    let reader = FqcReader::open(archive.path()).unwrap();
+    assert!(reader.has_reorder_map(), "original-order test needs a reorder map");
+    drop(reader);
+
+    corrupt_block_codec_seq(archive.path(), 1, 0xFF);
+
+    let decompress_exit = DecompressCommand::new(DecompressOptions {
+        input_path: archive.path().to_string(),
+        output_path: output.path().to_string(),
+        original_order: true,
+        skip_corrupted: true,
+        corrupted_placeholder: Some("NN".to_string()),
+        show_progress: false,
+        force_overwrite: true,
+        ..DecompressOptions::default()
+    })
+    .execute();
+    assert_eq!(decompress_exit, 0);
+
+    let restored = read_fastq_records(output.path());
+    assert_eq!(restored.len(), original.len());
+    let placeholders = restored
+        .iter()
+        .filter(|read| read.id.starts_with("corrupted_block1_"))
+        .count();
+    assert_eq!(placeholders, 6, "corrupted block must keep its read count");
+    assert_eq!(
+        restored
+            .iter()
+            .filter(|read| read.id.starts_with("corrupted_block"))
+            .count(),
+        6
+    );
+    for read in restored.iter().filter(|read| !read.id.starts_with("corrupted_block")) {
+        assert!(
+            original
+                .iter()
+                .any(|original| original.id == read.id && original.sequence == read.sequence),
+            "unexpected non-placeholder read {}",
+            read.id
+        );
+    }
 }
 
 #[test]

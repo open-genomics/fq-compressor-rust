@@ -13,9 +13,13 @@
 
 ### Changed
 
+- 解压调度收敛到单一 `DecompressionPipeline`：删除 `decompression_classic`，
+  original-order、split-PE、range、header-only、skip-corrupted 全部由同一套
+  Reader→Decompressor→Writer 处理；`--pipeline` 保留为兼容别名。默认多块解压
+  略快、RSS 略低，单块小文件有轻微线程开销。
 - 解压输出层收敛到 `pipeline/decompression_writer`：单文件/stdout、split
   R1/R2、header-only、corrupted placeholder、split 路径推导和事务提交只保留
-  一份；sequential 与 threaded pipeline 只保留各自的块调度。
+  一份；随后块调度也已统一到同一个 `DecompressionPipeline`。
 - 块大小与 worker 规划收敛到 `plan_compression_layout`：`CompressionPlanInput`
   新增 `auto_split_long_reads`，archive/pipeline 传 true，streaming 传 false 保持
   原有块大小；streaming 不再维护单独的 `effective_block_size` / worker 估算入口。

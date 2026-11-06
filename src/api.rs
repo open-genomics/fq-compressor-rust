@@ -15,7 +15,6 @@ use crate::engine::compression_engine::CompressionEngine;
 pub use crate::engine::compression_engine::CompressionOutcome;
 use crate::error::Result;
 use crate::pipeline::decompression::{DecompressionConfig, DecompressionPipeline};
-use crate::pipeline::decompression_classic::SequentialDecompressor;
 use crate::plan::compress::CompressionRequest;
 pub use crate::plan::compress::{
     CompressionInputTopology, CompressionRequest as CompressRequest, CompressionSettings,
@@ -33,7 +32,7 @@ pub fn compress(request: CompressionRequest) -> Result<CompressionOutcome> {
     CompressionEngine::new().run(request)
 }
 
-/// Decompress one archive, choosing the threaded or sequential path.
+/// Decompress one archive through the threaded pipeline.
 pub fn decompress(request: DecompressRequest) -> Result<OperationStats> {
     let plan = ValidatedDecompressPlan::new(request)?;
     let request = plan.request();
@@ -54,14 +53,9 @@ pub fn decompress(request: DecompressRequest) -> Result<OperationStats> {
     let input = request.input_path();
     let output = request.output_path();
 
-    if settings.use_pipeline && !settings.original_order && !settings.split_pe {
-        let mut pipeline = DecompressionPipeline::new(config);
-        pipeline.run(input, output)?;
-        Ok(pipeline.stats().clone())
-    } else {
-        let mut sequential = SequentialDecompressor::new(config);
-        sequential.run(input, output)
-    }
+    let mut pipeline = DecompressionPipeline::new(config);
+    pipeline.run(input, output)?;
+    Ok(pipeline.stats().clone())
 }
 
 /// Read archive metadata without decoding blocks.

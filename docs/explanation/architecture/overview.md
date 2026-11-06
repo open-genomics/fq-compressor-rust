@@ -38,7 +38,7 @@ flowchart TD
 | Facade | `src/api.rs` | 稳定的 compress / decompress / info / verify 嵌入入口 |
 | 计划与校验 | `src/plan/*` | 私有字段的 request、执行模式、重排策略、块/worker 固定点规划 |
 | 压缩编排 | `src/engine/compression_engine.rs`, `src/engine/compression_engine/*_runner.rs` | 模式路由；完整摄入（archive/pipeline）与 streaming 两个 runner |
-| 流水线 | `src/pipeline/*` | 块级并行压缩与解压；compress pipeline 仍是完整摄入 |
+| 流水线 | `src/pipeline/*` | 块级并行压缩与解压；压缩侧完整摄入，解压侧统一 Reader→Decompressor→Writer |
 | 算法 | `src/algo/*` | ABC、质量模型、ID、全局分析；只依赖 `block` |
 | 归档格式 | `src/archive/*` | `.fqc` 字节布局、reader/writer、原子输出事务接入 |
 | 中立块域 | `src/block/*` | 编码块/解码块元数据与 ID varint 编解码 |

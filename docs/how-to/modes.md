@@ -37,8 +37,8 @@ flowchart TD
 | **适用场景** | 最佳压缩率 | 大文件、内存受限 | 显式完整摄入模式 |
 
 > 压缩侧 archive 与 pipeline 自 2026-11-06 起共享同一完整摄入实现，归档结果一致；
-> `--pipeline` 保留为显式模式，并保留其块大小下限校验。解压侧的 `--pipeline`
-> 是独立的三阶段管道，不受此收敛影响。
+> `--pipeline` 保留为显式模式，并保留其块大小下限校验。解压侧也已统一为
+> Reader→Decompressor→Writer 三阶段管道，`--pipeline` 是兼容别名。
 
 ## Archive 模式（默认）
 
@@ -91,7 +91,7 @@ fqc compress -i reads.fastq -o reads.fqc --pipeline
 - 压缩侧与 archive 共享完整摄入实现：读取器 → 压缩器 → 写入器
 - 完整摄入后，压缩块阶段有界缓冲
 - 保留 `--pipeline` 的块大小下限（≥100 读段/块）
-- 解压侧 `--pipeline` 仍走独立的三阶段管道
+- 解压侧统一使用三阶段管道，`--pipeline` 为兼容别名
 
 **架构**：
 

@@ -67,7 +67,7 @@ fqc decompress -i INPUT -o OUTPUT [OPTIONS]
 | `--skip-corrupted` | 块完整性检查失败时继续 |
 | `--corrupted-placeholder` | 跳过块的占位序列 |
 | `--split-pe` | 双端输出写入独立文件（两路均经临时文件；按 R1→R2 提交，POSIX 无法双路径原子 rename） |
-| `--pipeline` | 使用分段解压流水线 |
+| `--pipeline` | 兼容别名：解压始终使用分段流水线 |
 | `-f, --force` | 覆盖已存在的输出（仅在成功完成后原子替换；失败时保留旧文件） |
 
 ## `info`

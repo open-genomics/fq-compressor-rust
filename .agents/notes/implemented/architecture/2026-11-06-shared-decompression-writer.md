@@ -31,8 +31,8 @@ Status: implemented
   该模块维护；
 - split 路径的非 UTF-8 文件名测试随实现移动。
 
-`DecompressionConfig` 仍保留在 `decompression.rs`，因为两条路径共享同一组
-配置，后续若调度收敛再考虑迁移。
+`DecompressionConfig` 仍保留在 `decompression.rs`；本轮不移动配置，后续若
+拆分模块再考虑。
 
 ## 备选方案
 
@@ -49,15 +49,17 @@ Status: implemented
 
 - 解压输出的格式、header-only 字节数、placeholder、split 路径推导和事务提交
   只有一份实现；
-- pipeline 仍使用 AsyncWriter，sequential 仍使用 BufWriter，性能路径不变；
-- 解压调度仍是两条路径；这是下一步的独立工作。
+- 统一 pipeline 对单文件仍使用 AsyncWriter，split 输出使用 buffered BufWriter，
+  写性能路径不变；
+- 解压调度已在同日收敛到单一 pipeline，见
+  `2026-11-06-unified-decompression-pipeline.md`；本 Note 的输出层决定保持不变。
 
 ## 验证
 
 - 全量 `cargo fmt` / `clippy -D warnings` / `test --lib --tests` / `doc` /
   `+1.75.0 check` / `verify-notes` 通过；
-- 真实语料：classic 与 `--pipeline` 对 Illumina、Nanopore、mito SE 解压输出
-  逐字节一致；`--range`、`--header-only` 两条路径输出一致；
+- 当时两条路径的真实语料对比：Illumina、Nanopore、mito SE 解压输出逐字节
+  一致；`--range`、`--header-only` 两条路径输出一致（后续已收敛为单路径）；
 - `--original-order` 输出大小与输入一致；
 - split-PE：interleaved、consecutive、streaming consecutive 三种归档的
   R1/R2 均与输入逐字节一致。

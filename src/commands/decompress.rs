@@ -1,9 +1,9 @@
 // =============================================================================
 // fqc-rust - Decompress Command
 // =============================================================================
-// Thin CLI layer: option validation and routing. The decompression
-// orchestration lives in `pipeline::decompression` (threaded pipeline) and
-// `pipeline::decompression_classic` (sequential/split-pe/original-order).
+// Thin CLI layer: option validation and request construction. The single
+// decompression orchestration lives in `pipeline::decompression`; the
+// `--pipeline` flag is kept as a compatibility alias.
 // =============================================================================
 
 use crate::error::{FqcError, Result};

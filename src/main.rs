@@ -174,7 +174,7 @@ enum Commands {
         #[arg(long)]
         split_pe: bool,
 
-        /// Use pipeline mode (3-stage Reader→Decompressor→Writer with backpressure)
+        /// Kept for compatibility; decompression always uses the threaded pipeline
         #[arg(long)]
         pipeline: bool,
 

@@ -1,8 +1,9 @@
 // =============================================================================
-// fqc-rust - Decompression Pipeline
+// fqc-rust - Decompression pipeline
 // =============================================================================
-// 3-stage pipeline: Reader (serial) → Decompressor (parallel) → Writer (serial)
-// Supports range extraction and original order output.
+// Single decompression orchestration: Reader (serial) → Decompressor
+// (parallel) → Writer (serial). Supports range extraction, header-only output,
+// original-order restore, skip-corrupted placeholders and split R1/R2 output.
 // =============================================================================
 
 use std::path::{Path, PathBuf};
@@ -40,7 +41,7 @@ pub struct DecompressionConfig {
     pub skip_corrupted: bool,
     pub corrupted_placeholder: Option<String>,
     pub force_overwrite: bool,
-    /// Split paired-end output into R1/R2 files (sequential path only).
+    /// Split paired-end output into R1/R2 files.
     pub split_pe: bool,
     /// Memory limit in MB (`0` = automatic, still finite).
     pub memory_limit_mb: usize,
@@ -99,6 +100,20 @@ struct DecompressedResult {
     expected_read_count: u32,
 }
 
+/// 1-based read-range check shared by archive-order and original-order output.
+fn in_range(index: u64, has_range: bool, start: u64, end: u64) -> bool {
+    if !has_range {
+        return true;
+    }
+    if start > 0 && index < start {
+        return false;
+    }
+    if end > 0 && index > end {
+        return false;
+    }
+    true
+}
+
 struct PreparedRun {
     reader: FqcReader,
     file_size: u64,
@@ -113,6 +128,9 @@ struct PreparedRun {
 struct WriterThreadInput {
     output_path: PathBuf,
     force_overwrite: bool,
+    split_pe: bool,
+    archive_flags: u64,
+    original_order: bool,
     header_only: bool,
     skip_corrupted: bool,
     corrupted_placeholder: String,
@@ -122,6 +140,8 @@ struct WriterThreadInput {
     start_block: usize,
     end_block: usize,
     reads_before_start_block: u64,
+    total_archive_reads: u64,
+    forward_map: Option<Vec<crate::types::ReadId>>,
 }
 
 // =============================================================================
@@ -149,16 +169,6 @@ impl DecompressionPipeline {
     pub fn run(&mut self, input_path: impl AsRef<Path>, output_path: impl AsRef<Path>) -> Result<()> {
         let input_path = input_path.as_ref();
         let output_path = output_path.as_ref();
-        if self.config.split_pe {
-            return Err(FqcError::InvalidArgument(
-                "--split-pe requires the sequential decompression path".to_string(),
-            ));
-        }
-        if self.config.original_order {
-            return Err(FqcError::InvalidArgument(
-                "--original-order requires the sequential decompression path".to_string(),
-            ));
-        }
         self.config.validate_range()?;
         let start = Instant::now();
 
@@ -297,16 +307,34 @@ impl DecompressionPipeline {
     /// line budget and the reorder/range semantics live in one place.
     fn prepare(&self, input_path: &Path, output_path: &Path) -> Result<PreparedRun> {
         let budget = DecodeBudget::resolve(self.config.memory_limit_mb);
-        let reader = FqcReader::open_with_budget(input_path, budget)?;
+        let mut reader = FqcReader::open_with_budget(input_path, budget)?;
         let block_count = reader.block_count();
         let file_size = reader.file_size;
+
+        if self.config.original_order {
+            if !reader.has_reorder_map() {
+                return Err(FqcError::Format(
+                    "Original order requested but no reorder map present".to_string(),
+                ));
+            }
+            let avg_length = reader.memory_estimate_read_length() as u64;
+            reader.budget().check_original_order_peak(
+                reader.total_read_count(),
+                reader.max_block_compressed_size(),
+                avg_length,
+            )?;
+            reader.load_reorder_map()?;
+            log::info!("Reorder map loaded");
+        }
 
         let f = reader.global_header.flags;
         let quality_mode = get_quality_mode(f);
         let id_mode = get_id_mode(f);
         let read_length_class = get_read_length_class(f);
 
-        let (start_block, end_block) = if self.config.has_range() {
+        let (start_block, end_block) = if self.config.original_order {
+            (0, block_count)
+        } else if self.config.has_range() {
             self.find_block_range(&reader)
         } else {
             (0, block_count)
@@ -352,6 +380,12 @@ impl DecompressionPipeline {
             .parallel_batch_size(self.config.effective_threads(), block_hint)?
             .max(1);
         let max_inflight = self.config.max_in_flight_blocks.min(budget_batch).max(1);
+        let total_archive_reads = reader.total_read_count();
+        let forward_map = if self.config.original_order {
+            reader.reorder_forward.clone()
+        } else {
+            None
+        };
 
         Ok(PreparedRun {
             reader,
@@ -364,6 +398,9 @@ impl DecompressionPipeline {
             writer_input: WriterThreadInput {
                 output_path: output_path.to_path_buf(),
                 force_overwrite: self.config.force_overwrite,
+                split_pe: self.config.split_pe,
+                archive_flags: f,
+                original_order: self.config.original_order,
                 header_only: self.config.header_only,
                 skip_corrupted: self.config.skip_corrupted,
                 corrupted_placeholder: self
@@ -377,12 +414,15 @@ impl DecompressionPipeline {
                 start_block,
                 end_block,
                 reads_before_start_block,
+                total_archive_reads,
+                forward_map,
             },
         })
     }
 
     /// Writer stage: receives decompressed blocks in archive order, applies
-    /// range filtering, and writes transactionally (or to stdout).
+    /// range filtering, optional original-order restore and split-PE routing,
+    /// then commits the output transaction.
     fn spawn_writer_thread(
         &self,
         input: WriterThreadInput,
@@ -390,6 +430,9 @@ impl DecompressionPipeline {
     ) -> thread::JoinHandle<Result<(u64, u64, u64, u32, u64)>> {
         let output_path_owned = input.output_path;
         let force_overwrite = input.force_overwrite;
+        let split_pe = input.split_pe;
+        let archive_flags = input.archive_flags;
+        let original_order = input.original_order;
         let header_only = input.header_only;
         let skip_corrupted = input.skip_corrupted;
         let corrupted_placeholder = input.corrupted_placeholder;
@@ -399,13 +442,17 @@ impl DecompressionPipeline {
         let start_block = input.start_block;
         let end_block = input.end_block;
         let reads_before_start_block = input.reads_before_start_block;
+        let total_archive_reads = input.total_archive_reads;
+        let forward_map = input.forward_map;
 
         thread::spawn(move || -> Result<(u64, u64, u64, u32, u64)> {
             let t = Instant::now();
             const ASYNC_WRITE_BUF: usize = 4 * 1024 * 1024; // 4 MB write-behind buffer
             const ASYNC_WRITE_DEPTH: usize = 4;
 
-            let mut output = if output_path_owned.as_path() == Path::new("-") {
+            let mut output = if split_pe {
+                OutputWriters::buffered(&output_path_owned, force_overwrite, true, archive_flags)?
+            } else if output_path_owned.as_path() == Path::new("-") {
                 OutputWriters::single_raw(Box::new(std::io::BufWriter::new(std::io::stdout())), None)
             } else {
                 let mut tx = OutputTransaction::begin(&output_path_owned, force_overwrite)?;
@@ -424,6 +471,11 @@ impl DecompressionPipeline {
             let mut corrupted_blocks: u32 = 0;
             let mut global_read_idx: u64 = reads_before_start_block;
             let end_block_id: u32 = end_block as u32;
+            let mut original_reads: Vec<crate::types::ReadRecord> = if original_order {
+                Vec::with_capacity(total_archive_reads as usize)
+            } else {
+                Vec::new()
+            };
 
             for dr in result_rx.iter() {
                 pending.insert(dr.block_id, dr);
@@ -431,38 +483,55 @@ impl DecompressionPipeline {
                 while let Some(dr) = pending.remove(&next_expected) {
                     match dr.result {
                         Ok(decompressed) => {
-                            for read in &decompressed.reads {
-                                global_read_idx += 1;
-                                // Per-read range filtering (1-based)
-                                if has_range {
-                                    if range_start > 0 && global_read_idx < range_start {
+                            if original_order {
+                                original_reads.extend(decompressed.reads);
+                            } else {
+                                let block_read_count = decompressed.reads.len() as u64;
+                                for (local_idx, read) in decompressed.reads.iter().enumerate() {
+                                    global_read_idx += 1;
+                                    if !in_range(global_read_idx, has_range, range_start, range_end) {
                                         continue;
                                     }
-                                    if range_end > 0 && global_read_idx > range_end {
-                                        continue;
-                                    }
+                                    total_output_bytes += output.write_record(
+                                        read,
+                                        header_only,
+                                        global_read_idx - 1,
+                                        total_archive_reads,
+                                        Some((local_idx as u64, block_read_count)),
+                                    )?;
+                                    total_reads_written += 1;
+                                    total_bases += read.sequence.len() as u64;
                                 }
-                                total_output_bytes += output.write_record(read, header_only, 0, 0, None)?;
-                                total_reads_written += 1;
-                                total_bases += read.sequence.len() as u64;
                             }
                         }
                         Err(e) => {
                             if skip_corrupted {
-                                for read_idx in 0..dr.expected_read_count as usize {
-                                    global_read_idx += 1;
-                                    if has_range {
-                                        if range_start > 0 && global_read_idx < range_start {
-                                            continue;
-                                        }
-                                        if range_end > 0 && global_read_idx > range_end {
-                                            continue;
-                                        }
+                                if original_order {
+                                    for read_idx in 0..dr.expected_read_count as usize {
+                                        original_reads.push(placeholder_record(
+                                            &corrupted_placeholder,
+                                            dr.block_id,
+                                            read_idx,
+                                        ));
                                     }
-                                    let placeholder = placeholder_record(&corrupted_placeholder, dr.block_id, read_idx);
-                                    total_output_bytes += output.write_record(&placeholder, header_only, 0, 0, None)?;
-                                    total_reads_written += 1;
-                                    total_bases += placeholder.sequence.len() as u64;
+                                } else {
+                                    for read_idx in 0..dr.expected_read_count as usize {
+                                        global_read_idx += 1;
+                                        if !in_range(global_read_idx, has_range, range_start, range_end) {
+                                            continue;
+                                        }
+                                        let placeholder =
+                                            placeholder_record(&corrupted_placeholder, dr.block_id, read_idx);
+                                        total_output_bytes += output.write_record(
+                                            &placeholder,
+                                            header_only,
+                                            global_read_idx - 1,
+                                            total_archive_reads,
+                                            Some((read_idx as u64, dr.expected_read_count as u64)),
+                                        )?;
+                                        total_reads_written += 1;
+                                        total_bases += placeholder.sequence.len() as u64;
+                                    }
                                 }
                                 corrupted_blocks += 1;
                                 log::warn!("Block {} corrupted, skipping: {}", dr.block_id, e);
@@ -483,6 +552,29 @@ impl DecompressionPipeline {
                     next_expected - start_block as u32,
                     end_block_id
                 )));
+            }
+
+            if original_order {
+                let forward = forward_map.ok_or_else(|| FqcError::Format("Forward reorder map missing".to_string()))?;
+                for (original_id, &archive_id) in forward.iter().enumerate() {
+                    let Some(read) = original_reads.get(archive_id as usize) else {
+                        log::warn!(
+                            "Invalid reorder map reference: original_id {} -> archive_id {} (max {})",
+                            original_id,
+                            archive_id,
+                            original_reads.len().saturating_sub(1)
+                        );
+                        continue;
+                    };
+                    let current_id = original_id as u64 + 1;
+                    if !in_range(current_id, has_range, range_start, range_end) {
+                        continue;
+                    }
+                    total_output_bytes +=
+                        output.write_record(read, header_only, original_id as u64, total_archive_reads, None)?;
+                    total_reads_written += 1;
+                    total_bases += read.sequence.len() as u64;
+                }
             }
 
             output.commit()?;

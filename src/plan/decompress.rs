@@ -18,7 +18,7 @@ pub struct DecompressSettings {
     pub split_pe: bool,
     pub threads: usize,
     pub force_overwrite: bool,
-    /// Prefer the threaded pipeline for plain decompression.
+    /// Compatibility flag; decompression always uses the threaded pipeline.
     pub use_pipeline: bool,
     /// Memory limit in MB (`0` = automatic, still finite).
     pub memory_limit_mb: usize,

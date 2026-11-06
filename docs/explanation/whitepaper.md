@@ -168,11 +168,13 @@ fqc 提供三种产生相同 `.fqc` 输出的执行模式，允许用户在内�
 
 | 模式 | 标志 | 内存 | 吞吐量 | 压缩比 |
 |------|------|------|--------|--------|
-| Archive | （默认） | 高 | 中等 | 最佳 |
-| Streaming | `--streaming` | 低 | 中等 | 良好 |
-| Pipeline | `--pipeline` | 中等 | 高 | 良好 |
+| Archive | （默认） | 高 | 高 | 最佳 |
+| Streaming | `--streaming` | 低 | 高 | 良好 |
+| Pipeline | `--pipeline` | 高 | 高 | 最佳（与 archive 同实现） |
 
 关键在于所有模式产生相同的输出格式，因此模式选择是运维决策而非格式承诺。
+压缩侧 archive 与 pipeline 共享完整摄入实现；解压侧只有一条三阶段管道，
+`--pipeline` 为兼容别名。
 
 各模式的逐项行为（内存模型、重排启用、并发结构）详见[执行模式指南](../how-to/modes.md)。
 
@@ -192,7 +194,7 @@ src/
     compress.rs / decompress.rs / block_plan.rs
   engine/                 # 压缩编排
     compression_engine.rs
-    compression_engine/{archive,streaming,pipeline}_runner.rs
+    compression_engine/{full_ingest,streaming}_runner.rs
   block/                  # 中立块域（meta / encoded / decoded / id codec）
   algo/                   # 压缩算法（不依赖 archive）
     abc.rs / block_compressor.rs / quality_compressor.rs
@@ -200,7 +202,7 @@ src/
   archive/                # .fqc 归档（不依赖 algo）
     format.rs / reader.rs / writer.rs
   pipeline/               # 块级并行压缩/解压
-    compression.rs / decompression.rs / decompression_classic.rs
+    compression.rs / decompression.rs / decompression_writer.rs
   fastq/                  # FASTQ 解析
     parser.rs
   io/                     # 压缩输入流与通用事务输出
