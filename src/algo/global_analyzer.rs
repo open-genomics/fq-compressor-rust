@@ -322,7 +322,6 @@ pub struct BlockBoundary {
 
 #[derive(Debug, Default)]
 pub struct GlobalAnalysisResult {
-    pub length_class: ReadLengthClass,
     pub reordering_performed: bool,
     pub forward_map: Vec<ReadId>,
     pub reverse_map: Vec<ReadId>,
@@ -354,7 +353,7 @@ impl GlobalAnalyzer {
 
         // When the caller already classified the input, avoid a full lengths
         // vector and its sort on the hot archive/pipeline path.
-        result.length_class = if let Some(length_class) = self.config.read_length_class {
+        let length_class = if let Some(length_class) = self.config.read_length_class {
             length_class
         } else {
             let lengths: Vec<usize> = reads.iter().map(|read| read.sequence.len()).collect();
@@ -362,7 +361,7 @@ impl GlobalAnalyzer {
             classify_read_length(stats.median_length, stats.max_length)
         };
 
-        let mut should_reorder = self.config.reorder.enabled() && result.length_class == ReadLengthClass::Short;
+        let mut should_reorder = self.config.reorder.enabled() && length_class == ReadLengthClass::Short;
 
         if should_reorder && self.config.reorder.auto() {
             if let Some(adjacent_fraction) = adjacent_shared_fraction(reads) {
@@ -398,7 +397,7 @@ impl GlobalAnalyzer {
             result.reverse_map = reorder_map;
             result.reordering_performed = true;
         } else {
-            log::info!("Skipping reordering (class: {})", result.length_class.as_str());
+            log::info!("Skipping reordering (class: {})", length_class.as_str());
             result.reordering_performed = false;
         }
 
