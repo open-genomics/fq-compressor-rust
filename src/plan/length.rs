@@ -15,8 +15,7 @@ pub const DEFAULT_LENGTH_SAMPLE_READS: usize = 4_096;
 /// Compute length statistics from ingested records, evenly sampled by default.
 pub fn length_stats_from_records_sampled(records: &[ReadRecord], scan_all: bool) -> LengthStats {
     if scan_all || records.len() <= DEFAULT_LENGTH_SAMPLE_READS {
-        let lengths: Vec<usize> = records.iter().map(|read| read.sequence.len()).collect();
-        return LengthStats::from_lengths(&lengths);
+        return LengthStats::from_lengths_iter(records.iter().map(|read| read.sequence.len()));
     }
 
     let sample_size = DEFAULT_LENGTH_SAMPLE_READS.min(records.len());

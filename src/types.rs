@@ -2,6 +2,8 @@
 // fqc-rust - Core Type Definitions
 // =============================================================================
 
+use std::collections::BTreeMap;
+
 /// Block identifier type
 pub type BlockId = u32;
 
@@ -94,21 +96,46 @@ pub struct LengthStats {
 impl LengthStats {
     /// Compute length statistics from a slice of lengths.
     pub fn from_lengths(lengths: &[usize]) -> Self {
-        if lengths.is_empty() {
+        Self::from_lengths_iter(lengths.iter().copied())
+    }
+
+    /// Compute length statistics without materializing every length.
+    ///
+    /// Counting distinct lengths keeps `--scan-all-lengths` memory proportional
+    /// to the number of distinct read lengths instead of the read count.
+    pub fn from_lengths_iter(lengths: impl IntoIterator<Item = usize>) -> Self {
+        let mut counts: BTreeMap<usize, u64> = BTreeMap::new();
+        for length in lengths {
+            *counts.entry(length).or_insert(0) += 1;
+        }
+        Self::from_length_counts(&counts)
+    }
+
+    /// Compute statistics from an already-built length histogram.
+    pub fn from_length_counts(counts: &BTreeMap<usize, u64>) -> Self {
+        let total = counts.values().fold(0u64, |acc, &count| acc.saturating_add(count));
+        if total == 0 {
             return Self::default();
         }
 
-        let mut sorted = lengths.to_vec();
-        sorted.sort_unstable();
+        let max_length = *counts.keys().next_back().unwrap_or(&0);
+        let median_rank = total / 2;
+        let mut cumulative = 0u64;
+        let mut median_length = max_length;
+        for (&length, &count) in counts {
+            cumulative = cumulative.saturating_add(count);
+            if cumulative > median_rank {
+                median_length = length;
+                break;
+            }
+        }
 
-        let sample_size = sorted.len();
-        let max_length = *sorted.last().unwrap_or(&0);
-        let median_length = sorted[sample_size / 2];
-        let avg_length = sorted.iter().sum::<usize>() / sample_size;
-
+        let sum = counts.iter().fold(0u64, |acc, (&length, &count)| {
+            acc.saturating_add((length as u64).saturating_mul(count))
+        });
         Self {
-            sample_size,
-            avg_length,
+            sample_size: usize::try_from(total).unwrap_or(usize::MAX),
+            avg_length: usize::try_from(sum / total).unwrap_or(usize::MAX),
             median_length,
             max_length,
         }

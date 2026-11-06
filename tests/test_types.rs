@@ -273,3 +273,33 @@ fn adaptive_block_size_balances_workers_and_base_ceiling() {
         2_000
     );
 }
+
+#[test]
+fn length_stats_slice_and_histogram_agree() {
+    let cases: &[&[usize]] = &[
+        &[],
+        &[100],
+        &[100, 200],
+        &[100, 100, 200],
+        &[100, 200, 200, 200, 5_000],
+        &[0, 1, 1, 2, 2, 2],
+    ];
+    for lengths in cases {
+        let slice = LengthStats::from_lengths(lengths);
+        let histogram = LengthStats::from_lengths_iter(lengths.iter().copied());
+        assert_eq!(slice.sample_size, histogram.sample_size, "lengths={lengths:?}");
+        assert_eq!(slice.avg_length, histogram.avg_length, "lengths={lengths:?}");
+        assert_eq!(slice.median_length, histogram.median_length, "lengths={lengths:?}");
+        assert_eq!(slice.max_length, histogram.max_length, "lengths={lengths:?}");
+    }
+}
+
+#[test]
+fn length_stats_histogram_median_uses_lower_middle_for_even_counts() {
+    // Sorted [10, 20, 30, 40]: the slice implementation picks index 2 -> 30.
+    let stats = LengthStats::from_lengths_iter([10, 20, 30, 40]);
+    assert_eq!(stats.median_length, 30);
+    assert_eq!(stats.max_length, 40);
+    assert_eq!(stats.avg_length, 25);
+    assert_eq!(stats.sample_size, 4);
+}

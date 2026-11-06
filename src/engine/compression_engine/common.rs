@@ -8,6 +8,7 @@ use crate::fastq::parser::{open_fastq, open_fastq_interleaved, open_fastq_paired
 use crate::plan::compress::CompressionSettings;
 use crate::plan::DEFAULT_LENGTH_SAMPLE_READS;
 use crate::types::*;
+use std::collections::BTreeMap;
 use std::path::Path;
 
 /// Compression settings resolved once for codec construction and layout planning.
@@ -87,39 +88,43 @@ pub(super) fn inspect_input_lengths_for_streaming(
     } else {
         DEFAULT_LENGTH_SAMPLE_READS
     };
-    let mut lengths = Vec::new();
+    let mut counts: BTreeMap<usize, u64> = BTreeMap::new();
+    let mut sampled = 0usize;
 
     if let Some(path2) = input2_path {
         let mut reader = open_fastq_paired(input_path, path2)?;
         while let Some((r1, r2)) = reader.next_pair()? {
-            lengths.push(r1.sequence.len());
-            lengths.push(r2.sequence.len());
-            if lengths.len() >= sample_limit {
+            *counts.entry(r1.sequence.len()).or_insert(0) += 1;
+            *counts.entry(r2.sequence.len()).or_insert(0) += 1;
+            sampled += 2;
+            if sampled >= sample_limit {
                 break;
             }
         }
     } else if is_interleaved {
         let mut parser = open_fastq_interleaved(input_path)?;
         while let Some((r1, r2)) = parser.next_pair()? {
-            lengths.push(r1.sequence.len());
-            lengths.push(r2.sequence.len());
-            if lengths.len() >= sample_limit {
+            *counts.entry(r1.sequence.len()).or_insert(0) += 1;
+            *counts.entry(r2.sequence.len()).or_insert(0) += 1;
+            sampled += 2;
+            if sampled >= sample_limit {
                 break;
             }
         }
     } else {
         let mut parser = open_fastq(input_path)?;
         while let Some(record) = parser.next_record()? {
-            lengths.push(record.sequence.len());
-            if lengths.len() >= sample_limit {
+            *counts.entry(record.sequence.len()).or_insert(0) += 1;
+            sampled += 1;
+            if sampled >= sample_limit {
                 break;
             }
         }
     }
 
-    if lengths.is_empty() {
+    if counts.is_empty() {
         Ok(None)
     } else {
-        Ok(Some(LengthStats::from_lengths(&lengths)))
+        Ok(Some(LengthStats::from_length_counts(&counts)))
     }
 }
