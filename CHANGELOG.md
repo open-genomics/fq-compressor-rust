@@ -4,6 +4,10 @@
 
 ### Security
 
+- 升级 `zstd` 到 0.14.3（`zstd-safe` 8.2.0、`zstd-sys` 2.1.2），修复
+  `RUSTSEC-2026-0391`、`RUSTSEC-2026-0398`、`RUSTSEC-2026-0403`、
+  `RUSTSEC-2026-0410`；未添加 advisory ignore。
+
 - 为当前无依赖的 note 工具补充最小 `package-lock.json`，替换 GitHub npm 依赖图中
   残留的旧 VitePress 锁文件；`npm audit --package-lock-only` 返回 0 vulnerabilities。
 
