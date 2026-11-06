@@ -25,6 +25,14 @@ owned 副本：
 分析器只读取 `sequence`，不依赖 ID/quality/comment；这不会改变重排判定或块边界，
 只是把输入视图从“序列字符串切片”改成“领域记录切片”。
 
+在此之上补两个同源的小优化：
+
+- `GlobalAnalyzerConfig.read_length_class` 已由调用方给出时，只扫描最大读长，
+  不再构造整个 `Vec<usize>` 并排序；pipeline 也把自己的 effective class 传入
+  分析器，避免默认 `None` 重新走全量统计。
+- `perform_reordering` 的 reverse map 直接 move 进 `GlobalAnalysisResult`，不再
+  `clone_from` 一份 O(n) 的 `Vec<u64>`。
+
 ## 备选方案
 
 - **保留 `&[String]`，只在 `reorder == Never` 时跳过克隆**：能覆盖显式关闭重排的
@@ -51,6 +59,6 @@ owned 副本：
 - `cargo doc --no-deps --locked`
 - `cargo +1.75.0 check --all-targets --locked`
 - release 冒烟（100k × 150bp 随机读段，`--block-reads 1000 --reorder false`，
-  `-t 4`）：archive 峰值 RSS 139,188 KB -> 121,244 KB，0.26 s；pipeline
-  111,824 KB / 0.24 s；两者均产出 100 blocks、4,725,031 字节，解压结果与输入
-  逐字节一致。
+  `-t 4`）：archive 峰值 RSS 139,188 KB -> 120,944 KB，0.26 s -> 0.25 s；
+  pipeline 111,556 KB / 0.24 s；两者均产出 100 blocks、4,725,031 字节，
+  解压结果与输入逐字节一致。

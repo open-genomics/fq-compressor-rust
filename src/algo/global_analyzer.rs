@@ -353,16 +353,23 @@ impl GlobalAnalyzer {
             return Ok(result);
         }
 
-        // Compute length statistics
-        let lengths: Vec<usize> = reads.iter().map(|read| read.sequence.len()).collect();
-        let stats = LengthStats::from_lengths(&lengths);
-
-        result.max_read_length = stats.max_length;
-        result.length_class = if let Some(lc) = self.config.read_length_class {
-            lc
+        // When the caller already classified the input, only the maximum
+        // length is needed. Avoid a full lengths vector and its sort on the
+        // hot archive/pipeline path.
+        let (length_class, max_read_length) = if let Some(length_class) = self.config.read_length_class {
+            let max_read_length = reads.iter().map(|read| read.sequence.len()).max().unwrap_or(0);
+            (length_class, max_read_length)
         } else {
-            classify_read_length(stats.median_length, stats.max_length)
+            let lengths: Vec<usize> = reads.iter().map(|read| read.sequence.len()).collect();
+            let stats = LengthStats::from_lengths(&lengths);
+            (
+                classify_read_length(stats.median_length, stats.max_length),
+                stats.max_length,
+            )
         };
+
+        result.max_read_length = max_read_length;
+        result.length_class = length_class;
 
         let mut should_reorder = self.config.reorder.enabled() && result.length_class == ReadLengthClass::Short;
 
@@ -396,8 +403,8 @@ impl GlobalAnalyzer {
         if should_reorder {
             log::info!("Performing global reordering on {} reads", total_reads);
             let reorder_map = self.perform_reordering(reads)?;
-            result.reverse_map.clone_from(&reorder_map);
             result.forward_map = self.build_forward_map(&reorder_map);
+            result.reverse_map = reorder_map;
             result.reordering_performed = true;
         } else {
             log::info!("Skipping reordering (class: {})", result.length_class.as_str());

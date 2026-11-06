@@ -157,6 +157,7 @@ fn analyze_and_reorder(
     all_reads: Vec<ReadRecord>,
     reads_per_block: usize,
     reorder: ReorderMode,
+    read_length_class: ReadLengthClass,
 ) -> Result<ReorderOutput> {
     if !reorder.enabled() {
         return Ok(ReorderOutput {
@@ -169,6 +170,7 @@ fn analyze_and_reorder(
     let ga_config = GlobalAnalyzerConfig {
         reads_per_block,
         reorder,
+        read_length_class: Some(read_length_class),
         ..Default::default()
     };
     let analyzer = GlobalAnalyzer::new(ga_config);
@@ -284,7 +286,12 @@ impl CompressionPipeline {
         if self.config.reorder.enabled() {
             log::info!("Running global analysis...");
         }
-        let reorder = analyze_and_reorder(all_reads, block_size, self.config.reorder)?;
+        let reorder = analyze_and_reorder(
+            all_reads,
+            block_size,
+            self.config.reorder,
+            self.config.read_length_class,
+        )?;
         let reorder_ms = t_reorder.elapsed().as_millis() as u64;
 
         let ReorderOutput {
@@ -432,7 +439,12 @@ impl CompressionPipeline {
         let planned_workers = plan.workers;
 
         let t_reorder = Instant::now();
-        let reorder = analyze_and_reorder(all_reads, block_size, self.config.reorder)?;
+        let reorder = analyze_and_reorder(
+            all_reads,
+            block_size,
+            self.config.reorder,
+            self.config.read_length_class,
+        )?;
         let reorder_ms = t_reorder.elapsed().as_millis() as u64;
 
         let ReorderOutput {
