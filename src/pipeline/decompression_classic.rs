@@ -21,6 +21,7 @@ use crate::stats::OperationStats;
 use crate::types::*;
 use rayon::prelude::*;
 use std::io::{BufWriter, Write};
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -130,13 +131,22 @@ fn write_to_target(output: &mut dyn Write, read: &ReadRecord, header_only: bool)
     }
 }
 
-fn derive_split_output_paths(output_path: &str) -> (String, String) {
-    if let Some(dot_pos) = output_path.rfind('.') {
-        let (base, ext) = output_path.split_at(dot_pos);
-        (format!("{base}_R1{ext}"), format!("{base}_R2{ext}"))
-    } else {
-        (format!("{output_path}_R1"), format!("{output_path}_R2"))
-    }
+fn derive_split_output_paths(output_path: &Path) -> (PathBuf, PathBuf) {
+    let stem = output_path
+        .file_stem()
+        .map(|stem| stem.to_os_string())
+        .unwrap_or_default();
+    let extension = output_path.extension().map(|ext| ext.to_os_string());
+    let split_name = |suffix: &str| {
+        let mut name = stem.clone();
+        name.push(suffix);
+        if let Some(extension) = &extension {
+            name.push(".");
+            name.push(extension);
+        }
+        output_path.with_file_name(name)
+    };
+    (split_name("_R1"), split_name("_R2"))
 }
 
 fn placeholder_record(config: &DecompressionConfig, block_id: u32, read_idx: usize) -> ReadRecord {
@@ -163,7 +173,9 @@ impl SequentialDecompressor {
         Self { config }
     }
 
-    pub fn run(&mut self, input_path: &str, output_path: &str) -> Result<OperationStats> {
+    pub fn run(&mut self, input_path: impl AsRef<Path>, output_path: impl AsRef<Path>) -> Result<OperationStats> {
+        let input_path = input_path.as_ref();
+        let output_path = output_path.as_ref();
         let start = Instant::now();
         let mut stats = OperationStats::default();
 
@@ -225,7 +237,7 @@ impl SequentialDecompressor {
                     "--split-pe requires a paired-end archive".to_string(),
                 ));
             }
-            if output_path == "-" {
+            if output_path == Path::new("-") {
                 return Err(FqcError::InvalidArgument(
                     "--split-pe cannot be used with stdout output".to_string(),
                 ));
@@ -243,7 +255,7 @@ impl SequentialDecompressor {
                 pe_layout,
                 streaming_block_layout: (flags & flags::STREAMING_MODE) != 0 && pe_layout == PeLayout::Consecutive,
             }
-        } else if output_path == "-" {
+        } else if output_path == Path::new("-") {
             OutputWriters::Single {
                 writer: Box::new(std::io::stdout()),
                 tx: None,
@@ -657,5 +669,38 @@ impl SequentialDecompressor {
         stats.total_bases += read.sequence.len() as u64;
         stats.output_bytes += bytes_written;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::derive_split_output_paths;
+    use std::path::Path;
+
+    #[cfg(unix)]
+    #[test]
+    fn split_paths_preserve_non_utf8_components() {
+        use std::ffi::OsString;
+        use std::os::unix::ffi::OsStringExt;
+
+        let output = Path::new("/tmp/sample").join(OsString::from_vec(b"out\xff.fastq".to_vec()));
+        let (r1, r2) = derive_split_output_paths(&output);
+        assert_eq!(r1.parent(), output.parent());
+        assert_eq!(r2.parent(), output.parent());
+        assert_eq!(r1.extension().unwrap(), "fastq");
+        assert_eq!(r2.extension().unwrap(), "fastq");
+        assert!(r1.to_string_lossy().contains("out�_R1.fastq"));
+        assert!(r2.to_string_lossy().contains("out�_R2.fastq"));
+    }
+
+    #[test]
+    fn split_paths_stay_relative_and_keep_extension() {
+        let (r1, r2) = derive_split_output_paths(Path::new("out.fastq"));
+        assert_eq!(r1, Path::new("out_R1.fastq"));
+        assert_eq!(r2, Path::new("out_R2.fastq"));
+
+        let (r1, r2) = derive_split_output_paths(Path::new("out"));
+        assert_eq!(r1, Path::new("out_R1"));
+        assert_eq!(r2, Path::new("out_R2"));
     }
 }

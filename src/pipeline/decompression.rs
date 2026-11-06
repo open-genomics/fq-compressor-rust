@@ -5,6 +5,7 @@
 // Supports range extraction and original order output.
 // =============================================================================
 
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::thread;
 use std::time::Instant;
@@ -157,7 +158,7 @@ struct PreparedRun {
 }
 
 struct WriterThreadInput {
-    output_path: String,
+    output_path: PathBuf,
     force_overwrite: bool,
     header_only: bool,
     skip_corrupted: bool,
@@ -194,7 +195,9 @@ impl DecompressionPipeline {
     }
 
     /// Run decompression pipeline
-    pub fn run(&mut self, input_path: &str, output_path: &str) -> Result<()> {
+    pub fn run(&mut self, input_path: impl AsRef<Path>, output_path: impl AsRef<Path>) -> Result<()> {
+        let input_path = input_path.as_ref();
+        let output_path = output_path.as_ref();
         if self.config.split_pe {
             return Err(FqcError::InvalidArgument(
                 "--split-pe requires the sequential decompression path".to_string(),
@@ -354,7 +357,7 @@ impl DecompressionPipeline {
     /// Prepare the reader, block range, and per-writer inputs ahead of
     /// spawning the threaded pipeline. Kept separate so `run` stays under the
     /// line budget and the reorder/range semantics live in one place.
-    fn prepare(&self, input_path: &str, output_path: &str) -> Result<PreparedRun> {
+    fn prepare(&self, input_path: &Path, output_path: &Path) -> Result<PreparedRun> {
         let budget = DecodeBudget::resolve(self.config.memory_limit_mb);
         let reader = FqcReader::open_with_budget(input_path, budget)?;
         let block_count = reader.block_count();
@@ -421,7 +424,7 @@ impl DecompressionPipeline {
             max_inflight,
             num_workers,
             writer_input: WriterThreadInput {
-                output_path: output_path.to_string(),
+                output_path: output_path.to_path_buf(),
                 force_overwrite: self.config.force_overwrite,
                 header_only: self.config.header_only,
                 skip_corrupted: self.config.skip_corrupted,
@@ -466,7 +469,7 @@ impl DecompressionPipeline {
             const ASYNC_WRITE_DEPTH: usize = 4;
 
             let (mut output, output_tx): (Box<dyn std::io::Write>, Option<OutputTransaction>) =
-                if output_path_owned == "-" {
+                if output_path_owned.as_path() == Path::new("-") {
                     (Box::new(std::io::BufWriter::new(std::io::stdout())), None)
                 } else {
                     let mut tx = OutputTransaction::begin(&output_path_owned, force_overwrite)?;

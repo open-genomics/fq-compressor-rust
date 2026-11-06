@@ -146,7 +146,7 @@ fn run_matrix_cell(topology: &Topology, mode: &Mode) {
     assert_eq!(code, 0, "compress failed for {topology:?} × {mode:?}");
 
     let verify_code = VerifyCommand::new(VerifyOptions {
-        input_path: archive.clone(),
+        input_path: archive.clone().into(),
         ..Default::default()
     })
     .execute();

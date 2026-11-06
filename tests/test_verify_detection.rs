@@ -73,7 +73,7 @@ fn corrupt_block_payload(path: &std::path::Path) {
 
 fn run_verify(archive: &std::path::Path, opts_mut: impl FnOnce(&mut VerifyOptions)) -> i32 {
     let mut opts = VerifyOptions {
-        input_path: archive.to_string_lossy().to_string(),
+        input_path: archive.to_path_buf(),
         ..Default::default()
     };
     opts_mut(&mut opts);

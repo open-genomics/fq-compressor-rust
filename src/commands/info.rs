@@ -58,7 +58,7 @@ impl InfoCommand {
 
     fn print_json(&self, info: &ArchiveInfo) {
         println_stdout!("{{");
-        println_stdout!("  \"file\": \"{}\",", info.file_path);
+        println_stdout!("  \"file\": \"{}\",", info.file_path.display());
         println_stdout!("  \"file_size\": {},", info.file_size);
         println_stdout!("  \"total_reads\": {},", info.total_reads);
         println_stdout!("  \"num_blocks\": {},", info.num_blocks);
@@ -76,7 +76,7 @@ impl InfoCommand {
     }
 
     fn print_human(&self, info: &ArchiveInfo, reader: &mut FqcReader) -> Result<()> {
-        println_stdout!("File:              {}", info.file_path);
+        println_stdout!("File:              {}", info.file_path.display());
         println_stdout!("File size:         {} bytes", info.file_size);
         println_stdout!("Total reads:       {}", info.total_reads);
         println_stdout!("Num blocks:        {}", info.num_blocks);

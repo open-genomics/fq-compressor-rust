@@ -129,7 +129,7 @@ fn tiny_archive_opens_and_verifies_under_min_budget() {
     FqcReader::open_with_budget(archive.to_str().unwrap(), budget).unwrap();
 
     let code = VerifyCommand::new(VerifyOptions {
-        input_path: archive.to_string_lossy().into_owned(),
+        input_path: archive.clone(),
         memory_limit_mb: MIN_DECODE_MEMORY_MB,
         ..Default::default()
     })

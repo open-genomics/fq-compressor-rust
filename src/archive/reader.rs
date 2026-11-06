@@ -11,6 +11,7 @@ use crate::types::{IdMode, PeLayout, QualityMode, ReadLengthClass};
 use byteorder::ReadBytesExt;
 use std::fs::File;
 use std::io::{BufReader, Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
 
 // =============================================================================
 // ArchiveInfo
@@ -19,7 +20,7 @@ use std::io::{BufReader, Read, Seek, SeekFrom};
 /// Structured information about an archive.
 #[derive(Debug, Clone)]
 pub struct ArchiveInfo {
-    pub file_path: String,
+    pub file_path: PathBuf,
     pub file_size: u64,
     pub total_reads: u64,
     pub num_blocks: usize,
@@ -40,7 +41,7 @@ pub struct ArchiveInfo {
 // =============================================================================
 
 pub struct FqcReader {
-    path: String,
+    path: PathBuf,
     reader: BufReader<File>,
     pub global_header: GlobalHeader,
     pub footer: FileFooter,
@@ -54,11 +55,12 @@ pub struct FqcReader {
 }
 
 impl FqcReader {
-    pub fn open(path: &str) -> Result<Self> {
+    pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         Self::open_with_budget(path, DecodeBudget::automatic())
     }
 
-    pub fn open_with_budget(path: &str, budget: DecodeBudget) -> Result<Self> {
+    pub fn open_with_budget(path: impl AsRef<Path>, budget: DecodeBudget) -> Result<Self> {
+        let path = path.as_ref();
         let file = File::open(path).map_err(FqcError::Io)?;
         let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
         let mut reader = BufReader::new(file);
@@ -122,7 +124,7 @@ impl FqcReader {
         let uniform_read_length = Self::validate_block_headers(&mut reader, &block_index, &footer)?;
 
         Ok(Self {
-            path: path.to_string(),
+            path: path.to_path_buf(),
             reader,
             global_header,
             footer,

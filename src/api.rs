@@ -51,23 +51,22 @@ pub fn decompress(request: DecompressRequest) -> Result<OperationStats> {
         memory_limit_mb: settings.memory_limit_mb,
         ..Default::default()
     };
-    let input = request.input_path().to_string_lossy();
-    let output = request.output_path().to_string_lossy();
+    let input = request.input_path();
+    let output = request.output_path();
 
     if settings.use_pipeline && !settings.original_order && !settings.split_pe {
         let mut pipeline = DecompressionPipeline::new(config);
-        pipeline.run(&input, &output)?;
+        pipeline.run(input, output)?;
         Ok(pipeline.stats().clone())
     } else {
         let mut sequential = SequentialDecompressor::new(config);
-        sequential.run(&input, &output)
+        sequential.run(input, output)
     }
 }
 
 /// Read archive metadata without decoding blocks.
 pub fn info(path: impl AsRef<Path>) -> Result<ArchiveInfo> {
-    let path = path.as_ref().to_string_lossy();
-    Ok(crate::archive::reader::FqcReader::open(&path)?.info())
+    Ok(crate::archive::reader::FqcReader::open(path)?.info())
 }
 
 /// Verify an archive and return counts instead of printing a summary.

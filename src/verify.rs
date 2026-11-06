@@ -8,6 +8,7 @@ use crate::archive::reader::FqcReader;
 use crate::error::{FqcError, Result};
 use crate::memory::DecodeBudget;
 use crate::println_stdout;
+use std::path::PathBuf;
 use xxhash_rust::xxh64::Xxh64;
 
 // =============================================================================
@@ -16,7 +17,7 @@ use xxhash_rust::xxh64::Xxh64;
 
 #[derive(Debug, Clone, Default)]
 pub struct VerifyOptions {
-    pub input_path: String,
+    pub input_path: PathBuf,
     pub fail_fast: bool,
     pub verbose: bool,
     /// Quick verification: only check magic header + footer (skip block decompression)
@@ -41,10 +42,10 @@ pub struct VerifyReport {
 
 /// Verify an archive without printing the top-level summary.
 pub fn verify_archive(opts: &VerifyOptions) -> Result<VerifyReport> {
-    if !std::path::Path::new(&opts.input_path).exists() {
+    if !opts.input_path.exists() {
         return Err(FqcError::Io(std::io::Error::new(
             std::io::ErrorKind::NotFound,
-            format!("Input file not found: {}", opts.input_path),
+            format!("Input file not found: {}", opts.input_path.display()),
         )));
     }
 

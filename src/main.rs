@@ -395,7 +395,7 @@ fn main() {
             verbose,
             quick,
         } => VerifyCommand::new(VerifyOptions {
-            input_path: input,
+            input_path: input.into(),
             fail_fast,
             verbose,
             quick_mode: quick,

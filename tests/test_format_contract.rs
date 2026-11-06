@@ -256,7 +256,7 @@ fn test_verify_rejects_corrupt_reorder_map() {
     let archive = dir.path().join("corrupt-map.fqc");
     std::fs::write(&archive, data).unwrap();
     let code = VerifyCommand::new(VerifyOptions {
-        input_path: archive.to_string_lossy().into_owned(),
+        input_path: archive.clone(),
         quick_mode: true,
         ..Default::default()
     })

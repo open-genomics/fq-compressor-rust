@@ -23,6 +23,7 @@ println!("{} bytes, {} blocks", outcome.stats.output_bytes, outcome.stats.blocks
 ```rust
 let info = fqc::api::info("out.fqc")?;
 println!("{} reads in {} blocks", info.total_reads, info.num_blocks);
+// info.file_path 是 PathBuf，不会经过 to_string_lossy。
 ```
 
 ```rust
@@ -48,5 +49,6 @@ assert!(report.passed);
 
 - `CompressRequest` / `DecompressRequest` 字段私有，构造时通过 `new` + `with_settings`；`Validated*Plan` 是唯一结构校验入口。
 - `OperationStats` 是唯一统计真源：`input_bytes` / `output_bytes` 是实际字节流，`total_bases` 不再冒充输入字节。
+- 路径参数统一使用 `AsRef<Path>` / `PathBuf`：`api::info`、`DecompressRequest`、`VerifyOptions.input_path` 和 `ArchiveInfo.file_path` 保留原始 `OsStr` 字节，不做 `to_string_lossy`。CLI 显示层才使用 `Path::display()`。
 - `.fqc` wire format 与 codec 字节不属于本轮 facade 契约；修改格式必须单独评审。
 - 内部模块（`algo`、`archive`、`pipeline`、`engine` 等）用 `#[doc(hidden)]` 标记为不稳定。

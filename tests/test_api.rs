@@ -45,7 +45,7 @@ fn facade_round_trip_info_and_verify() {
     assert!(info.num_blocks >= 1);
 
     let report = api::verify(&api::VerifyOptions {
-        input_path: archive.to_string_lossy().into_owned(),
+        input_path: archive.clone(),
         ..Default::default()
     })
     .unwrap();
@@ -93,4 +93,48 @@ fn facade_rejects_split_pe_to_stdout() {
         ..Default::default()
     });
     assert!(api::decompress(request).is_err());
+}
+
+#[cfg(unix)]
+#[test]
+fn facade_preserves_non_utf8_paths() {
+    use std::ffi::OsString;
+    use std::os::unix::ffi::OsStringExt;
+
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join(OsString::from_vec(b"in\xff.fastq".to_vec()));
+    let archive = dir.path().join(OsString::from_vec(b"out\xff.fqc".to_vec()));
+    let restored = dir.path().join(OsString::from_vec(b"restored\xff.fastq".to_vec()));
+    write_fastq(&input, 40);
+
+    let outcome = api::compress(
+        CompressRequest::new(
+            CompressionExecutionMode::Archive,
+            CompressionInputTopology::SingleFile {
+                input_path: input.clone(),
+            },
+            archive.clone(),
+        )
+        .with_settings(CompressSettings {
+            reorder: ReorderMode::Never,
+            force_overwrite: true,
+            ..Default::default()
+        }),
+    )
+    .unwrap();
+    assert_eq!(outcome.stats.input_bytes, fs::metadata(&input).unwrap().len());
+
+    let info = api::info(&archive).unwrap();
+    assert_eq!(info.file_path, archive, "facade must not lossy-convert paths");
+
+    let stats = api::decompress(
+        DecompressRequest::new(archive, restored.clone()).with_settings(DecompressSettings {
+            use_pipeline: true,
+            force_overwrite: true,
+            ..Default::default()
+        }),
+    )
+    .unwrap();
+    assert_eq!(stats.output_bytes, fs::metadata(&restored).unwrap().len());
+    assert_eq!(fs::read(&input).unwrap(), fs::read(&restored).unwrap());
 }

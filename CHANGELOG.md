@@ -141,6 +141,7 @@
   布尔组合；`CompressionPipelineConfig` 删除 `streaming_mode`，重排策略统一为 enum。
 - `begin_fqc_writer` 从 `io` 移入 `archive::writer`，`io` 不再依赖归档格式；
   global header / timestamp 写入收敛到 `archive::writer::write_global_header`。
+- `FqcReader` / 解压 pipeline / `VerifyOptions` / `ArchiveInfo.file_path` 改为 `Path`/`PathBuf`；`api::info`、`api::decompress` 不再经 `to_string_lossy`，非 UTF-8 路径可完整 round-trip。
 - `DecompressionPipelineConfig` 改名为 `DecompressionConfig`；compress `--pipeline`
   的 CLI/文档表述改为“完整摄入后并行压缩块”，不再宣称 bounded streaming。
 - 质量自适应模型从 `Vec<u32>` 频率 + cumulative 数组改为 `u16` Fenwick 树，并进一步把每个上下文独立的 `Vec<u16>` 合并为连续 `trees`/`totals` 存储；order-2 的约 7 万个上下文现在只有两个大分配，编码输出保持逐字节一致，模型内存从约 57 MB 降到约 14 MB，更新从 O(94) 降到 O(log 94)。

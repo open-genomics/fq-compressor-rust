@@ -103,7 +103,7 @@ fn info_verify_decompress_reject_sequential_without_output() {
     assert_eq!(info_code, ExitCode::UnsupportedError as i32);
 
     let verify_code = VerifyCommand::new(VerifyOptions {
-        input_path: seq.clone(),
+        input_path: seq.clone().into(),
         ..Default::default()
     })
     .execute();
