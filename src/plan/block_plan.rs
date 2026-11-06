@@ -7,9 +7,12 @@
 //! configuration describes how to encode, while this module decides how many
 //! blocks and workers fit the thread and memory budget.
 
-use crate::types::{adaptive_block_size, LengthStats, ReadLengthClass};
+use crate::types::{adaptive_block_size_with_policy, LengthStats, ReadLengthClass};
 
-/// Inputs for the shared block/worker planner used by archive and pipeline.
+/// Inputs for the shared block/worker planner used by all compression modes.
+///
+/// Archive and pipeline pass known totals and auto-split long reads; streaming
+/// passes unknown totals and keeps its historical long-read block size.
 #[derive(Debug, Clone, Copy)]
 pub struct CompressionPlanInput {
     pub requested_block_size: usize,
@@ -22,6 +25,9 @@ pub struct CompressionPlanInput {
     pub read_length_class: ReadLengthClass,
     /// Resident quality model plus fixed worker overhead, excluding records.
     pub codec_model_bytes: usize,
+    /// Apply the archive/pipeline long-read base ceiling. Streaming keeps its
+    /// historical block size and passes `false`.
+    pub auto_split_long_reads: bool,
 }
 
 /// Resolved block size and codec worker count.
@@ -43,10 +49,7 @@ pub fn estimated_worker_bytes(codec_model_bytes: usize, reads: usize, avg_length
 }
 
 /// Codec workers that fit the block-level worker budget.
-///
-/// Streaming knows its block size but not the total block count; archive and
-/// pipeline additionally cap by block count inside [`plan_compression_layout`].
-pub fn memory_limited_worker_count(
+fn memory_limited_worker_count(
     thread_limit: usize,
     worker_budget_bytes: u64,
     codec_model_bytes: usize,
@@ -80,7 +83,7 @@ fn memory_limited_workers(input: CompressionPlanInput, block_size: usize, block_
 pub fn plan_compression_layout(input: CompressionPlanInput) -> CompressionPlan {
     let thread_limit = input.thread_limit.max(1);
     let mut workers = thread_limit;
-    let mut block_size = adaptive_block_size(
+    let mut block_size = adaptive_block_size_with_policy(
         input.requested_block_size,
         input.read_length_class,
         input.avg_length,
@@ -88,6 +91,7 @@ pub fn plan_compression_layout(input: CompressionPlanInput) -> CompressionPlan {
         workers,
         input.total_reads,
         input.total_bases,
+        input.auto_split_long_reads,
     )
     .max(1);
 
@@ -97,7 +101,7 @@ pub fn plan_compression_layout(input: CompressionPlanInput) -> CompressionPlan {
             .map(|reads| usize::try_from(reads).unwrap_or(usize::MAX).div_ceil(block_size).max(1))
             .unwrap_or_else(|| thread_limit.saturating_mul(2).max(1));
         let next_workers = memory_limited_workers(input, block_size, block_count);
-        let next_block_size = adaptive_block_size(
+        let next_block_size = adaptive_block_size_with_policy(
             input.requested_block_size,
             input.read_length_class,
             input.avg_length,
@@ -105,6 +109,7 @@ pub fn plan_compression_layout(input: CompressionPlanInput) -> CompressionPlan {
             next_workers,
             input.total_reads,
             input.total_bases,
+            input.auto_split_long_reads,
         )
         .max(1);
         if next_workers == workers && next_block_size == block_size {

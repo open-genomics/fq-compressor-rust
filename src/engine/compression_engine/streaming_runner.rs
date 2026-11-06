@@ -56,25 +56,21 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
 
     let effective_length_class =
         crate::plan::effective_read_length_class(request.settings().requested_read_length_class, &length_stats);
-    let block_size = streaming_support::effective_block_size(
-        request.settings().block_size,
-        effective_length_class,
-        &length_stats,
-        request.settings().max_block_bases,
-        request.settings().threads,
-        None,
-        None,
-        false,
-    );
-
     let codec = streaming_support::codec_profile(request.settings(), effective_length_class);
-    let num_workers = crate::plan::memory_limited_worker_count(
-        codec.thread_limit,
-        codec.worker_budget_bytes,
-        codec.model_bytes,
-        block_size,
-        length_stats.avg_length,
-    );
+    let compression_plan = crate::plan::plan_compression_layout(crate::plan::CompressionPlanInput {
+        requested_block_size: request.settings().block_size,
+        avg_length: length_stats.avg_length,
+        max_block_bases: request.settings().max_block_bases,
+        thread_limit: codec.thread_limit,
+        worker_budget_bytes: codec.worker_budget_bytes,
+        total_reads: None,
+        total_bases: None,
+        read_length_class: effective_length_class,
+        codec_model_bytes: codec.model_bytes,
+        auto_split_long_reads: false,
+    });
+    let block_size = compression_plan.block_size;
+    let num_workers = compression_plan.workers;
     let max_in_flight_blocks = crate::plan::effective_in_flight_blocks(
         block_size,
         &length_stats,

@@ -13,6 +13,9 @@
 
 ### Changed
 
+- 块大小与 worker 规划收敛到 `plan_compression_layout`：`CompressionPlanInput`
+  新增 `auto_split_long_reads`，archive/pipeline 传 true，streaming 传 false 保持
+  原有块大小；streaming 不再维护单独的 `effective_block_size` / worker 估算入口。
 - 输入字节统计收敛为 `stats::input_bytes_for` / `input_bytes_for_paths`，
   streaming 与 pipeline 不再各自维护包装函数。
 - streaming 的块规划辅助从 `engine/common` 更名为 `streaming_support`（现在只服务

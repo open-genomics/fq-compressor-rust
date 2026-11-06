@@ -33,28 +33,6 @@ pub(super) fn codec_profile(settings: &CompressionSettings, read_length_class: R
     }
 }
 
-pub(super) fn effective_block_size(
-    requested_block_size: usize,
-    class: ReadLengthClass,
-    stats: &LengthStats,
-    max_block_bases: usize,
-    threads: usize,
-    total_reads: Option<u64>,
-    total_bases: Option<u64>,
-    auto_split_long_reads: bool,
-) -> usize {
-    crate::types::adaptive_block_size_with_policy(
-        requested_block_size,
-        class,
-        stats.avg_length,
-        max_block_bases,
-        threads,
-        total_reads,
-        total_bases,
-        auto_split_long_reads,
-    )
-}
-
 // =============================================================================
 // Streaming mode helpers
 // =============================================================================

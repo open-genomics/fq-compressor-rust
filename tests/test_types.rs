@@ -155,6 +155,7 @@ fn compression_plan_sizes_blocks_from_memory_limited_workers() {
         total_bases: Some(15_000_000),
         read_length_class: config.read_length_class,
         codec_model_bytes: config.to_quality_config().estimated_model_bytes(),
+        auto_split_long_reads: true,
     });
     assert_eq!(roomy.workers, 4);
     assert_eq!(roomy.block_size, 12_500);
@@ -172,6 +173,7 @@ fn compression_plan_sizes_blocks_from_memory_limited_workers() {
         total_bases: Some(15_000_000),
         read_length_class: config.read_length_class,
         codec_model_bytes: config.to_quality_config().estimated_model_bytes(),
+        auto_split_long_reads: true,
     });
     assert!(constrained.workers <= 2, "{constrained:?}");
     assert!(constrained.block_size > 10_000, "{constrained:?}");

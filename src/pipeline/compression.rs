@@ -83,6 +83,7 @@ impl CompressionPipelineConfig {
             total_bases: Some(total_bases),
             read_length_class,
             codec_model_bytes: compressor_config.to_quality_config().estimated_model_bytes(),
+            auto_split_long_reads: true,
         })
     }
 
