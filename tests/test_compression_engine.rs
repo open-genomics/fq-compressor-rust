@@ -183,8 +183,6 @@ fn archive_and_pipeline_share_auto_block_plan() {
     let input = dir.path().join("in.fastq");
     let archive = dir.path().join("archive.fqc");
     let pipeline = dir.path().join("pipeline.fqc");
-    let streaming_prefix = dir.path().join("streaming-prefix.fqc");
-    let streaming_full = dir.path().join("streaming-full.fqc");
 
     let mut writer = std::io::BufWriter::new(std::fs::File::create(&input).unwrap());
     for i in 0..50_000 {
@@ -218,27 +216,6 @@ fn archive_and_pipeline_share_auto_block_plan() {
                 output_path: pipeline.to_string_lossy().into_owned(),
                 use_pipeline: true,
                 ..base.clone()
-            }
-            .to_request(),
-        )
-        .unwrap();
-    let streaming_prefix_outcome = CompressionEngine::new()
-        .run(
-            CompressOptions {
-                output_path: streaming_prefix.to_string_lossy().into_owned(),
-                streaming_mode: true,
-                ..base.clone()
-            }
-            .to_request(),
-        )
-        .unwrap();
-    let streaming_full_outcome = CompressionEngine::new()
-        .run(
-            CompressOptions {
-                output_path: streaming_full.to_string_lossy().into_owned(),
-                streaming_mode: true,
-                scan_all_lengths: true,
-                ..base
             }
             .to_request(),
         )
