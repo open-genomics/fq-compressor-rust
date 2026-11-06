@@ -5,9 +5,9 @@
 use crate::algo::block_compressor::BlockCompressorConfig;
 use crate::algo::global_analyzer::{GlobalAnalyzer, GlobalAnalyzerConfig};
 use crate::archive::format::build_flags;
-use crate::archive::writer::{begin_fqc_writer, write_global_header};
 use crate::engine::compression_engine::CompressionOutcome;
 use crate::error::{FqcError, Result};
+use crate::pipeline::block_pipeline::{self, BlockPipelineConfig};
 use crate::plan::compress::CompressionRequest;
 use crate::plan::CompressionExecutionMode;
 use crate::plan::{plan_compression_layout, CompressionPlanInput};
@@ -56,13 +56,13 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
         common::effective_length_class(request.settings().requested_read_length_class, &length_stats);
 
     // Resolve block size and codec workers together before global analysis.
-    let block_config = std::sync::Arc::new(BlockCompressorConfig {
+    let block_config = BlockCompressorConfig {
         read_length_class: effective_length_class,
         quality_mode: request.settings().quality_mode,
         id_mode: request.settings().id_mode,
         zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(request.settings().level),
         ..Default::default()
-    });
+    };
     let thread_limit = common::codec_thread_limit(request.settings().threads, request.settings().memory_limit_mb);
     let worker_budget = crate::plan::worker_budget_bytes(request.settings().memory_limit_mb);
     let avg_length = crate::plan::avg_read_length(total_bases, total_reads);
@@ -115,16 +115,14 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
         analysis.reordering_performed
     );
 
-    // Phase 2: Write FQC archive (temp file; commit after finalize)
-    let (mut writer, output_tx) = begin_fqc_writer(request.output_path(), request.settings().force_overwrite)?;
-
-    // Build flags
+    // Build flags before moving the analysis maps into the block pipeline.
+    let reorder_map_written = analysis.reordering_performed && !analysis.forward_map.is_empty();
     let flags = build_flags(
         input.is_paired,
         !analysis.reordering_performed,
         request.settings().quality_mode,
         request.settings().id_mode,
-        analysis.reordering_performed,
+        reorder_map_written,
         input.archive_layout,
         effective_length_class,
         false, // not streaming
@@ -135,13 +133,12 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("unknown");
-    write_global_header(&mut writer, flags, records.len() as u64, input_filename)?;
 
-    // Extract block read sets
-    // Reordered block build consumes reads by move (mem::take) instead of
-    // cloning each record: identical order, same bytes, fewer allocations.
+    // Extract block read sets. Reordered block build consumes reads by move
+    // (mem::take) instead of cloning each record: identical order, same bytes,
+    // fewer allocations.
     let mut records = records;
-    let block_read_sets: Vec<(u32, Vec<ReadRecord>)> = analysis
+    let block_chunks: Vec<Vec<ReadRecord>> = analysis
         .block_boundaries
         .iter()
         .filter_map(|boundary| {
@@ -166,14 +163,13 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
             if block_reads.is_empty() {
                 None
             } else {
-                Some((boundary.block_id, block_reads))
+                Some(block_reads)
             }
         })
         .collect();
     let reorder_ms = t_reorder.elapsed().as_millis() as u64;
 
-    // Parallel block compression
-    let num_blocks = block_read_sets.len();
+    let num_blocks = block_chunks.len();
     log::info!(
         "Compressing {} blocks{}...",
         num_blocks,
@@ -184,57 +180,46 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
     if max_workers < num_blocks {
         log::info!("Compression worker cap: {} ({} blocks)", max_workers, num_blocks);
     }
-    let (compressed_blocks, process_ms) = common::compress_blocks(&block_read_sets, max_workers, block_config.as_ref());
+    let max_in_flight_blocks =
+        common::effective_in_flight_blocks(block_size, &length_stats, request.settings().memory_limit_mb);
+    let reorder_map = if reorder_map_written {
+        Some((analysis.forward_map, analysis.reverse_map))
+    } else {
+        None
+    };
 
-    // Sequential write (file I/O must be ordered)
-    let t_write = std::time::Instant::now();
-    let mut archive_id_start = 0u64;
-    let mut blocks_written = 0;
+    let report = block_pipeline::run(
+        block_chunks,
+        request.output_path(),
+        BlockPipelineConfig {
+            num_workers: max_workers,
+            max_in_flight_blocks,
+            force_overwrite: request.settings().force_overwrite,
+            flags,
+            total_reads,
+            original_filename: input_filename.to_string(),
+            reorder_map,
+            compressor_config: block_config,
+        },
+    )?;
 
-    for (i, result) in compressed_blocks.into_iter().enumerate() {
-        let compressed = result?;
-        let num_reads = compressed.read_count as u64;
-
-        writer.write_block_with_id(&compressed, archive_id_start)?;
-        archive_id_start += num_reads;
-
-        blocks_written += 1;
-
-        log::debug!(
-            "Block {} written: {} reads, {} bytes",
-            i,
-            num_reads,
-            compressed.total_compressed_size()
-        );
-    }
-
-    // Write reorder map if applicable
-    let reorder_map_written = analysis.reordering_performed && !analysis.forward_map.is_empty();
     if reorder_map_written {
-        writer.write_reorder_map(&analysis.forward_map, &analysis.reverse_map)?;
-        log::info!("Reorder map written: {} reads", analysis.forward_map.len());
+        log::info!("Reorder map written: {} reads", total_reads);
     }
-
-    // Finalize then atomically replace the destination. `finalize` returns
-    // the actual archive size, including headers, index and footer.
-    let output_bytes = writer.finalize()?;
-    output_tx.commit()?;
-    let write_ms = t_write.elapsed().as_millis() as u64;
-
-    log::info!("Compression complete! {} blocks written.", blocks_written);
+    log::info!("Compression complete! {} blocks written.", report.blocks_written);
 
     let input_bytes = common::input_bytes_for(&input.primary_path, input.secondary_path.as_deref(), total_bases);
     let stats = OperationStats {
         total_reads,
         total_bases,
         input_bytes,
-        output_bytes,
-        blocks: blocks_written as u64,
+        output_bytes: report.output_bytes,
+        blocks: report.blocks_written,
         elapsed_seconds: 0.0,
         parse_ms,
         reorder_ms,
-        process_ms,
-        write_ms,
+        process_ms: report.process_ms,
+        write_ms: report.write_ms,
         reorder_map_written,
         ..Default::default()
     };

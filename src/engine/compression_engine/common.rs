@@ -2,12 +2,9 @@
 // fqc - Shared compression planning and input helpers
 // =============================================================================
 
-use crate::algo::block_compressor::{BlockCompressor, BlockCompressorConfig};
-use crate::block::EncodedBlock;
 use crate::error::Result;
 use crate::fastq::parser::{open_fastq, open_fastq_interleaved, open_fastq_paired, open_fastq_stdin};
 use crate::types::*;
-use rayon::prelude::*;
 use std::path::Path;
 
 pub(super) const DEFAULT_LENGTH_SAMPLE_READS: usize = 4_096;
@@ -72,36 +69,6 @@ pub(super) fn effective_length_class(requested: Option<ReadLengthClass>, stats: 
 
 pub(super) fn codec_thread_limit(threads: usize, memory_limit_mb: usize) -> usize {
     crate::plan::codec_thread_limit(threads, memory_limit_mb)
-}
-
-pub(super) fn compress_blocks(
-    block_read_sets: &[(u32, Vec<ReadRecord>)],
-    max_workers: usize,
-    block_config: &BlockCompressorConfig,
-) -> (Vec<Result<EncodedBlock>>, u64) {
-    let process_ns = std::sync::Arc::new(std::sync::atomic::AtomicU64::new(0));
-    let compress_one = |(block_id, reads): &(u32, Vec<ReadRecord>)| {
-        let t = std::time::Instant::now();
-        let mut compressor = BlockCompressor::new(block_config.clone());
-        let result = compressor.compress(reads, *block_id);
-        process_ns.fetch_add(t.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
-        result
-    };
-
-    let compressed = if max_workers <= 1 {
-        block_read_sets.iter().map(compress_one).collect()
-    } else {
-        match rayon::ThreadPoolBuilder::new().num_threads(max_workers).build() {
-            Ok(pool) => pool.install(|| block_read_sets.par_iter().map(compress_one).collect()),
-            Err(error) => {
-                log::warn!("Failed to build worker pool ({error}); using global pool");
-                block_read_sets.par_iter().map(compress_one).collect()
-            }
-        }
-    };
-
-    let process_ms = process_ns.load(std::sync::atomic::Ordering::Relaxed) / 1_000_000;
-    (compressed, process_ms)
 }
 
 pub(super) fn effective_block_size(

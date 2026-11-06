@@ -4,7 +4,8 @@
 
 ## 当前瓶颈
 
-> 2026-11 已落地：`--reorder auto`、按实际 codec worker 上限与碱基预算的自适应分块、ABC 限流到 ≤512 条/块、扁平化 `u16` Fenwick 质量模型、worker 内存上限与长读类别估算。下面的“当前瓶颈”保留为问题背景；新的下一步是 bounded streaming pipeline、每块 alphabet/ScmV2、ABC seeding。
+> 2026-11 已落地：`--reorder auto`、按实际 codec worker 上限与碱基预算的自适应分块、ABC 限流到 ≤512 条/块、扁平化 `u16` Fenwick 质量模型、worker 内存上限与长读类别估算。下面的“当前瓶颈”保留为问题背景；新的下一步是真正的 bounded-ingest streaming pipeline、每块 alphabet/ScmV2、ABC seeding；
+有界的压缩块写入阶段已在 2026-11-06 落地。
 
 - **短读段压缩仍需全局分析遍历。** 主压缩路径在写入块之前可以分析完整数据集，因此重排感知压缩能提高压缩率，但这也将内存和时间压力集中在第一阶段。
 - **低内存模式以灵活性换取可预测性。** `--streaming` 避免全局重排，管道模式将工作分散到各阶段，但项目仍需更清晰的指导，说明何时这些模式应作为首选基础。
@@ -87,4 +88,5 @@ flowchart LR
 - 解析器/重排/管道/归档写入热点已测量（2026-08-20，见 `docs/reference/hotspot-report.md`）：短读旧热点在全局重排（且负收益），长读旧热点在单 block 串行（已由自动分块修复）
 - 下一刀（有数据支撑）：重排自适应 / 默认关闭；长读 archive/pipeline 已按 5M bases/block
   自动切块（2026-10-26，`--max-block-bases` 可覆盖）
+- bounded 压缩块写入阶段已与 archive 共享；真正的 bounded-ingest 仍需独立设计和评审
 - 将任何较大的算法或数据结构变更限定在可单独审查的小切片中

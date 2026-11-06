@@ -85,7 +85,7 @@ fqc compress -i reads.fastq -o reads.fqc --pipeline
 **特点**：
 - 分段并发执行
 - 读取器 → 压缩器 → 写入器流水线
-- 块缓冲在途
+- 完整摄入后，压缩块阶段有界缓冲
 - 高吞吐量
 
 **架构**：
