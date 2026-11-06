@@ -882,6 +882,83 @@ fn test_pipeline_skip_corrupted_emits_placeholder_reads() {
 }
 
 #[test]
+fn test_split_pe_skip_corrupted_keeps_pair_counts() {
+    let dir = tempfile::tempdir().unwrap();
+    let input_r1 = dir.path().join("split_skip_r1.fastq");
+    let input_r2 = dir.path().join("split_skip_r2.fastq");
+    let archive = dir.path().join("split_skip.fqc");
+    let output = dir.path().join("split_skip.out.fastq");
+    let r1 = synthetic_reads(&[20; 12], "split_skip_r1");
+    let r2 = synthetic_reads(&[20; 12], "split_skip_r2");
+    write_fastq_records(input_r1.to_str().unwrap(), &r1);
+    write_fastq_records(input_r2.to_str().unwrap(), &r2);
+
+    let compress_exit = CompressCommand::new(CompressOptions {
+        input_path: input_r1.to_string_lossy().into_owned(),
+        input2_path: Some(input_r2.to_string_lossy().into_owned()),
+        output_path: archive.to_string_lossy().into_owned(),
+        block_size: 4,
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(compress_exit, 0);
+
+    corrupt_block_codec_seq(archive.to_str().unwrap(), 0, 0xFF);
+
+    let decompress_exit = DecompressCommand::new(DecompressOptions {
+        input_path: archive.to_string_lossy().into_owned(),
+        output_path: output.to_string_lossy().into_owned(),
+        split_pe: true,
+        skip_corrupted: true,
+        corrupted_placeholder: Some("NN".to_string()),
+        show_progress: false,
+        force_overwrite: true,
+        ..DecompressOptions::default()
+    })
+    .execute();
+    assert_eq!(decompress_exit, 0);
+
+    let restored_r1 = dir.path().join("split_skip.out_R1.fastq");
+    let restored_r2 = dir.path().join("split_skip.out_R2.fastq");
+    let restored_r1 = read_fastq_records(restored_r1.to_str().unwrap());
+    let restored_r2 = read_fastq_records(restored_r2.to_str().unwrap());
+    assert_eq!(restored_r1.len(), r1.len());
+    assert_eq!(restored_r2.len(), r2.len());
+    assert_eq!(
+        restored_r1
+            .iter()
+            .filter(|read| read.id.starts_with("corrupted_block0_"))
+            .count(),
+        2
+    );
+    assert_eq!(
+        restored_r2
+            .iter()
+            .filter(|read| read.id.starts_with("corrupted_block0_"))
+            .count(),
+        2
+    );
+    for read in restored_r1
+        .iter()
+        .filter(|read| !read.id.starts_with("corrupted_block"))
+    {
+        assert!(r1
+            .iter()
+            .any(|original| original.id == read.id && original.sequence == read.sequence));
+    }
+    for read in restored_r2
+        .iter()
+        .filter(|read| !read.id.starts_with("corrupted_block"))
+    {
+        assert!(r2
+            .iter()
+            .any(|original| original.id == read.id && original.sequence == read.sequence));
+    }
+}
+
+#[test]
 fn test_original_order_skip_corrupted_emits_placeholders() {
     let input = TempFile::new("original_skip_corrupted.fastq");
     let archive = TempFile::new("original_skip_corrupted.fqc");
