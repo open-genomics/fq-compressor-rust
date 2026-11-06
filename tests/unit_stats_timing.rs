@@ -42,3 +42,38 @@ fn archive_stats_carry_stage_timings() {
         outcome.stats.write_ms
     );
 }
+
+#[test]
+fn streaming_stats_carry_stage_timings() {
+    let mut seq = Vec::new();
+    for i in 0..1000u32 {
+        let id = format!("r{i}");
+        let seq_body = "ACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT";
+        writeln!(seq, "@{id}").unwrap();
+        writeln!(seq, "{seq_body}").unwrap();
+        writeln!(seq, "+").unwrap();
+        writeln!(seq, "IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII").unwrap();
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("streaming_timing_input.fastq");
+    let out = dir.path().join("streaming_timing_out.fqc");
+    std::fs::write(&input, seq).unwrap();
+
+    let opts = CompressOptions {
+        input_path: input.to_string_lossy().to_string(),
+        output_path: out.to_string_lossy().to_string(),
+        streaming_mode: true,
+        show_progress: false,
+        ..Default::default()
+    };
+    let outcome = CompressionEngine::new().run(opts.to_request()).unwrap();
+    assert_eq!(outcome.mode, fqc::plan::CompressionExecutionMode::Streaming);
+    assert!(
+        outcome.stats.parse_ms + outcome.stats.process_ms + outcome.stats.write_ms > 0,
+        "streaming compression should fill stage timings (parse={}, reorder={}, process={}, write={})",
+        outcome.stats.parse_ms,
+        outcome.stats.reorder_ms,
+        outcome.stats.process_ms,
+        outcome.stats.write_ms
+    );
+}

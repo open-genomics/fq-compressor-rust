@@ -13,6 +13,7 @@ use crate::plan::CompressionExecutionMode;
 use crate::stats::OperationStats;
 use crate::types::*;
 use std::path::Path;
+use std::time::Instant;
 
 use super::common;
 
@@ -95,6 +96,7 @@ fn run_core(
     single_end: bool,
     mut next_block: impl FnMut() -> Result<Option<Vec<ReadRecord>>>,
 ) -> Result<CompressionOutcome> {
+    let t_setup = Instant::now();
     let (mut writer, output_tx) = begin_fqc_writer(request.output_path(), request.settings().force_overwrite)?;
 
     let flags = build_flags(
@@ -114,6 +116,7 @@ fn run_core(
         .and_then(|n| n.to_str())
         .unwrap_or("stdin");
     write_global_header(&mut writer, flags, 0, input_filename)?;
+    let mut write_ns = t_setup.elapsed().as_nanos() as u64;
 
     let block_config = common::codec_profile(request.settings(), effective_length_class).config;
     let mut compressor = BlockCompressor::new(block_config);
@@ -123,20 +126,37 @@ fn run_core(
     let mut total_reads = 0u64;
     let mut total_bases = 0u64;
     let mut blocks_written = 0;
+    let mut parse_ns = 0u64;
+    let mut process_ns = 0u64;
 
-    while let Some(block_reads) = next_block()? {
+    loop {
+        let t_parse = Instant::now();
+        let next = next_block()?;
+        parse_ns += t_parse.elapsed().as_nanos() as u64;
+        let Some(block_reads) = next else {
+            break;
+        };
+
         total_reads += block_reads.len() as u64;
         total_bases += block_reads.iter().map(|r| r.sequence.len() as u64).sum::<u64>();
+
+        let t_process = Instant::now();
         let compressed = compressor.compress(&block_reads, block_id)?;
+        process_ns += t_process.elapsed().as_nanos() as u64;
+
+        let t_write = Instant::now();
         writer.write_block_with_id(&compressed, archive_id_start)?;
+        write_ns += t_write.elapsed().as_nanos() as u64;
         archive_id_start += block_reads.len() as u64;
         blocks_written += 1;
         block_id += 1;
     }
 
+    let t_finish = Instant::now();
     writer.patch_total_read_count(total_reads)?;
     let output_bytes = writer.finalize()?;
     output_tx.commit()?;
+    write_ns += t_finish.elapsed().as_nanos() as u64;
     log::info!("Streaming compression complete! {} blocks written.", blocks_written);
 
     let input_bytes = common::input_bytes_for(&input.primary_path, input.secondary_path.as_deref(), total_bases);
@@ -147,10 +167,10 @@ fn run_core(
         output_bytes,
         blocks: blocks_written as u64,
         elapsed_seconds: 0.0,
-        parse_ms: 0,
+        parse_ms: parse_ns / 1_000_000,
         reorder_ms: 0,
-        process_ms: 0,
-        write_ms: 0,
+        process_ms: process_ns / 1_000_000,
+        write_ms: write_ns / 1_000_000,
         ..Default::default()
     };
 

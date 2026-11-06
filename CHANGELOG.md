@@ -241,6 +241,8 @@
   archive/pipeline/streaming round-trip 均与输入逐字节一致。
 - streaming 交错输入的长度采样在达到上限后立即停止，不再解析完整文件却只保留
   前 4,096 条长度。
+- streaming 模式此前 `parse_ms` / `process_ms` / `write_ms` 全为 0，CLI summary
+  的阶段计时对 streaming 无效；现在按实际 parser / compressor / writer 操作累计。
 - 加固 indexed v2 解码边界：恢复历史无损块校验和语义，有损/丢弃块不再携带
   不可能匹配的逻辑校验和；ABC V3 使用 codec `0x11`，并严格校验载荷版本、计数、
   映射、偏移、UTF-8 与尾随字节；Zstd、辅助流、ID 流和算术质量流拒绝截断或不一致数据。
