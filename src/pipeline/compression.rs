@@ -221,6 +221,10 @@ struct PreparedCompression {
 // CompressionPipeline
 // =============================================================================
 
+/// Full-ingest compressor used by both archive and pipeline modes.
+///
+/// The historical name is retained because the shared block pipeline lives in
+/// this module; `full_ingest_runner` is the engine-side entry point.
 pub struct CompressionPipeline {
     config: CompressionPipelineConfig,
     stats: OperationStats,

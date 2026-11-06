@@ -89,7 +89,12 @@ Compression routes through `CompressionEngine` with three distinct modes:
 |------|------|--------|---------|----------|
 | Archive | (default) | Full ingest | Yes | Best ratio |
 | Streaming | `--streaming` | Bounded | No | Large files, low memory |
-| Pipeline | `--pipeline` | Full ingest, parallel blocks | Limited (short single-end) | Balanced throughput; not a bounded streaming ingest |
+| Pipeline | `--pipeline` | Full ingest | Yes | Same implementation as archive; keeps the ≥100 reads/block floor |
+
+Archive and pipeline share one full-ingest implementation
+(`full_ingest_runner`); streaming shares the block stage but parses blocks on
+demand. A change to ingest, classification or reordering must keep all three
+modes consistent.
 
 ### Compression path selection
 

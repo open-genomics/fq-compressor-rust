@@ -20,11 +20,12 @@ pub use length::{effective_read_length_class, length_stats_from_records_sampled,
 /// Execution mode for compression.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CompressionExecutionMode {
-    /// Archive mode: full-featured compression with reordering support.
+    /// Archive mode: full ingest with optional reordering.
     Archive,
-    /// Streaming mode: single-pass compression without reordering.
+    /// Streaming mode: bounded-ingest compression without reordering.
     Streaming,
-    /// Pipeline mode: concurrent block compression with in-flight buffering.
+    /// Pipeline mode: explicit full-ingest label sharing the archive path;
+    /// keeps the pipeline block-size floor.
     Pipeline,
 }
 
