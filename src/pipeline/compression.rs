@@ -315,10 +315,11 @@ impl CompressionPipeline {
         }
         let parse_ms = t_parse.elapsed().as_millis() as u64;
 
-        let (parsed_bytes, _) = fold_read_bytes(&all_reads);
+        let (parsed_bytes, total_bases) = fold_read_bytes(&all_reads);
         let input_bytes = crate::stats::input_bytes_for_paths(&[input1_path, input2_path], parsed_bytes as u64);
         self.run_pair_based(
             all_reads,
+            total_bases,
             input_bytes,
             parse_ms,
             start,
@@ -351,10 +352,11 @@ impl CompressionPipeline {
         }
         let parse_ms = t_parse.elapsed().as_millis() as u64;
 
-        let (parsed_bytes, _) = fold_read_bytes(&all_reads);
+        let (parsed_bytes, total_bases) = fold_read_bytes(&all_reads);
         let input_bytes = crate::stats::input_bytes_for_paths(&[input_path], parsed_bytes as u64);
         self.run_pair_based(
             all_reads,
+            total_bases,
             input_bytes,
             parse_ms,
             start,
@@ -366,9 +368,11 @@ impl CompressionPipeline {
 
     /// Shared tail of the paired topologies. Pairing is kept as one flat
     /// stream, so reordering is disabled exactly like archive mode.
+    #[allow(clippy::too_many_arguments)]
     fn run_pair_based(
         &mut self,
         all_reads: Vec<ReadRecord>,
+        total_bases: u64,
         input_bytes: u64,
         parse_ms: u64,
         start: Instant,
@@ -376,7 +380,6 @@ impl CompressionPipeline {
         original_filename: &str,
         pe_layout: PeLayout,
     ) -> Result<()> {
-        let (_, total_bases) = fold_read_bytes(&all_reads);
         self.finish_ingest(
             all_reads,
             total_bases,
