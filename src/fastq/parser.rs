@@ -110,6 +110,8 @@ pub struct FastqParser<R: BufRead> {
     stats: ParserStats,
     line_number: u64,
     record_number: u64,
+    /// Raw bytes consumed from the reader, independent of optional statistics.
+    bytes_read: u64,
 }
 
 impl<R: BufRead> FastqParser<R> {
@@ -121,6 +123,7 @@ impl<R: BufRead> FastqParser<R> {
             stats: ParserStats::default(),
             line_number: 0,
             record_number: 0,
+            bytes_read: 0,
         }
     }
 
@@ -132,6 +135,7 @@ impl<R: BufRead> FastqParser<R> {
             stats: ParserStats::default(),
             line_number: 0,
             record_number: 0,
+            bytes_read: 0,
         }
     }
 
@@ -155,8 +159,17 @@ impl<R: BufRead> FastqParser<R> {
         let bytes = self.reader.read_line(&mut self.line_buf)?;
         if bytes > 0 {
             self.line_number += 1;
+            self.bytes_read = self.bytes_read.saturating_add(bytes as u64);
         }
         Ok(bytes)
+    }
+
+    /// Raw bytes consumed from the underlying reader so far.
+    ///
+    /// This counter is always maintained; [`stats`](Self::stats) only tracks
+    /// record/bases when `collect_stats` is enabled.
+    pub fn bytes_read(&self) -> u64 {
+        self.bytes_read
     }
 
     /// Read the next FASTQ record.
@@ -384,6 +397,11 @@ impl<R1: BufRead, R2: BufRead> PairedFastqReader<R1, R2> {
         }
     }
 
+    /// Bytes consumed from both mates, used for streaming stdin accounting.
+    pub fn bytes_read(&self) -> u64 {
+        self.r1.bytes_read().saturating_add(self.r2.bytes_read())
+    }
+
     /// Collect all records interleaved: R1_0, R2_0, R1_1, R2_1, ...
     pub fn collect_all_interleaved(&mut self) -> Result<Vec<ReadRecord>> {
         let mut records = Vec::new();
@@ -437,6 +455,11 @@ pub struct InterleavedPeParser<R: BufRead> {
 impl<R: BufRead> InterleavedPeParser<R> {
     pub fn new(parser: FastqParser<R>) -> Self {
         Self { parser }
+    }
+
+    /// Bytes consumed from the interleaved stream, used for stdin accounting.
+    pub fn bytes_read(&self) -> u64 {
+        self.parser.bytes_read()
     }
 
     /// Read the next R1/R2 pair from the interleaved stream

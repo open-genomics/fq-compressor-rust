@@ -131,7 +131,7 @@ fn test_parser_stats() {
     assert_eq!(stats.min_length, 4);
     assert_eq!(stats.max_length, 8);
     assert_eq!(stats.total_n_count, 5); // 1 in r1 + 4 in r2
-    assert!(stats.total_bytes_read > 0);
+    assert_eq!(stats.total_bytes_read, data.len() as u64);
     assert!((stats.avg_length() - 5.666).abs() < 0.01);
 }
 
@@ -296,4 +296,28 @@ fn test_paired_reader_rejects_mismatched_mate_counts() {
 
     assert!(reader.next_pair().unwrap().is_some());
     assert!(reader.next_pair().is_err(), "mismatched mates must fail");
+}
+
+#[test]
+fn test_paired_reader_tracks_consumed_bytes() {
+    let r1_data = make_fastq_data(&[("pair1/1", "AAAA", "IIII"), ("pair2/1", "CCCC", "JJJJ")]);
+    let r2_data = make_fastq_data(&[("pair1/2", "TTTT", "IIII"), ("pair2/2", "GGGG", "JJJJ")]);
+
+    let r1 = FastqParser::new(BufReader::new(r1_data.as_slice()));
+    let r2 = FastqParser::new(BufReader::new(r2_data.as_slice()));
+    let mut reader = PairedFastqReader::new(r1, r2);
+
+    while reader.next_pair().unwrap().is_some() {}
+    assert_eq!(reader.bytes_read(), (r1_data.len() + r2_data.len()) as u64);
+}
+
+#[test]
+fn test_interleaved_reader_tracks_consumed_bytes() {
+    let data = make_fastq_data(&[("pair1/1", "AAAA", "IIII"), ("pair1/2", "TTTT", "IIII")]);
+    let parser = FastqParser::new(BufReader::new(data.as_slice()));
+    let mut reader = InterleavedPeParser::new(parser);
+
+    assert!(reader.next_pair().unwrap().is_some());
+    assert!(reader.next_pair().unwrap().is_none());
+    assert_eq!(reader.bytes_read(), data.len() as u64);
 }

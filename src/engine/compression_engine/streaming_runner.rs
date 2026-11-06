@@ -10,7 +10,7 @@ use crate::archive::format::build_flags;
 use crate::engine::compression_engine::CompressionOutcome;
 use crate::error::Result;
 use crate::fastq::parser::{open_fastq, open_fastq_interleaved, open_fastq_paired, open_fastq_stdin};
-use crate::pipeline::block_pipeline::{self, BlockPipelineConfig};
+use crate::pipeline::block_pipeline::{self, BlockPipelineConfig, ReadBlock};
 use crate::plan::compress::CompressionRequest;
 use crate::plan::CompressionExecutionMode;
 use crate::stats::OperationStats;
@@ -122,7 +122,7 @@ fn run_core(
     pe_layout: PeLayout,
     single_end: bool,
     initial_parse_ns: u64,
-    next_block: impl FnMut() -> Result<Option<Vec<ReadRecord>>> + Send + 'static,
+    next_block: impl FnMut() -> Result<Option<ReadBlock>> + Send + 'static,
 ) -> Result<CompressionOutcome> {
     let flags = build_flags(
         !single_end,
@@ -162,7 +162,7 @@ fn run_core(
     );
 
     let input_bytes =
-        crate::stats::input_bytes_for(&input.primary_path, input.secondary_path.as_deref(), report.total_bases);
+        crate::stats::input_bytes_for(&input.primary_path, input.secondary_path.as_deref(), report.input_bytes);
     let stats = OperationStats {
         total_reads: report.total_reads,
         total_bases: report.total_bases,
@@ -196,6 +196,7 @@ fn run_single(
         open_fastq(input_path)?
     };
     let block_size = plan.block_size;
+    let mut last_bytes = 0u64;
     run_core(request, plan, PeLayout::Interleaved, true, inspect_ns, move || {
         let mut buf: Vec<ReadRecord> = Vec::with_capacity(block_size);
         loop {
@@ -209,7 +210,17 @@ fn run_single(
                 None => break,
             }
         }
-        Ok(if buf.is_empty() { None } else { Some(buf) })
+        let consumed = parser.bytes_read();
+        let input_bytes = consumed.saturating_sub(last_bytes);
+        last_bytes = consumed;
+        Ok(if buf.is_empty() {
+            None
+        } else {
+            Some(ReadBlock {
+                reads: buf,
+                input_bytes,
+            })
+        })
     })
 }
 
@@ -223,6 +234,7 @@ fn run_paired(
 ) -> Result<CompressionOutcome> {
     let mut pe_reader = open_fastq_paired(input_path, input2_path)?;
     let target_pairs = (plan.block_size.max(2)) / 2;
+    let mut last_bytes = 0u64;
     run_core(request, plan, pe_layout, false, inspect_ns, move || {
         let mut r1_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
         let mut r2_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
@@ -238,11 +250,21 @@ fn run_paired(
                 None => break,
             }
         }
+        let consumed = pe_reader.bytes_read();
+        let input_bytes = consumed.saturating_sub(last_bytes);
+        last_bytes = consumed;
         if r1_buf.is_empty() && r2_buf.is_empty() {
             Ok(None)
         } else {
             let block_buf = pe_layout.arrange(r1_buf, r2_buf);
-            Ok(if block_buf.is_empty() { None } else { Some(block_buf) })
+            Ok(if block_buf.is_empty() {
+                None
+            } else {
+                Some(ReadBlock {
+                    reads: block_buf,
+                    input_bytes,
+                })
+            })
         }
     })
 }
@@ -260,6 +282,7 @@ fn run_interleaved(
         open_fastq_interleaved(input_path)?
     };
     let target_pairs = (plan.block_size.max(2)) / 2;
+    let mut last_bytes = 0u64;
     run_core(request, plan, pe_layout, false, inspect_ns, move || {
         let mut r1_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
         let mut r2_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
@@ -275,11 +298,21 @@ fn run_interleaved(
                 None => break,
             }
         }
+        let consumed = parser.bytes_read();
+        let input_bytes = consumed.saturating_sub(last_bytes);
+        last_bytes = consumed;
         if r1_buf.is_empty() && r2_buf.is_empty() {
             Ok(None)
         } else {
             let block_buf = pe_layout.arrange(r1_buf, r2_buf);
-            Ok(if block_buf.is_empty() { None } else { Some(block_buf) })
+            Ok(if block_buf.is_empty() {
+                None
+            } else {
+                Some(ReadBlock {
+                    reads: block_buf,
+                    input_bytes,
+                })
+            })
         }
     })
 }

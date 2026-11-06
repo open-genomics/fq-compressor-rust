@@ -39,6 +39,16 @@ pub(crate) struct BlockPipelineConfig {
     pub compressor_config: BlockCompressorConfig,
 }
 
+/// One source block plus the bytes the source consumed to produce it.
+///
+/// Archive/pipeline sources pass `0` because their caller accounts for file
+/// bytes from paths. Streaming sources report parser bytes so stdin stats have
+/// a real byte count instead of falling back to sequence bases.
+pub(crate) struct ReadBlock {
+    pub reads: Vec<ReadRecord>,
+    pub input_bytes: u64,
+}
+
 /// Counters produced by the shared block pipeline.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct BlockPipelineReport {
@@ -46,6 +56,8 @@ pub(crate) struct BlockPipelineReport {
     pub blocks_written: u64,
     pub total_reads: u64,
     pub total_bases: u64,
+    /// Bytes reported by the source; `0` for pre-chunked archive/pipeline input.
+    pub input_bytes: u64,
     pub parse_ms: u64,
     pub process_ms: u64,
     pub write_ms: u64,
@@ -64,6 +76,7 @@ struct OrderedBlock {
 struct ReaderOutcome {
     total_reads: u64,
     total_bases: u64,
+    input_bytes: u64,
     parse_ns: u64,
 }
 
@@ -119,12 +132,62 @@ fn join_stage<T>(handle: thread::JoinHandle<StageResult<T>>, stage: &'static str
     handle.join().unwrap_or_else(|_| Err(StageFailure::Panicked(stage)))
 }
 
+/// Pull source blocks and forward them to the compressor channel.
+///
+/// The source owns parsing, so this stage only accounts for reads, bases and
+/// source-reported input bytes before handing each block over.
+fn spawn_reader(
+    mut next_chunk: impl FnMut() -> Result<Option<ReadBlock>> + Send + 'static,
+    chunk_tx: Sender<ReadChunk>,
+) -> thread::JoinHandle<StageResult<ReaderOutcome>> {
+    thread::spawn(move || -> StageResult<ReaderOutcome> {
+        let mut chunk_id: u32 = 0;
+        let mut total_reads = 0u64;
+        let mut total_bases = 0u64;
+        let mut input_bytes = 0u64;
+        let mut parse_ns = 0u64;
+        loop {
+            let t_parse = Instant::now();
+            let next = next_chunk()?;
+            parse_ns += t_parse.elapsed().as_nanos() as u64;
+            let Some(block) = next else {
+                break;
+            };
+            if block.reads.is_empty() {
+                continue;
+            }
+            total_reads = total_reads.saturating_add(block.reads.len() as u64);
+            total_bases = total_bases.saturating_add(block.reads.iter().map(|r| r.sequence.len() as u64).sum::<u64>());
+            input_bytes = input_bytes.saturating_add(block.input_bytes);
+            chunk_tx
+                .send(ReadChunk {
+                    reads: block.reads,
+                    chunk_id,
+                })
+                .map_err(|_| {
+                    StageFailure::Derived(
+                        "Compression aborted: compressor stage stopped before reading all blocks".to_string(),
+                    )
+                })?;
+            chunk_id = chunk_id
+                .checked_add(1)
+                .ok_or_else(|| StageFailure::Root(FqcError::Compression("block count exceeds u32".to_string())))?;
+        }
+        Ok(ReaderOutcome {
+            total_reads,
+            total_bases,
+            input_bytes,
+            parse_ns,
+        })
+    })
+}
+
 /// Compress blocks from `next_chunk` in parallel and write them in block order.
 ///
 /// The source is pulled on the reader thread; `None` ends the stream. A worker
 /// or writer error aborts the transaction and never commits a partial archive.
 pub(crate) fn run(
-    mut next_chunk: impl FnMut() -> Result<Option<Vec<ReadRecord>>> + Send + 'static,
+    next_chunk: impl FnMut() -> Result<Option<ReadBlock>> + Send + 'static,
     output_path: impl AsRef<Path>,
     config: BlockPipelineConfig,
 ) -> Result<BlockPipelineReport> {
@@ -165,38 +228,7 @@ pub(crate) fn run(
     let (block_tx, block_rx): (Sender<OrderedBlock>, Receiver<OrderedBlock>) = bounded(max_inflight);
 
     // ---- Reader thread: pull blocks from the caller's bounded source ----
-    let reader_handle = thread::spawn(move || -> StageResult<ReaderOutcome> {
-        let mut chunk_id: u32 = 0;
-        let mut total_reads = 0u64;
-        let mut total_bases = 0u64;
-        let mut parse_ns = 0u64;
-        loop {
-            let t_parse = Instant::now();
-            let next = next_chunk()?;
-            parse_ns += t_parse.elapsed().as_nanos() as u64;
-            let Some(reads) = next else {
-                break;
-            };
-            if reads.is_empty() {
-                continue;
-            }
-            total_reads = total_reads.saturating_add(reads.len() as u64);
-            total_bases = total_bases.saturating_add(reads.iter().map(|r| r.sequence.len() as u64).sum::<u64>());
-            chunk_tx.send(ReadChunk { reads, chunk_id }).map_err(|_| {
-                StageFailure::Derived(
-                    "Compression aborted: compressor stage stopped before reading all blocks".to_string(),
-                )
-            })?;
-            chunk_id = chunk_id
-                .checked_add(1)
-                .ok_or_else(|| StageFailure::Root(FqcError::Compression("block count exceeds u32".to_string())))?;
-        }
-        Ok(ReaderOutcome {
-            total_reads,
-            total_bases,
-            parse_ns,
-        })
-    });
+    let reader_handle = spawn_reader(next_chunk, chunk_tx);
 
     // ---- Compressor threads ----
     let process_ns = Arc::new(AtomicU64::new(0));
@@ -364,8 +396,65 @@ pub(crate) fn run(
         blocks_written: blocks_written as u64,
         total_reads: stored_reads,
         total_bases: reader.total_bases,
+        input_bytes: reader.input_bytes,
         parse_ms: reader.parse_ns / 1_000_000,
         process_ms,
         write_ms: (setup_ns + write_ns + commit_ns) / 1_000_000,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::algo::block_compressor::BlockCompressorConfig;
+    use crate::archive::format::build_flags;
+    use crate::types::{IdMode, PeLayout, QualityMode, ReadLengthClass};
+
+    #[test]
+    fn report_aggregates_source_input_bytes() {
+        let dir = tempfile::tempdir().unwrap();
+        let output = dir.path().join("out.fqc");
+        let mut blocks = vec![
+            Some(ReadBlock {
+                reads: vec![ReadRecord::new("a".into(), "ACGT".into(), "IIII".into())],
+                input_bytes: 11,
+            }),
+            Some(ReadBlock {
+                reads: vec![ReadRecord::new("b".into(), "ACGT".into(), "IIII".into())],
+                input_bytes: 22,
+            }),
+            None,
+        ]
+        .into_iter();
+
+        let report = run(
+            move || Ok(blocks.next().unwrap()),
+            &output,
+            BlockPipelineConfig {
+                num_workers: 1,
+                max_in_flight_blocks: 1,
+                force_overwrite: true,
+                flags: build_flags(
+                    false,
+                    true,
+                    QualityMode::Lossless,
+                    IdMode::Tokenize,
+                    false,
+                    PeLayout::Interleaved,
+                    ReadLengthClass::Short,
+                    true,
+                ),
+                total_reads: None,
+                expected_blocks: None,
+                original_filename: "stdin".to_string(),
+                reorder_map: None,
+                compressor_config: BlockCompressorConfig::default(),
+            },
+        )
+        .unwrap();
+
+        assert_eq!(report.total_reads, 2);
+        assert_eq!(report.total_bases, 8);
+        assert_eq!(report.input_bytes, 33);
+    }
 }

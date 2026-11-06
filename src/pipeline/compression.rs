@@ -524,7 +524,11 @@ impl CompressionPipeline {
             u32::try_from(chunks.len()).map_err(|_| FqcError::Compression("block count exceeds u32".to_string()))?;
         let mut chunks = chunks.into_iter();
         let report = block_pipeline::run(
-            move || Ok(chunks.next()),
+            move || {
+                Ok(chunks
+                    .next()
+                    .map(|reads| block_pipeline::ReadBlock { reads, input_bytes: 0 }))
+            },
             output_path,
             BlockPipelineConfig {
                 num_workers: planned_workers,
