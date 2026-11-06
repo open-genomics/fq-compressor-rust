@@ -72,20 +72,20 @@ fn compressed_input_roundtrip(compressed_input: &std::path::Path, expected: &[Re
     let mut out = std::io::BufWriter::new(std::fs::File::create(&restored).unwrap());
     for block_id in 0..reader.block_count() {
         let bd = reader.read_block(block_id as u32).unwrap();
-        let bh = &bd.header;
+        let bh = &bd.meta;
         let dec = compressor
             .decompress_raw(
                 bh.block_id,
-                bh.uncompressed_count,
+                bh.read_count,
                 bh.uniform_read_length,
                 bh.codec_ids,
                 bh.codec_seq,
                 bh.codec_qual,
                 bh.codec_aux,
-                &bd.ids_data,
-                &bd.seq_data,
-                &bd.qual_data,
-                &bd.aux_data,
+                &bd.id_stream,
+                &bd.seq_stream,
+                &bd.qual_stream,
+                &bd.aux_stream,
             )
             .unwrap();
         for read in &dec.reads {

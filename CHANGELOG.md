@@ -9,6 +9,73 @@
 
 ### Added
 
+- `fqc::api` 稳定嵌入 facade：`compress` / `decompress` / `info` / `verify` 四个入口，
+  请求类型通过私有字段 + `Validated*Plan` 校验；其它模块标记为 `#[doc(hidden)]` 的
+  internal API。新增 `docs/reference/library-api.md`。
+- `tests/test_architecture.rs`：用源码 import 守卫 `algo`/`archive` 只通过 `block` 交接，
+  并禁止 `io` / `fastq` / `memory` / `plan` 依赖更高层，防止 Rust 模块循环悄悄回退。
+- `OperationStats` 成为唯一统计真源；删除 `PipelineStats` / `ProcessingStats` 别名与
+  `CompressionOutcome` 的重复计数字段。`input_bytes` / `output_bytes` 使用实际文件字节，
+  `total_bases` 单独保留；`output_bytes` 由 writer finalize 返回真实归档大小。
+
+- `--reorder auto`（默认）：同时采样相邻重叠和全局共享 k-mer；已空间有序或没有可重排冗余的短读输入跳过重排，避免真实 WXS 与独立随机读段上的负收益；`--reorder true|false` 保持显式覆盖。重排 fallback 改为 `BTreeSet`，避免无共享 k-mer 输入上的 O(n²) 扫描。
+- `--block-reads`：显式指定每块读段数（`1..=1,000,000`，CLI 入口拦截超大块；`--pipeline` 仍要求至少 `100`）；`--max-block-bases` 扩展到所有读长类别。自动模式按实际 codec worker 上限的 `workers × 2` 目标块数、类别最小读段数和碱基上限定块（Long 默认 5 Mbp，其他类别 8 Mbp；streaming 不套自动长读切块）；内存受限导致 worker 减少时会重新放大 block，长读不再默认落入单 block。
+- 编解码 worker 内存上限：按 block 估算质量模型/记录/Zstd 缓冲，`--memory-limit` 可限制并行 worker；自动线程模式默认最多 4 个 worker。解压 worker 预算额外保留非 worker 内存，不再把完整限制全部用于 worker。
+- 阶段计时：compress / decompress 的 summary 打印 `Stage timings`（parse / reorder /
+  process / write，单位 ms；process 为并行 worker 聚合 CPU 时间）。覆盖 archive、pipeline、
+  streaming 三种模式，单 block 与 `--original-order` 路径同样计时。
+- 真实语料压缩/吞吐证据：`scripts/fetch_real_corpus.sh` + `docs/reference/real-corpus.md`
+  （ENA 两份公开切片，与 C++ 侧同语料同 sha256，round-trip 逐字节一致）；
+  `docs/reference/hotspot-report.md` 记录阶段热点与优化前后对比。
+- `--id-mode exact|tokenize|discard` on `compress` (default `tokenize`);
+  Exact never tokenizes, Tokenize may fall back per block, Discard writes
+  placeholder IDs. The chosen mode is stored in archive flags.
+- `--lossy-quality qvz` is a distinct 8-level nearest-neighbor quality
+  quantizer (`[7, 15, 20, 25, 30, 35, 40, 41]`) encoded with existing SCM,
+  not a lossless alias and not trained rate-distortion QVZ.
+- Archive compress ingest budget: `--memory-limit 0` resolves to a finite
+  automatic cap (same 75% / hard-ceiling policy as decode); running peak
+  estimate fails with `ResourceLimit` before the `.fqc` is created, and
+  `--streaming` skips this full-ingest check. `--pipeline` uses the same
+  ingest check (it is still not a bounded-memory streaming path).
+- Cross-family magic dispatch: reject C++ `fqc-sequential/v2` archives with an
+  explicit unsupported-format-family error pointing at
+  `open-genomics/fq-compressor` (unknown/truncated magics stay distinct).
+- Operation-scoped decode/verify memory budget (`DecodeBudget`): `--memory-limit`
+  applies to decompress and full verify; archive-declared sizes and zstd output
+  are capped before allocation; automatic (`0`) remains finite with hard
+  structural ceilings (not unlimited).
+- Header-driven per-stream codec dispatch on decompress: IDs/seq/qual/aux each
+  validate their block-header codec byte against an allow-list (unknown family,
+  wrong stream, and non-v0 versions fail closed); global quality/id mode must
+  not contradict the declared families.
+- Transactional ordinary-file output (`OutputTransaction`): compress and
+  decompress write same-directory temps and rename only after a successful
+  flush/close. Mid-run failure leaves a missing target absent, or keeps the
+  previous file when `-f/--force` was used. Stdout remains non-transactional;
+  `--split-pe` commits R1 then R2 (POSIX cannot atomically rename two paths).
+- Frozen indexed v2 decoder fixture (`tests/fixtures/indexed-v2/`) with
+  MANIFEST.md documenting generator commit, command, and SHA-256 hashes.
+- Format contract tests (`tests/test_format_contract.rs`) covering magic,
+  version, codec/checksum identifier encoding, frozen fixture round-trip,
+  and unknown-identifier rejection.
+- Benchmark foundation for parser and archive workflows (criterion-based),
+  plus performance hotspot documentation.
+- 轻量 CI（`.github/workflows/ci.yml`，GitHub Actions）：fmt / clippy / test /
+  doc 四门禁（`--locked`），push 与 PR 触发。
+- 治理文档：`SECURITY.md`（私有漏洞上报）、`CONTRIBUTING.md`、`VERSIONING.md`、
+  `.github/ISSUE_TEMPLATE/`（bug / feature 表单）。
+- `Cargo.toml` 补 `homepage` 字段；`openspec/project.md` 记录 `fqc-indexed/v2`
+  身份、决策 `FQC-DEC-001` 与外部边界。
+- 面防御测试：归档解码器对 frozen fixture 的全部截断点、逐字节单比特翻转与
+  确定性伪随机垃圾输入均不 panic（fail closed 的手工用例原由
+  `test_decode_budget` 覆盖，此处补穷举广度）；`FastqParser` 对随机与变异
+  FASTQ 输入不 panic。
+- `ZstdSequenceCompressor` 直接测试（roundtrip、空流、计数/长度不一致、长度
+  分歧、截断、尾随字节）；`AsyncWriter` 直接测试（字节顺序、flush 应答、
+  后台写失败传播）；`FqcReader::info()` 字段断言钉住 frozen fixture 的
+  MANIFEST 数字。
+
 - CI 增加原生 aarch64 job（GitHub 公共仓库免费 ARM runner）：release 构建 +
   lib/集成测试，防止后续改动引入 x86-only 假设。
 - 阶段计时：compress / decompress 的 summary 打印 `Stage timings`（parse / reorder /
@@ -68,6 +135,16 @@
 
 ### Changed
 
+- 架构边界收敛：新增 `block` 中立块域、`plan` 请求/校验/块规划、`memory` 三套预算、
+  `dna` 中性工具；`algo` 与 `archive` 不再互相依赖。`CompressionRequest` /
+  `DecompressRequest` 字段私有，`ReorderMode` 取代 `enable_reorder + auto_reorder`
+  布尔组合；`CompressionPipelineConfig` 删除 `streaming_mode`，重排策略统一为 enum。
+- `begin_fqc_writer` 从 `io` 移入 `archive::writer`，`io` 不再依赖归档格式；
+  global header / timestamp 写入收敛到 `archive::writer::write_global_header`。
+- `DecompressionPipelineConfig` 改名为 `DecompressionConfig`；compress `--pipeline`
+  的 CLI/文档表述改为“完整摄入后并行压缩块”，不再宣称 bounded streaming。
+- 质量自适应模型从 `Vec<u32>` 频率 + cumulative 数组改为 `u16` Fenwick 树，并进一步把每个上下文独立的 `Vec<u16>` 合并为连续 `trees`/`totals` 存储；order-2 的约 7 万个上下文现在只有两个大分配，编码输出保持逐字节一致，模型内存从约 57 MB 降到约 14 MB，更新从 O(94) 降到 O(log 94)。
+- 短读 ABC 上限从 4,096 条降到 512 条；ABC 的 O(n²) contig 扫描在 4k 条上实测约 25.9 s，而 Zstd 约 0.13 s，且该合成样本上无压缩收益。
 - 重排阶段复用首次并行提取的 minimizer，删除每条 read 的重复提取；aarch64
   100k × 150 bp 合成短读上重排墙钟约降低 7%，解压内容与归档 payload 不变。
 - minimizer 提取改为 2-bit 滚动哈希 + 单调队列；同一微基准中提取阶段约
@@ -88,8 +165,7 @@
   访问模型、对方链接），并新增同名二进制 `fqc` 的 `PATH` 覆盖风险提醒。对应 openspec
   变更 `document-fqc-format-family`（2026-10-01 归档，规格落为
   `openspec/specs/format-governance/`）。
-- README：新增 CI 徽章；"零 unsafe"表述修正为"除 Windows 内存探测外零 unsafe"
-  （`GlobalMemoryStatusEx` FFI 见 `src/memory_budget.rs`）。
+- README：新增 CI 徽章；“零 unsafe”保持成立（`unsafe_code = "deny"`；Windows 内存探测已移除）。
 - docs 卫生：功能对比矩阵 / 学术文献 / 执行模式说明单源化（分别收敛到
   `docs/explanation/comparison.md`、`docs/explanation/whitepaper.md`、
   `docs/how-to/modes.md`）；白皮书修正 src 树、测试数（215，2026-08 实测）与重排说明；

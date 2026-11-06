@@ -90,6 +90,57 @@ fn test_id_compress_single() {
 // =============================================================================
 
 #[test]
+fn test_quality_compressed_bytes_are_stable_across_model_layout() {
+    // A fixed sample that exercises position bins, context transitions, and
+    // rescaling-adjacent updates. The quality stream must not change when the
+    // context table moves from per-context Vecs to one flat allocation.
+    let qualities = [
+        "IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "!!!!!!!#######IIIIIII~~~~~~~JJJJJJ!!!!",
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdef",
+        "IIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII",
+        "##########!!!!!!!!!!IIIIIIIIIIJJJJJJJJ",
+    ];
+    let refs: Vec<&str> = qualities.to_vec();
+    let config = QualityCompressorConfig {
+        quality_mode: QualityMode::Lossless,
+        ..Default::default()
+    };
+    let mut compressor = QualityCompressor::new(config);
+    let compressed = compressor.compress(&refs).unwrap();
+    assert_eq!(
+        xxhash_rust::xxh64::xxh64(&compressed, 0),
+        0x839f_c7ef_bf59_b7d3,
+        "flat context storage must preserve the quality stream byte-for-byte"
+    );
+}
+
+#[test]
+fn test_quality_rescale_path_stays_stable() {
+    // 600 * 40 = 24,000 encoded symbols, above MAX_FREQUENCY (16,383), so
+    // this sample exercises per-context rescale in addition to normal updates.
+    let qualities: Vec<String> = (0..600)
+        .map(|i| (0..40).map(|j| (33 + ((i * 17 + j * 7) % 94)) as u8 as char).collect())
+        .collect();
+    let refs: Vec<&str> = qualities.iter().map(|quality| quality.as_str()).collect();
+    let config = QualityCompressorConfig {
+        quality_mode: QualityMode::Lossless,
+        ..Default::default()
+    };
+    let mut compressor = QualityCompressor::new(config.clone());
+    let compressed = compressor.compress(&refs).unwrap();
+    let lengths: Vec<u32> = qualities.iter().map(|quality| quality.len() as u32).collect();
+    let mut decompressor = QualityCompressor::new(config);
+    let restored = decompressor.decompress(&compressed, &lengths).unwrap();
+    assert_eq!(restored, qualities);
+    assert_eq!(
+        xxhash_rust::xxh64::xxh64(&compressed, 0),
+        0xaa42_2204_a59b_b473,
+        "rescale path must keep the quality stream byte-for-byte stable"
+    );
+}
+
+#[test]
 fn test_quality_compress_decompress_lossless() {
     let qualities = ["IIIIIIIII!", "!!!!IIIII!", "~~~~!!!!II"];
     let lengths: Vec<u32> = qualities.iter().map(|q| q.len() as u32).collect();
@@ -211,7 +262,7 @@ fn test_global_analyzer_respects_requested_block_size() {
     let sequences: Vec<String> = (0..10).map(|_| "ACGTACGT".to_string()).collect();
     let analyzer = GlobalAnalyzer::new(GlobalAnalyzerConfig {
         reads_per_block: 3,
-        enable_reorder: false,
+        reorder: fqc::plan::ReorderMode::Never,
         read_length_class: Some(ReadLengthClass::Short),
         ..Default::default()
     });

@@ -3,7 +3,7 @@
 // =============================================================================
 
 use crate::error::{FqcError, Result};
-use crate::memory_budget::{push_archive_record, resolve_compress_limit_bytes};
+use crate::memory::{push_archive_record, resolve_compress_limit_bytes};
 use crate::types::{PeLayout, ReadRecord};
 use std::io::{BufRead, BufReader, Read};
 
@@ -68,7 +68,7 @@ impl ParserStats {
 // Sequence / Quality Validation
 // =============================================================================
 
-use crate::algo::dna::is_valid_base;
+use crate::dna::is_valid_base;
 
 fn strip_line_ending(line: &str) -> &str {
     let without_newline = line.strip_suffix('\n').unwrap_or(line);
@@ -337,7 +337,7 @@ impl<R: BufRead> FastqParser<R> {
 
 /// Open a FASTQ file (plain or compressed) for reading.
 /// Auto-detects gzip, bzip2, xz, and zstd by magic bytes or extension.
-pub fn open_fastq(path: &str) -> Result<FastqParser<BufReader<Box<dyn Read + Send>>>> {
+pub fn open_fastq(path: impl AsRef<std::path::Path>) -> Result<FastqParser<BufReader<Box<dyn Read + Send>>>> {
     let reader = crate::io::compressed_stream::open_buffered_reader(path)?;
     Ok(FastqParser::with_options(
         reader,
@@ -417,8 +417,8 @@ impl<R1: BufRead, R2: BufRead> PairedFastqReader<R1, R2> {
 
 /// Open paired-end FASTQ files for reading
 pub fn open_fastq_paired(
-    path1: &str,
-    path2: &str,
+    path1: impl AsRef<std::path::Path>,
+    path2: impl AsRef<std::path::Path>,
 ) -> Result<PairedFastqReader<BufReader<Box<dyn Read + Send>>, BufReader<Box<dyn Read + Send>>>> {
     let r1 = open_fastq(path1)?;
     let r2 = open_fastq(path2)?;
@@ -518,7 +518,9 @@ where
 }
 
 /// Open an interleaved paired-end FASTQ file
-pub fn open_fastq_interleaved(path: &str) -> Result<InterleavedPeParser<BufReader<Box<dyn Read + Send>>>> {
+pub fn open_fastq_interleaved(
+    path: impl AsRef<std::path::Path>,
+) -> Result<InterleavedPeParser<BufReader<Box<dyn Read + Send>>>> {
     let parser = open_fastq(path)?;
     Ok(InterleavedPeParser::new(parser))
 }

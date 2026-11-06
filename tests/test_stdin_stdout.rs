@@ -56,12 +56,12 @@ fn stdin_topology_maps_to_stdin_input() {
     };
     let request = opts.to_request();
     assert!(matches!(
-        request.input,
-        fqc::engine::compression_request::CompressionInputTopology::Stdin { archive_layout: None }
+        request.input(),
+        fqc::plan::compress::CompressionInputTopology::Stdin { archive_layout: None }
     ));
     assert_eq!(
-        request.mode,
-        fqc::engine::compression_request::CompressionExecutionMode::Archive,
+        request.mode(),
+        fqc::plan::CompressionExecutionMode::Archive,
         "stdin input defaults to archive mode unless streaming/pipeline requested"
     );
 }

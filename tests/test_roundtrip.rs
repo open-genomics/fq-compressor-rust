@@ -6,6 +6,8 @@ use fqc::algo::block_compressor::*;
 use fqc::archive::format::*;
 use fqc::archive::reader::FqcReader;
 use fqc::archive::writer::FqcWriter;
+use fqc::block::id_codec::{delta_decode_ids, delta_encode_ids};
+use fqc::block::{DecodedBlock, EncodedBlock};
 use fqc::types::*;
 
 fn make_reads(n: usize, length: usize) -> Vec<ReadRecord> {
@@ -19,7 +21,7 @@ fn make_reads(n: usize, length: usize) -> Vec<ReadRecord> {
         .collect()
 }
 
-fn decompress_block(compressor: &mut BlockCompressor, compressed: &CompressedBlockData) -> DecompressedBlockData {
+fn decompress_block(compressor: &mut BlockCompressor, compressed: &EncodedBlock) -> DecodedBlock {
     compressor
         .decompress_raw(
             0,
@@ -370,21 +372,21 @@ fn test_full_archive_roundtrip() {
         assert_eq!(reader.block_count(), 1);
 
         let block_data = reader.read_block(0).unwrap();
-        let bh = &block_data.header;
+        let bh = &block_data.meta;
 
         let decompressed = compressor
             .decompress_raw(
                 bh.block_id,
-                bh.uncompressed_count,
+                bh.read_count,
                 bh.uniform_read_length,
                 bh.codec_ids,
                 bh.codec_seq,
                 bh.codec_qual,
                 bh.codec_aux,
-                &block_data.ids_data,
-                &block_data.seq_data,
-                &block_data.qual_data,
-                &block_data.aux_data,
+                &block_data.id_stream,
+                &block_data.seq_stream,
+                &block_data.qual_stream,
+                &block_data.aux_stream,
             )
             .unwrap();
 

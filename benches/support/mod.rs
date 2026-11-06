@@ -81,20 +81,20 @@ pub fn decompress_archive(path: &Path) -> Vec<ReadRecord> {
     let mut restored = Vec::new();
     for block_id in 0..reader.block_count() {
         let block = reader.read_block(block_id as u32).unwrap();
-        let header = &block.header;
+        let header = &block.meta;
         let decompressed = compressor
             .decompress_raw(
                 header.block_id,
-                header.uncompressed_count,
+                header.read_count,
                 header.uniform_read_length,
                 header.codec_ids,
                 header.codec_seq,
                 header.codec_qual,
                 header.codec_aux,
-                &block.ids_data,
-                &block.seq_data,
-                &block.qual_data,
-                &block.aux_data,
+                &block.id_stream,
+                &block.seq_stream,
+                &block.qual_stream,
+                &block.aux_stream,
             )
             .unwrap();
         restored.extend(decompressed.reads);
@@ -113,10 +113,10 @@ pub fn verify_archive(path: &Path) -> u64 {
         global_hasher.update(&reader.global_header.flags.to_le_bytes());
         for block_id in 0..reader.block_count() {
             let block = reader.read_block(block_id as u32).unwrap();
-            global_hasher.update(&block.ids_data);
-            global_hasher.update(&block.seq_data);
-            global_hasher.update(&block.qual_data);
-            global_hasher.update(&block.aux_data);
+            global_hasher.update(&block.id_stream);
+            global_hasher.update(&block.seq_stream);
+            global_hasher.update(&block.qual_stream);
+            global_hasher.update(&block.aux_stream);
         }
         assert_eq!(global_hasher.digest(), reader.footer.global_checksum);
     }
@@ -132,25 +132,25 @@ pub fn verify_archive(path: &Path) -> u64 {
     let mut verified_reads = 0u64;
     for block_id in 0..reader.block_count() {
         let block = reader.read_block(block_id as u32).unwrap();
-        let header = &block.header;
+        let header = &block.meta;
         let decompressed = compressor
             .decompress_raw(
                 header.block_id,
-                header.uncompressed_count,
+                header.read_count,
                 header.uniform_read_length,
                 header.codec_ids,
                 header.codec_seq,
                 header.codec_qual,
                 header.codec_aux,
-                &block.ids_data,
-                &block.seq_data,
-                &block.qual_data,
-                &block.aux_data,
+                &block.id_stream,
+                &block.seq_stream,
+                &block.qual_stream,
+                &block.aux_stream,
             )
             .unwrap();
 
-        if header.block_xxhash64 != 0 {
-            assert_eq!(compute_block_checksum(&decompressed.reads), header.block_xxhash64);
+        if header.block_checksum != 0 {
+            assert_eq!(compute_block_checksum(&decompressed.reads), header.block_checksum);
         }
         for read in &decompressed.reads {
             assert!(read.is_valid());

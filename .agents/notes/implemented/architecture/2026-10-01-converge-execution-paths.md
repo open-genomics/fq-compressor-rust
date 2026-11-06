@@ -16,6 +16,18 @@ Status: implemented
 
 解压两侧行为审计结论（Phase 0，重构依据）：块级 range 预筛（只解码覆盖请求范围的块）仅 pipeline 有，输出语义与经典路径逐条一致（1-based 闭区间，已由 `tests/test_mode_matrix.rs::range_extraction_agrees_between_classic_and_pipeline_paths` 双路径对拍钉死）；`skip_corrupted` 的占位符默认值（`N`）与 id 模式两侧一致；`--pipeline` 在 `original_order`/`split_pe` 时由 CLI 层守卫回退经典路径；pipeline 统计的 `total_bases` 恒为 0（summary 展示缺陷，随下沉一并修正）。经典路径的部分输出防护依赖串行结构 + 事务末端 commit，pipeline 的 "Decompression incomplete" 守卫保留。
 
+## 2026-11 校准
+
+本轮复核发现：该 note 的“一个骨架函数”表述比代码现状更理想化。实际状态是
+`engine/compression_engine/{archive,streaming,pipeline}_runner.rs` 三个模式 runner，
+共享 `plan` 的块/worker 固定点、`archive::writer::write_global_header`、`estimate/input`
+辅助与 pipeline 内部的 `analyze_and_reorder` / `write_blocks_parallel`。压缩 pipeline
+仍然是**完整摄入**，不是 reader/compressor/writer 的增量流式管线。
+
+因此本 note 的目标应按“去掉重复编排、共享规划/头部/统计”来理解，而不是“所有模式只剩
+一个函数”。CLI 与文档也已改为明确说明 pipeline 的完整摄入语义；真正的 bounded
+pipeline 仍是后续独立切片。
+
 相关：[三种执行模式](2026-09-27-three-execution-modes.md)。
 
 ## 备选方案

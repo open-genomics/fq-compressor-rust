@@ -27,26 +27,29 @@ fqc compress -i INPUT -o OUTPUT [OPTIONS]
 | --- | --- |
 | `-2, --input2` | 双端输入的第二个 FASTQ 文件 |
 | `-l, --level` | 压缩级别 `1..9`（默认：`5`） |
-| `--reorder <true|false>` | 启用或禁用全局读段重排（默认：`true`） |
+| `--reorder <auto|true|false>` | 读段重排策略（默认：`auto`）。`auto` 同时采样相邻重叠与全局共享 k-mer：已空间有序时跳过；相邻低但全局共享高时启用；没有共享序列结构时也跳过 |
 | `--streaming` | 禁用重排，增量处理输入 |
 | `--lossy-quality` | `none`（无损，`lossless` 为同义别名）、`illumina8`（8 箱）、`qvz`（8 级最近邻码本，有损）或 `discard` |
 | `--id-mode` | `tokenize`（默认：模式检测，失败回退 exact）、`exact` 或 `discard` |
 | `--long-read-mode` | `auto`、`short`、`medium` 或 `long`（默认：`auto`） |
 | `--interleaved` | 将输入视为交错双端 FASTQ |
-| `--max-block-bases` | 限制中长读每块碱基数（`0` = 长读按 5M bases 自动切块） |
+| `--max-block-bases` | 限制每块碱基数（所有读长类别；`0` = 自动：archive/pipeline 的 Long 按 5 Mbp，其他类别按 8 Mbp；streaming 不套自动上限；显式值始终生效） |
+| `--block-reads` | 显式指定每块读段数，范围 `1..=1,000,000`（`0` = 按实际 codec worker 上限与碱基预算自动；`--pipeline` 仍要求至少 `100`） |
 | `--scan-all-lengths` | 检查完整输入而非采样检测长度 |
-| `--pipeline` | 使用分段压缩流水线 |
+| `--pipeline` | 先完整摄入并做全局分析，再并行压缩块；不是低内存流式摄入（严格低内存请用 `--streaming`） |
 | `--pe-layout` | 双端归档元数据 `interleaved` 或 `consecutive`（默认：`interleaved`） |
 | `-f, --force` | 覆盖已存在的输出（仅在成功完成后原子替换；失败时保留旧文件） |
 
 说明：
 
-- archive 模式将完整读段集保留在内存中进行全局分析和可选重排
-- 长读在 archive 与 pipeline 的 `--max-block-bases 0` 下按 5M bases/block 自动切块；显式值覆盖自动选择，streaming 保持其原有块大小（显式值仍生效）
+- archive 模式将完整读段集保留在内存中进行全局分析和可选重排；默认块大小按实际 codec worker 上限、读段数和碱基预算自动计算。worker 受 `--memory-limit` 限制时，块大小会同步放大以保持每 worker 的缓冲块数。streaming 是单线程增量路径，块大小只作为内存/批次粒度，不套并行 worker 规划。
+- 长读在 archive 与 pipeline 的 `--max-block-bases 0` 下按 5M bases/block 自动切块；显式值覆盖自动选择，streaming 保持其原有块大小（显式值仍生效）。
+- `--reorder auto` 只对短读单端数据生效；双端/交错输入保持现有语义（不重排）。`auto` 的全局共享判定使用采样 minimizer/k-mer 结构，目标是不对独立随机读段支付重排成本
 - `--memory-limit 0` 在 compress / decompress / verify 上都是有限预算（约可用内存 75%，带硬性结构上限），不是无限内存。Linux 自动预算取 `/proc/meminfo` 的 `MemAvailable` 与 cgroup v2/v1 剩余额度的较小值；archive 与 pipeline 压缩按摄入峰值估计拒绝超预算，并提示改 `--streaming`
+- 自动线程数（`--threads 0`）在没有显式 `--memory-limit` 时最多使用 4 个编解码 worker；显式 `--threads` 或 `--memory-limit` 可覆盖该保护。自动分块与 worker 规划会迭代到一致，不会按请求线程数生成远超实际 worker 的块数。
 - `--id-mode tokenize` 会尝试公共前缀 + 可变字段编码，模式不稳定则该块回退 exact；归档 flags 仍记录所选模式。`--id-mode exact` 从不 tokenize
 - `--lossy-quality qvz` 把每个 Phred 值量化到固定 8 级码本 `[7, 15, 20, 25, 30, 35, 40, 41]` 后再走 SCM，不是无损别名，也不是训练过的率失真 QVZ
-- pipeline 模式是分段执行路径，非严格低内存摄入模式
+- compress pipeline 先完整摄入并做全局分析，然后并行压缩块；它不是块级流式低内存路径。需要严格低内存请用 `--streaming`
 - 普通文件输出先写同目录临时文件，成功后再 rename；stdout（`-`）不走事务
 
 ## `decompress`
@@ -76,7 +79,12 @@ fqc info -i INPUT [--json] [--detailed] [--show-codecs]
 - `--detailed` 显示块索引条目
 - `--show-codecs` 报告每块编解码器字节
 
-完整解压与 `--original-order` 受同一 `--memory-limit` 约束；超预算会在创建输出前失败。
+完整解压与 `--original-order` 受同一 `--memory-limit` 约束；`--original-order` 的峰值估算
+超预算会在创建输出前失败。worker 数也受预算约束，但 RSS 仍可能因 allocator、线程栈和
+zstd 临时缓冲高于估算，`--memory-limit` 是预算而不是 OS 级硬上限。
+估算优先使用归档所有 block 共有的 uniform read length；无法确定时回退到类别上界
+（Short 511 bp、Medium 10,240 bp、Long 100,000 bp 的实用上界），不会把长读当作
+256 bp 的短读来分配 worker。
 
 ## `verify`
 

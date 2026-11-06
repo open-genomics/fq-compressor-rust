@@ -5,7 +5,7 @@ Status: implemented
 ## 问题
 
 全仓库唯一一处 `unsafe` 是 Windows `GlobalMemoryStatusEx` FFI（原
-`src/memory_budget.rs` 的 `get_available_memory_windows`），而 CI 是
+`src/memory/system.rs`（Windows 探测已移除）），而 CI 是
 Linux-only——这段唯一的 unsafe 从未被任何门禁编译或执行过，README 的
 "除 Windows 内存探测外零 unsafe" 安全声明恰好落在无人验证的代码上。若为它
 补 Windows CI job，则与 `AGENTS.md` 的 "lightweight, low-maintenance" 定位

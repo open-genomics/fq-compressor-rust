@@ -14,6 +14,7 @@
 ## 参考（信息导向：查证事实）
 
 - [CLI 参考](reference/cli.md) —— 全部命令与选项
+- [Library API](reference/library-api.md) —— 库嵌入 facade 与稳定契约
 - [.fqc 二进制格式规范](reference/format-spec.md) —— 归档布局、头部、流与索引
 - [基准测试报告](reference/performance-report.md) —— 微型夹具实测
 - [热点测量报告](reference/hotspot-report.md) —— 阶段计时与优化前后对比

@@ -8,16 +8,16 @@
 // options and routes here or to `DecompressionPipeline`.
 // =============================================================================
 
-use crate::algo::block_compressor::{BlockCompressor, BlockCompressorConfig, DecompressedBlockData};
+use crate::algo::block_compressor::{BlockCompressor, BlockCompressorConfig};
 use crate::archive::format::{flags, get_id_mode, get_pe_layout, get_quality_mode, get_read_length_class};
 use crate::archive::reader::FqcReader;
-use crate::archive::traits::BlockData;
+use crate::block::{DecodedBlock, EncodedBlock};
 use crate::error::{FqcError, Result};
 use crate::fastq::parser::write_record as write_fastq_record;
 use crate::io::{commit_split, OutputTransaction};
-use crate::memory_budget::DecodeBudget;
-use crate::pipeline::decompression::DecompressionPipelineConfig;
-use crate::pipeline::PipelineStats;
+use crate::memory::DecodeBudget;
+use crate::pipeline::decompression::DecompressionConfig;
+use crate::stats::OperationStats;
 use crate::types::*;
 use rayon::prelude::*;
 use std::io::{BufWriter, Write};
@@ -125,7 +125,8 @@ fn write_to_target(output: &mut dyn Write, read: &ReadRecord, header_only: bool)
         } else {
             read.comment.len() + 1
         };
-        Ok(read.id.len() as u64 + comment_bytes as u64 + read.sequence.len() as u64 + read.quality.len() as u64 + 4)
+        // FASTQ layout: '@' + id + (space + comment) + '\n' + seq + '\n+\n' + qual + '\n'
+        Ok(read.id.len() as u64 + comment_bytes as u64 + read.sequence.len() as u64 + read.quality.len() as u64 + 6)
     }
 }
 
@@ -138,7 +139,7 @@ fn derive_split_output_paths(output_path: &str) -> (String, String) {
     }
 }
 
-fn placeholder_record(config: &DecompressionPipelineConfig, block_id: u32, read_idx: usize) -> ReadRecord {
+fn placeholder_record(config: &DecompressionConfig, block_id: u32, read_idx: usize) -> ReadRecord {
     let placeholder_seq = config.corrupted_placeholder.clone().unwrap_or_else(|| "N".to_string());
     let quality = "!".repeat(placeholder_seq.len());
     ReadRecord {
@@ -154,17 +155,17 @@ fn placeholder_record(config: &DecompressionPipelineConfig, block_id: u32, read_
 // =============================================================================
 
 pub struct SequentialDecompressor {
-    config: DecompressionPipelineConfig,
+    config: DecompressionConfig,
 }
 
 impl SequentialDecompressor {
-    pub fn new(config: DecompressionPipelineConfig) -> Self {
+    pub fn new(config: DecompressionConfig) -> Self {
         Self { config }
     }
 
-    pub fn run(&mut self, input_path: &str, output_path: &str) -> Result<PipelineStats> {
+    pub fn run(&mut self, input_path: &str, output_path: &str) -> Result<OperationStats> {
         let start = Instant::now();
-        let mut stats = PipelineStats::default();
+        let mut stats = OperationStats::default();
 
         let budget = DecodeBudget::resolve(self.config.memory_limit_mb);
         if budget.automatic {
@@ -193,7 +194,12 @@ impl SequentialDecompressor {
                 ));
             }
             // Fail before creating outputs if peak estimate exceeds budget.
-            budget.check_original_order_peak(reader.total_read_count(), reader.max_block_compressed_size(), 256)?;
+            let avg_length = reader.memory_estimate_read_length() as u64;
+            budget.check_original_order_peak(
+                reader.total_read_count(),
+                reader.max_block_compressed_size(),
+                avg_length,
+            )?;
             reader.load_reorder_map()?;
             log::info!("Reorder map loaded");
         }
@@ -289,7 +295,7 @@ impl SequentialDecompressor {
                     &mut output,
                 ) {
                     Ok(()) => {
-                        stats.total_blocks += 1;
+                        stats.blocks += 1;
                     }
                     Err(e) => {
                         if self.config.skip_corrupted {
@@ -323,9 +329,9 @@ impl SequentialDecompressor {
         log::info!(
             "Decompression complete: {} reads, {} blocks",
             stats.total_reads,
-            stats.total_blocks
+            stats.blocks
         );
-        stats.processing_time_ms = start.elapsed().as_millis() as u64;
+        stats.elapsed_seconds = start.elapsed().as_secs_f64();
         Ok(stats)
     }
 
@@ -336,15 +342,29 @@ impl SequentialDecompressor {
         block_config: &BlockCompressorConfig,
         block_count: usize,
         total_archive_reads: u64,
-        stats: &mut PipelineStats,
+        stats: &mut OperationStats,
         output: &mut OutputWriters,
     ) -> Result<()> {
         log::info!("Using parallel decompression ({} blocks)", block_count);
 
         let block_hint = reader.max_block_compressed_size();
+        let max_block_reads = reader
+            .block_index
+            .entries
+            .iter()
+            .map(|entry| entry.read_count as usize)
+            .max()
+            .unwrap_or(1_000);
+        let worker_bytes =
+            block_config.estimated_worker_bytes(max_block_reads, reader.memory_estimate_read_length()) as u64;
+        let max_workers = reader
+            .budget()
+            .max_workers_for_budget(worker_bytes, reader.budget().worker_budget_bytes());
         let batch_size = reader
             .budget()
-            .parallel_batch_size(self.config.num_threads, block_hint)?
+            .parallel_batch_size(self.config.effective_threads(), block_hint)?
+            .min(max_workers)
+            .min(self.config.effective_threads())
             .min(block_count)
             .max(1);
         let config = Arc::new(block_config.clone());
@@ -358,7 +378,7 @@ impl SequentialDecompressor {
 
             // Phase 1: Read block data sequentially
             let t_phase = Instant::now();
-            let mut block_data_vec: Vec<(u32, BlockData)> = Vec::with_capacity(batch_end - block_start);
+            let mut block_data_vec: Vec<(u32, EncodedBlock)> = Vec::with_capacity(batch_end - block_start);
             let mut phase1_failures: Vec<(u32, String, u32)> = Vec::new();
             for block_id in block_start..batch_end {
                 match reader.read_block(block_id as u32) {
@@ -385,13 +405,13 @@ impl SequentialDecompressor {
             // Phase 2: Decompress in parallel
             let t_phase = Instant::now();
             let cfg = Arc::clone(&config);
-            let results: Vec<std::result::Result<(u32, DecompressedBlockData), (u32, String, u32)>> = block_data_vec
+            let results: Vec<std::result::Result<(u32, DecodedBlock), (u32, String, u32)>> = block_data_vec
                 .into_par_iter()
                 .map(|(bid, bd)| {
                     let mut comp = BlockCompressor::new((*cfg).clone());
                     match comp.decompress_block(&bd) {
                         Ok(dec) => Ok((bid, dec)),
-                        Err(e) => Err((bid, format!("{e}"), bd.header.uncompressed_count)),
+                        Err(e) => Err((bid, format!("{e}"), bd.meta.read_count)),
                     }
                 })
                 .collect();
@@ -421,7 +441,7 @@ impl SequentialDecompressor {
                             )?;
                             global_read_idx += 1;
                         }
-                        stats.total_blocks += 1;
+                        stats.blocks += 1;
                     }
                     Err((bid, msg, read_count)) => {
                         if skip_corrupted {
@@ -456,7 +476,7 @@ impl SequentialDecompressor {
         block_id: u32,
         total_archive_reads: u64,
         global_read_idx: &mut u64,
-        stats: &mut PipelineStats,
+        stats: &mut OperationStats,
         output: &mut OutputWriters,
     ) -> Result<()> {
         // Serial path: time each phase so single-block files still report
@@ -499,7 +519,7 @@ impl SequentialDecompressor {
         compressor: &mut BlockCompressor,
         block_count: usize,
         total_archive_reads: u64,
-        stats: &mut PipelineStats,
+        stats: &mut OperationStats,
         output: &mut OutputWriters,
     ) -> Result<()> {
         log::info!("Restoring original read order...");
@@ -538,7 +558,7 @@ impl SequentialDecompressor {
             match compressor.decompress_block(&block_data) {
                 Ok(decompressed) => {
                     all_reads.extend(decompressed.reads);
-                    stats.total_blocks += 1;
+                    stats.blocks += 1;
                 }
                 Err(e) => {
                     if self.config.skip_corrupted {
@@ -589,7 +609,7 @@ impl SequentialDecompressor {
         read_count: u32,
         total_archive_reads: u64,
         global_read_idx: &mut u64,
-        stats: &mut PipelineStats,
+        stats: &mut OperationStats,
     ) -> Result<()> {
         for local_idx in 0..read_count as usize {
             let read_idx = *global_read_idx;
@@ -609,7 +629,7 @@ impl SequentialDecompressor {
 
     fn emit_read(
         &mut self,
-        stats: &mut PipelineStats,
+        stats: &mut OperationStats,
         output: &mut OutputWriters,
         read: &ReadRecord,
         zero_based_read_idx: u64,

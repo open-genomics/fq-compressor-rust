@@ -100,13 +100,15 @@ fqc 在解析时根据观察到的长度分布将输入读段自动分为三类�
 
 | 类别 | 长度 | 默认编解码器 | 原理 |
 |------|------|-------------|------|
-| 短读段 | &le;511 bp | ABC 共识/差分编码 | 高相似性，适合 contig 构建 |
+| 短读段 | &le;511 bp | 小块 ABC 共识/差分编码，其余 Zstd | 高相似性；ABC 当前仅用于 ≤512 条/块 |
 | 中等读段 | 512 bp &ndash; 10 KB | Zstd 直接压缩 | 中等相似性，LZ 效率 |
 | 长读段 | &gt;10 KB | Zstd 大块压缩 | 低相似性，流式效率 |
 
 分类基于观察到的长度分布自动进行，而非 CLI 预设。这确保了无论输入来源如何都能获得最优的编解码器选择。
 
 ### 4.2 ABC：锚定压缩
+
+> 2026-11 起，ABC 只用于不超过 512 条读段的小块；更大的生产块使用 Zstd。原因是 contig 构建仍为 O(n²)，4k 条块的实测耗时约 26 s，而 Zstd 约 0.13 s。ABC 代码与格式保留，待 seeding 优化后再扩大适用范围。
 
 对于短读段，fqc 实现了利用生物读段相似性的**锚定压缩（ABC）**算法：
 
@@ -183,37 +185,38 @@ fqc 实现为单二进制 Rust CLI，具有清晰分离的层次：
 ```
 src/
   main.rs                 # CLI 入口点
-  lib.rs                  # 库导出
-  commands/               # 命令实现
+  api.rs                  # 稳定嵌入 facade（compress/decompress/info/verify）
+  commands/               # 命令实现与输出
     compress.rs / decompress.rs / info.rs / verify.rs
+  plan/                   # 请求校验、执行模式、块/worker 规划
+    compress.rs / decompress.rs / block_plan.rs
   engine/                 # 压缩编排
-    compression_engine.rs    # 执行模式路由
-    compression_request.rs   # 请求规范化
-  algo/                   # 压缩算法
-    abc.rs                # 锚定压缩
-    block_compressor.rs   # 块级协调器
-    quality_compressor.rs # SCM 质量压缩
-    id_compressor.rs      # ID tokenize/delta 编码
-    global_analyzer.rs    # 最小化器提取、重排
-    zstd_sequence.rs / dna.rs / aux_compressor.rs
-  archive/                # .fqc 归档
-    format.rs             # 二进制布局
-    reader.rs / writer.rs / traits.rs
-  pipeline/               # 并行处理阶段
-    compression.rs / decompression.rs
+    compression_engine.rs
+    compression_engine/{archive,streaming,pipeline}_runner.rs
+  block/                  # 中立块域（meta / encoded / decoded / id codec）
+  algo/                   # 压缩算法（不依赖 archive）
+    abc.rs / block_compressor.rs / quality_compressor.rs
+    id_compressor.rs / global_analyzer.rs / zstd_sequence.rs / aux_compressor.rs
+  archive/                # .fqc 归档（不依赖 algo）
+    format.rs / reader.rs / writer.rs
+  pipeline/               # 块级并行压缩/解压
+    compression.rs / decompression.rs / decompression_classic.rs
   fastq/                  # FASTQ 解析
     parser.rs
-  io/                     # 压缩输入流与事务输出
+  io/                     # 压缩输入流与通用事务输出
     compressed_stream.rs / async_io.rs / output_transaction.rs
-  memory_budget.rs        # 内存预算估计
+  memory/                 # ingest / encode / decode 预算
+  dna.rs                  # 中立 DNA 表与校验
+  stats.rs                # 唯一 OperationStats
   error.rs                # 错误类型与退出码
-  types.rs                # 公共类型和默认值
+  types.rs                # 核心类型和默认值
 ```
 
+依赖方向由 `tests/test_architecture.rs` 守护：`algo` 与 `archive` 只通过 `block` 交接；
+`io` / `fastq` / `memory` / `plan` 不依赖更高层。
 ### 6.2 安全与正确性
 
-实现除 Windows 内存探测（`GlobalMemoryStatusEx` FFI，见 `src/memory_budget.rs`）外不包含
-**unsafe 代码**。其余所有内存管理由 Rust 所有权系统处理。这是深思熟虑的设计选择：
+实现不包含 **unsafe 代码**，由 `[lints.rust] unsafe_code = "deny"` 强制。其余所有内存管理由 Rust 所有权系统处理。这是深思熟虑的设计选择：
 生物信息学工具通常处理不受信任的输入（下载的测序数据），使内存安全成为安全问题。
 
 项目强制执行：

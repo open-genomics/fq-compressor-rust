@@ -36,31 +36,50 @@ disagree with the code.
 
 ```
 src/
-├── main.rs              # CLI entry point
-├── commands/            # CLI command implementations
-│   ├── compress.rs      # Compression CLI orchestration
-│   ├── decompress.rs    # Decompression CLI
-│   ├── info.rs          # Archive metadata display
-│   └── verify.rs        # Integrity verification
-├── engine/              # Core compression engine
-│   ├── compression_engine.rs   # ExecutionMode routing (archive/streaming/pipeline)
-│   └── compression_request.rs  # Normalized request types
-├── algo/                # Compression algorithms
-│   ├── abc.rs           # Anchor-Based Compression (short reads)
-│   ├── block_compressor.rs  # Block-level compression coordinator
-│   ├── quality_compressor.rs  # SCM quality compression
-│   └── global_analyzer.rs  # Minimizer extraction, reordering
-├── archive/             # .fqc archive format
-│   ├── format.rs        # Binary layout (headers, blocks, footer)
-│   ├── reader.rs        # Archive reader
-│   ├── writer.rs        # Archive writer
-│   └── traits.rs        # Shared reader/writer traits
-├── pipeline/            # Parallel processing stages
-├── fastq/               # FASTQ parser
-├── io/                  # Compressed input streams
-├── memory_budget.rs     # Memory budget estimation
-└── types.rs             # Public types and defaults
+├── main.rs              # Thin CLI entry point
+├── api.rs               # Stable operation facade (compress/decompress/info/verify)
+├── commands/            # CLI command implementations and printing
+│   ├── compress.rs
+│   ├── decompress.rs
+│   ├── info.rs
+│   └── verify.rs
+├── plan/                # Validated requests, execution modes, block/worker planning
+│   ├── compress.rs      # CompressionRequest + ValidatedCompressPlan
+│   ├── decompress.rs    # DecompressRequest + ValidatedDecompressPlan
+│   └── block_plan.rs    # block_size/workers fixed point and memory profile
+├── engine/              # Compression mode routing and runners
+│   ├── compression_engine.rs
+│   └── compression_engine/{archive,streaming,pipeline}_runner.rs
+├── block/               # Neutral block domain shared by algo and archive
+│   ├── mod.rs           # BlockMeta / EncodedBlock / DecodedBlock
+│   └── id_codec.rs      # delta + zig-zag + varint IDs
+├── algo/                # Compression algorithms (never imports archive)
+│   ├── abc.rs
+│   ├── block_compressor.rs
+│   ├── quality_compressor.rs
+│   └── global_analyzer.rs
+├── archive/             # .fqc layout and file I/O (never imports algo)
+│   ├── format.rs
+│   ├── reader.rs
+│   └── writer.rs
+├── pipeline/            # Parallel block compression / decompression
+├── fastq/               # FASTQ parser (no archive/algo dependency)
+├── io/                  # Generic compressed streams and output transactions
+├── memory/              # ingest / encode / decode budgets
+├── dna.rs               # Neutral DNA tables and validation
+├── stats.rs             # Single OperationStats source of truth
+└── types.rs             # Core enums, ReadRecord, sizing defaults
 ```
+
+Dependency direction is enforced by `tests/test_architecture.rs`:
+
+```
+commands/api -> engine -> pipeline -> algo / archive -> block
+                         -> fastq / io / memory / plan -> types
+```
+
+`archive` and `algo` must only meet through `block`; `io`, `fastq`, `memory`
+and `plan` must not import higher layers.
 
 ### Execution modes
 
@@ -70,13 +89,14 @@ Compression routes through `CompressionEngine` with three distinct modes:
 |------|------|--------|---------|----------|
 | Archive | (default) | Full ingest | Yes | Best ratio |
 | Streaming | `--streaming` | Bounded | No | Large files, low memory |
-| Pipeline | `--pipeline` | Staged | Limited (short single-end) | Balanced throughput |
+| Pipeline | `--pipeline` | Full ingest, parallel blocks | Limited (short single-end) | Balanced throughput; not a bounded streaming ingest |
 
 ### Compression path selection
 
 ```
 Read length classification:
-├── Short (≤511 bp) → ABC consensus/delta + Zstd
+├── Short (≤511 bp) and block reads ≤512 → ABC consensus/delta + Zstd
+├── Short (≤511 bp), larger block → Zstd direct
 ├── Medium (512 bp-10 KB) → Zstd direct
 └── Long (≥10 KB) → Zstd with large-block settings
 ```

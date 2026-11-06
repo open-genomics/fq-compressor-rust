@@ -6,7 +6,7 @@ pub mod async_io;
 pub mod compressed_stream;
 pub mod output_transaction;
 
-pub use output_transaction::{begin_fqc_writer, commit_split, OutputTransaction};
+pub use output_transaction::{commit_split, OutputTransaction};
 
 /// Print a line to stdout, treating a closed pipe (`BrokenPipe`, e.g.
 /// `fqc info | head`) as a normal end of output. Replaces `println!`, which

@@ -4,6 +4,8 @@
 
 ## 当前瓶颈
 
+> 2026-11 已落地：`--reorder auto`、按实际 codec worker 上限与碱基预算的自适应分块、ABC 限流到 ≤512 条/块、扁平化 `u16` Fenwick 质量模型、worker 内存上限与长读类别估算。下面的“当前瓶颈”保留为问题背景；新的下一步是 bounded streaming pipeline、每块 alphabet/ScmV2、ABC seeding。
+
 - **短读段压缩仍需全局分析遍历。** 主压缩路径在写入块之前可以分析完整数据集，因此重排感知压缩能提高压缩率，但这也将内存和时间压力集中在第一阶段。
 - **低内存模式以灵活性换取可预测性。** `--streaming` 避免全局重排，管道模式将工作分散到各阶段，但项目仍需更清晰的指导，说明何时这些模式应作为首选基础。
 - **全量摄入模式已有有限预算。** archive 与 pipeline 压缩在读入时估计峰值；超限失败。pipeline 仍先读完全部读段再分阶段压缩，要严格低内存请用 `--streaming`。
@@ -42,7 +44,7 @@ flowchart TD
 - **短读：全局重排是纯净亏**。真实 Illumina WXS 切片上 `--reorder true` 比 `false` 慢 5.7× 且输出大 12.2%
   （14.0 MB vs 12.5 MB，磁盘比 4.03× vs 4.52×）。输入 FASTQ 已按基因组位置空间有序，minimizer 贪心重排破坏局部性。
   下一刀：**重排自适应 / 默认关闭**（离线采样判定输入是否已有序，只在无序时启用）。
-- **长读：单 block 串行**。ONT 切片（65.36 Mbp）默认 1 个 block，8 线程只用了 1 个；`--max-block-bases` 可显式切块并行。
+- **长读：历史上是单 block 串行**。ONT 切片（65.36 Mbp）在旧默认下只有 1 个 block；2026-10-26 起 archive/pipeline 在 `--max-block-bases 0` 下按 5 Mbp 自动切块，streaming 仍保持原块大小。
 - 顺手优化：重排/建块改为移动（`mem::take`），输出字节不变、分配减少（不触及上述算法热点）。
 
 ```mermaid
@@ -82,7 +84,7 @@ flowchart LR
 ```
 
 - archive 压缩自动内存选择已落地；pipeline 全量摄入仍单独处理
-- 解析器/重排/管道/归档写入热点已测量（2026-08-20，见 `docs/reference/hotspot-report.md`）：短读热点在全局重排（且负收益），长读热点在单 block 串行
+- 解析器/重排/管道/归档写入热点已测量（2026-08-20，见 `docs/reference/hotspot-report.md`）：短读旧热点在全局重排（且负收益），长读旧热点在单 block 串行（已由自动分块修复）
 - 下一刀（有数据支撑）：重排自适应 / 默认关闭；长读 archive/pipeline 已按 5M bases/block
   自动切块（2026-10-26，`--max-block-bases` 可覆盖）
 - 将任何较大的算法或数据结构变更限定在可单独审查的小切片中

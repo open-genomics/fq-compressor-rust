@@ -30,4 +30,4 @@ Status: implemented
 
 ## 验证
 
-模式枚举与路由在 `src/engine/compression_engine.rs`（`ExecutionMode::{Archive,Streaming,Pipeline}`）；请求归一化在 `src/engine/compression_request.rs`。
+模式枚举与路由在 `src/engine/compression_engine.rs`（`ExecutionMode::{Archive,Streaming,Pipeline}`）；请求归一化在 `src/plan/compress.rs`。

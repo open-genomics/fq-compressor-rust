@@ -25,4 +25,4 @@ Status: implemented
 
 ## 验证
 
-`src/memory_budget.rs` 定义预算类型与钳制；`src/archive/reader.rs` 的 `open_with_budget` 是入口；`ResourceLimit` 错误在 `src/error.rs`。
+`src/memory/decode.rs` 定义预算类型与钳制；`src/archive/reader.rs` 的 `open_with_budget` 是入口；`ResourceLimit` 错误在 `src/error.rs`。

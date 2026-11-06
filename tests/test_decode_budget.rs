@@ -1,13 +1,14 @@
 //! Decode / verify resource budget tests (FQCR-LIMIT-001).
 
-use fqc::archive::format::{BLOCK_INDEX_HEADER_SIZE, INDEX_ENTRY_SIZE};
+use fqc::archive::format::{BlockHeader, BLOCK_INDEX_HEADER_SIZE, INDEX_ENTRY_SIZE};
 use fqc::archive::reader::FqcReader;
 use fqc::commands::compress::{CompressCommand, CompressOptions};
 use fqc::commands::decompress::{DecompressCommand, DecompressOptions};
 use fqc::commands::verify::{VerifyCommand, VerifyOptions};
 use fqc::error::FqcError;
-use fqc::memory_budget::{zstd_decompress_bounded, DecodeBudget, HARD_MAX_INDEX_ENTRIES, MIN_DECODE_MEMORY_MB};
+use fqc::memory::{zstd_decompress_bounded, DecodeBudget, HARD_MAX_INDEX_ENTRIES, MIN_DECODE_MEMORY_MB};
 use std::fs;
+use std::io::{Seek, SeekFrom};
 use std::path::PathBuf;
 
 fn write_tiny_fastq(path: &PathBuf, n_reads: usize) {
@@ -23,6 +24,67 @@ fn write_tiny_fastq(path: &PathBuf, n_reads: usize) {
     fs::write(path, out).unwrap();
 }
 
+fn write_variable_fastq(path: &PathBuf, n_reads: usize) {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    for i in 0..n_reads {
+        let length: usize = if i % 2 == 0 { 50 } else { 51 };
+        let seq = "ACGT".repeat(length.div_ceil(4));
+        let qual = "I".repeat(length);
+        write!(out, "@r{i}\n{}\n+\n{}\n", &seq[..length], qual).unwrap();
+    }
+    fs::write(path, out).unwrap();
+}
+
+fn write_two_block_lengths_fastq(path: &PathBuf, n_each: usize, first_len: usize, second_len: usize) {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    for (start, length, tag) in [(0, first_len, "a"), (n_each, second_len, "b")] {
+        let seq = "ACGT".repeat(length.div_ceil(4));
+        let qual = "I".repeat(length);
+        for i in start..start + n_each {
+            write!(out, "@{tag}{i}\n{}\n+\n{}\n", &seq[..length], qual).unwrap();
+        }
+    }
+    fs::write(path, out).unwrap();
+}
+
+fn compress_two_block_lengths(dir: &std::path::Path) -> PathBuf {
+    let input = dir.join("two-block-lengths.fastq");
+    let archive = dir.join("two-block-lengths.fqc");
+    write_two_block_lengths_fastq(&input, 100, 50, 51);
+    let code = CompressCommand::new(CompressOptions {
+        input_path: input.to_string_lossy().into_owned(),
+        output_path: archive.to_string_lossy().into_owned(),
+        force_overwrite: true,
+        reorder: fqc::plan::ReorderMode::Never,
+        block_size: 100,
+        threads: 1,
+        show_progress: false,
+        ..Default::default()
+    })
+    .execute();
+    assert_eq!(code, 0, "compress failed");
+    archive
+}
+
+fn compress_variable(dir: &std::path::Path, n_reads: usize) -> (PathBuf, PathBuf) {
+    let input = dir.join("variable.fastq");
+    let archive = dir.join("variable.fqc");
+    write_variable_fastq(&input, n_reads);
+    let code = CompressCommand::new(CompressOptions {
+        input_path: input.to_string_lossy().into_owned(),
+        output_path: archive.to_string_lossy().into_owned(),
+        force_overwrite: true,
+        reorder: fqc::plan::ReorderMode::Always,
+        show_progress: false,
+        ..Default::default()
+    })
+    .execute();
+    assert_eq!(code, 0, "compress failed");
+    (input, archive)
+}
+
 fn compress_tiny(dir: &std::path::Path, n_reads: usize, reorder: bool) -> (PathBuf, PathBuf) {
     let input = dir.join("in.fastq");
     let archive = dir.join("out.fqc");
@@ -31,7 +93,11 @@ fn compress_tiny(dir: &std::path::Path, n_reads: usize, reorder: bool) -> (PathB
         input_path: input.to_string_lossy().into_owned(),
         output_path: archive.to_string_lossy().into_owned(),
         force_overwrite: true,
-        enable_reorder: reorder,
+        reorder: if reorder {
+            fqc::plan::ReorderMode::Always
+        } else {
+            fqc::plan::ReorderMode::Never
+        },
         show_progress: false,
         ..Default::default()
     })
@@ -155,10 +221,50 @@ fn zstd_bounded_rejects_expansion_past_ceiling() {
 }
 
 #[test]
+fn mixed_uniform_blocks_fall_back_to_class_upper_bound() {
+    let dir = tempfile::tempdir().unwrap();
+    let archive = compress_two_block_lengths(dir.path());
+
+    let reader = FqcReader::open(archive.to_str().unwrap()).unwrap();
+    assert_eq!(reader.block_count(), 2);
+
+    let mut file = fs::File::open(&archive).unwrap();
+    for (idx, expected) in [50u32, 51].into_iter().enumerate() {
+        file.seek(SeekFrom::Start(reader.block_index.entries[idx].offset))
+            .unwrap();
+        let header = BlockHeader::read(&mut file).unwrap();
+        assert_eq!(
+            header.uniform_read_length, expected,
+            "block {idx} should be internally uniform"
+        );
+    }
+
+    assert_eq!(reader.uniform_read_length(), None);
+    assert_eq!(
+        reader.memory_estimate_read_length(),
+        fqc::types::ReadLengthClass::Short.memory_estimate_read_length()
+    );
+}
+
+#[test]
+fn variable_archive_uses_class_upper_bound_for_estimate() {
+    let dir = tempfile::tempdir().unwrap();
+    let (_input, archive) = compress_variable(dir.path(), 4);
+
+    let reader = FqcReader::open(archive.to_str().unwrap()).unwrap();
+    assert_eq!(reader.uniform_read_length(), None);
+    assert_eq!(
+        reader.memory_estimate_read_length(),
+        fqc::types::ReadLengthClass::Short.memory_estimate_read_length()
+    );
+}
+
+#[test]
 fn original_order_peak_rejected_before_output() {
     let dir = tempfile::tempdir().unwrap();
-    // Enough reads that peak estimate with avg_bases_hint=256 exceeds 16 MB.
-    let (_input, archive) = compress_tiny(dir.path(), 40_000, true);
+    // Non-uniform blocks have no exact header hint, so the Short-class
+    // fallback (511 bp) must make 15k reads exceed the 16 MB peak.
+    let (_input, archive) = compress_variable(dir.path(), 15_000);
 
     let out = dir.path().join("restored.fastq");
     assert!(!out.exists());
@@ -186,6 +292,20 @@ fn automatic_budget_is_finite() {
     assert!(b.max_alloc_bytes > 0);
     assert!(b.max_index_entries > 0);
     assert!(b.max_index_entries <= HARD_MAX_INDEX_ENTRIES);
+}
+
+#[test]
+fn worker_budget_keeps_headroom_for_non_worker_memory() {
+    let budget = DecodeBudget::resolve(128);
+    let reserved = budget.worker_budget_bytes();
+    assert_eq!(reserved, budget.limit_bytes / 3 * 2);
+    assert!(reserved < budget.limit_bytes);
+
+    let worker_bytes = 48 * 1024 * 1024;
+    assert!(
+        budget.max_workers_for_budget(worker_bytes, reserved) < budget.max_workers_for(worker_bytes),
+        "reserved worker budget must be stricter than the raw operation budget"
+    );
 }
 
 #[test]

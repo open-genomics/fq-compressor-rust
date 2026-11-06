@@ -11,24 +11,26 @@ use std::time::Instant;
 
 use crossbeam_channel::{bounded, Receiver, Sender};
 
-use crate::algo::block_compressor::{BlockCompressor, BlockCompressorConfig, DecompressedBlockData};
+use crate::algo::block_compressor::{BlockCompressor, BlockCompressorConfig};
 use crate::archive::format::{get_id_mode, get_quality_mode, get_read_length_class};
 use crate::archive::reader::FqcReader;
-use crate::archive::traits::BlockData;
+use crate::block::{DecodedBlock, EncodedBlock};
 use crate::error::{FqcError, Result};
 use crate::fastq::parser::write_record;
 use crate::io::async_io::AsyncWriter;
 use crate::io::OutputTransaction;
-use crate::memory_budget::DecodeBudget;
+use crate::memory::DecodeBudget;
+use crate::types::DEFAULT_AUTO_CODEC_WORKERS;
 
-use super::{PipelineControl, PipelineStats, DEFAULT_MAX_IN_FLIGHT_BLOCKS};
+use super::{PipelineControl, DEFAULT_MAX_IN_FLIGHT_BLOCKS};
+use crate::stats::OperationStats;
 
 // =============================================================================
-// DecompressionPipelineConfig
+// DecompressionConfig
 // =============================================================================
 
 #[derive(Clone)]
-pub struct DecompressionPipelineConfig {
+pub struct DecompressionConfig {
     pub num_threads: usize,
     pub max_in_flight_blocks: usize,
     pub range_start: u64,
@@ -44,7 +46,7 @@ pub struct DecompressionPipelineConfig {
     pub memory_limit_mb: usize,
 }
 
-impl Default for DecompressionPipelineConfig {
+impl Default for DecompressionConfig {
     fn default() -> Self {
         Self {
             num_threads: 0,
@@ -62,15 +64,20 @@ impl Default for DecompressionPipelineConfig {
     }
 }
 
-impl DecompressionPipelineConfig {
+impl DecompressionConfig {
     pub fn effective_threads(&self) -> usize {
-        if self.num_threads == 0 {
+        let detected = if self.num_threads == 0 {
             std::thread::available_parallelism()
                 .map(|n| n.get())
                 .unwrap_or(4)
                 .max(1)
         } else {
             self.num_threads
+        };
+        if self.num_threads == 0 && self.memory_limit_mb == 0 {
+            detected.min(DEFAULT_AUTO_CODEC_WORKERS)
+        } else {
+            detected
         }
     }
 
@@ -95,12 +102,12 @@ impl DecompressionPipelineConfig {
 
 struct BlockTask {
     block_id: u32,
-    block_data: BlockData,
+    block_data: EncodedBlock,
 }
 
 struct DecompressedResult {
     block_id: u32,
-    result: std::result::Result<DecompressedBlockData, FqcError>,
+    result: std::result::Result<DecodedBlock, FqcError>,
     expected_read_count: u32,
 }
 
@@ -133,7 +140,8 @@ fn write_output_read(
         } else {
             read.comment.len() as u64 + 1
         };
-        Ok(read.id.len() as u64 + comment_bytes + read.sequence.len() as u64 + read.quality.len() as u64 + 4)
+        // FASTQ layout: '@' + id + (space + comment) + '\n' + seq + '\n+\n' + qual + '\n'
+        Ok(read.id.len() as u64 + comment_bytes + read.sequence.len() as u64 + read.quality.len() as u64 + 6)
     }
 }
 
@@ -144,6 +152,7 @@ struct PreparedRun {
     end_block: usize,
     compressor_config: Arc<BlockCompressorConfig>,
     max_inflight: usize,
+    num_workers: usize,
     writer_input: WriterThreadInput,
 }
 
@@ -166,21 +175,21 @@ struct WriterThreadInput {
 // =============================================================================
 
 pub struct DecompressionPipeline {
-    config: DecompressionPipelineConfig,
+    config: DecompressionConfig,
     control: PipelineControl,
-    stats: PipelineStats,
+    stats: OperationStats,
 }
 
 impl DecompressionPipeline {
-    pub fn new(config: DecompressionPipelineConfig) -> Self {
+    pub fn new(config: DecompressionConfig) -> Self {
         Self {
             config,
             control: PipelineControl::new(),
-            stats: PipelineStats::default(),
+            stats: OperationStats::default(),
         }
     }
 
-    pub fn stats(&self) -> &PipelineStats {
+    pub fn stats(&self) -> &OperationStats {
         &self.stats
     }
 
@@ -198,7 +207,6 @@ impl DecompressionPipeline {
         }
         self.config.validate_range()?;
         let start = Instant::now();
-        let threads = self.config.effective_threads();
 
         let PreparedRun {
             reader,
@@ -207,6 +215,7 @@ impl DecompressionPipeline {
             end_block,
             compressor_config,
             max_inflight,
+            num_workers,
             writer_input,
             ..
         } = self.prepare(input_path, output_path)?;
@@ -260,7 +269,7 @@ impl DecompressionPipeline {
         });
 
         // ---- Decompressor threads ----
-        let num_decomp_threads = threads.max(1);
+        let num_decomp_threads = num_workers.max(1);
         let mut decomp_handles = Vec::new();
         let decode_ns = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
@@ -279,17 +288,17 @@ impl DecompressionPipeline {
                         break;
                     }
 
-                    let bh = &task.block_data.header;
+                    let bh = &task.block_data.meta;
                     let t = Instant::now();
                     let decomp_result = compressor.decompress_block(&task.block_data);
                     decode_ns.fetch_add(t.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
 
-                    ctrl.add_reads(bh.uncompressed_count as u64);
+                    ctrl.add_reads(bh.read_count as u64);
 
                     tx.send(DecompressedResult {
                         block_id: task.block_id,
                         result: decomp_result,
-                        expected_read_count: bh.uncompressed_count,
+                        expected_read_count: bh.read_count,
                     })
                     .map_err(|_| FqcError::Decompression("Decompressor: channel closed".to_string()))?;
                 }
@@ -317,13 +326,13 @@ impl DecompressionPipeline {
             .map_err(|_| FqcError::Decompression("Writer thread panicked".to_string()))??;
 
         let elapsed = start.elapsed();
-        self.stats = PipelineStats {
+        self.stats = OperationStats {
             total_reads: reads_written,
             total_bases,
-            total_blocks: (end_block - start_block) as u32,
+            blocks: (end_block - start_block) as u64,
             input_bytes: file_size,
             output_bytes,
-            processing_time_ms: elapsed.as_millis() as u64,
+            elapsed_seconds: elapsed.as_secs_f64(),
             reorder_map_written: false,
             corrupted_blocks,
             parse_ms: reader_read_ms,
@@ -335,7 +344,7 @@ impl DecompressionPipeline {
         log::info!(
             "Decompression complete: {} reads, {} blocks, {:.1} MB/s",
             self.stats.total_reads,
-            self.stats.total_blocks,
+            self.stats.blocks,
             self.stats.throughput_mbps(),
         );
 
@@ -382,6 +391,21 @@ impl DecompressionPipeline {
         });
 
         let block_hint = reader.max_block_compressed_size();
+        let max_block_reads = reader
+            .block_index
+            .entries
+            .iter()
+            .map(|entry| entry.read_count as usize)
+            .max()
+            .unwrap_or(1_000);
+        let worker_bytes =
+            compressor_config.estimated_worker_bytes(max_block_reads, reader.memory_estimate_read_length()) as u64;
+        let num_workers = reader
+            .budget()
+            .max_workers_for_budget(worker_bytes, reader.budget().worker_budget_bytes())
+            .min(self.config.effective_threads())
+            .min(block_count.max(1))
+            .max(1);
         let budget_batch = reader
             .budget()
             .parallel_batch_size(self.config.effective_threads(), block_hint)?
@@ -395,6 +419,7 @@ impl DecompressionPipeline {
             end_block,
             compressor_config,
             max_inflight,
+            num_workers,
             writer_input: WriterThreadInput {
                 output_path: output_path.to_string(),
                 force_overwrite: self.config.force_overwrite,

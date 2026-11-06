@@ -507,14 +507,14 @@ impl BlockIndex {
     }
 
     pub fn read<R: Read>(r: &mut R) -> Result<Self> {
-        use crate::memory_budget::DecodeBudget;
+        use crate::memory::DecodeBudget;
         Self::read_with_budget(r, &DecodeBudget::automatic(), u64::MAX)
     }
 
     /// Read the block index, rejecting oversized `num_blocks` before allocation.
     pub fn read_with_budget<R: Read>(
         r: &mut R,
-        budget: &crate::memory_budget::DecodeBudget,
+        budget: &crate::memory::DecodeBudget,
         index_region_bytes: u64,
     ) -> Result<Self> {
         let header_size = r.read_u32::<LittleEndian>()? as usize;

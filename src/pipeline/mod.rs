@@ -3,14 +3,18 @@
 // =============================================================================
 // Implements parallel compression/decompression pipelines using channels.
 //
-// The pipeline follows the Pigz model:
-// 1. ReaderStage (Serial) - Reads FASTQ and produces chunks of reads
-// 2. CompressStage (Parallel) - Compresses chunks to blocks
-// 3. WriterStage (Serial) - Writes blocks to disk in order
+// Compression still performs a full ingest: reads are parsed and globally
+// analyzed before blocks enter the bounded channel. The pipeline parallelizes
+// block compression and orders block writes; it is not a bounded-ingest
+// streaming path (use `--streaming` for that).
+//
+// 1. Reader/ingest - parses and (optionally) reorders all reads
+// 2. CompressStage (Parallel) - compresses chunks to blocks
+// 3. WriterStage (Serial) - writes blocks to disk in order
 //
 // Key features:
 // - Block-level parallelism for compression
-// - Memory-bounded operation via bounded channels (backpressure)
+// - Bounded in-flight blocks with backpressure during the block phase
 // - Progress reporting and cancellation support
 // =============================================================================
 
@@ -30,51 +34,9 @@ use crate::types::*;
 /// Default number of in-flight blocks (for backpressure)
 pub const DEFAULT_MAX_IN_FLIGHT_BLOCKS: usize = 8;
 
-/// Minimum block size (reads)
-pub const MIN_BLOCK_SIZE: usize = 100;
-
-/// Maximum block size (reads)
-pub const MAX_BLOCK_SIZE: usize = 1_000_000;
-
 // =============================================================================
 // Pipeline Statistics
 // =============================================================================
-
-/// Statistics collected during pipeline execution
-#[derive(Debug, Clone, Default)]
-pub struct PipelineStats {
-    pub total_reads: u64,
-    pub total_bases: u64,
-    pub total_blocks: u32,
-    pub input_bytes: u64,
-    pub output_bytes: u64,
-    pub processing_time_ms: u64,
-    pub reorder_map_written: bool,
-    /// Blocks replaced by placeholders under `--skip-corrupted`.
-    pub corrupted_blocks: u32,
-    // Stage timings (ms). Serial stages are wall-clock; process_ms
-    // aggregates parallel worker time across threads.
-    pub parse_ms: u64,
-    pub reorder_ms: u64,
-    pub process_ms: u64,
-    pub write_ms: u64,
-}
-
-impl PipelineStats {
-    pub fn compression_ratio(&self) -> f64 {
-        if self.input_bytes == 0 {
-            return 1.0;
-        }
-        self.output_bytes as f64 / self.input_bytes as f64
-    }
-
-    pub fn throughput_mbps(&self) -> f64 {
-        if self.processing_time_ms == 0 {
-            return 0.0;
-        }
-        (self.input_bytes as f64 / (1024.0 * 1024.0)) / (self.processing_time_ms as f64 / 1000.0)
-    }
-}
 
 // =============================================================================
 // Pipeline Control

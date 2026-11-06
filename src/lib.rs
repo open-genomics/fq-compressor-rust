@@ -24,19 +24,46 @@
 //! fqc decompress archive.fqc -o output.fastq
 //! fqc verify archive.fqc
 //! ```
+//!
+//! ## Library API
+//!
+//! The stable embedding surface is [`api`]. Other modules are public for
+//! integration tests and advanced callers, but are internal API and may change
+//! between minor releases.
 
-#![allow(missing_docs)]
-// Public API fields may not be used internally but are available to consumers
+pub mod api;
 
+#[doc(hidden)]
 pub mod algo;
+#[doc(hidden)]
 pub mod archive;
+#[doc(hidden)]
+pub mod block;
+#[doc(hidden)]
 pub mod commands;
+#[doc(hidden)]
+pub mod dna;
+#[doc(hidden)]
 pub mod engine;
+#[doc(hidden)]
 pub mod error;
+#[doc(hidden)]
 pub mod fastq;
+#[doc(hidden)]
 pub mod io;
-pub mod memory_budget;
+#[doc(hidden)]
+pub mod memory;
+#[doc(hidden)]
 pub mod pipeline;
+#[doc(hidden)]
+pub mod plan;
+#[doc(hidden)]
+pub mod stats;
+#[doc(hidden)]
 pub mod types;
+#[doc(hidden)]
+pub mod verify;
 
 pub use algo::compressor_traits::{AuxCompressor, IdCompressor, QualityCompressor, SequenceCompressor};
+
+pub use api::{compress, decompress, info, verify};

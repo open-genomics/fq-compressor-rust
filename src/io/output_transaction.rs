@@ -6,7 +6,6 @@
 // filesystem. Stdout is out of scope (callers must not use this type for "-").
 // =============================================================================
 
-use crate::archive::writer::FqcWriter;
 use crate::error::{FqcError, Result};
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -94,13 +93,6 @@ impl Drop for OutputTransaction {
         self.file.take();
         self.temp_path.take();
     }
-}
-
-/// Open an [`FqcWriter`] backed by a same-directory temporary file.
-pub fn begin_fqc_writer(path: impl AsRef<Path>, force: bool) -> Result<(FqcWriter, OutputTransaction)> {
-    let mut tx = OutputTransaction::begin(path, force)?;
-    let writer = FqcWriter::from_file(tx.take_file()?)?;
-    Ok((writer, tx))
 }
 
 /// Commit R1 then R2 after both writers have been flushed and dropped.

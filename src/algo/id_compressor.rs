@@ -344,7 +344,7 @@ fn decompress_exact(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
     // zero-ID exact stream still has a zstd frame whose decoded payload is
     // empty, so give the decoder a one-byte probe ceiling and enforce the
     // declared size immediately afterwards.
-    let uncompressed = crate::memory_budget::zstd_decompress_bounded(compressed, uncompressed_size.max(1), "id exact")?;
+    let uncompressed = crate::memory::zstd_decompress_bounded(compressed, uncompressed_size.max(1), "id exact")?;
     if uncompressed.len() != uncompressed_size {
         return Err(FqcError::Format(format!(
             "ID exact payload size {} does not match declared {}",
@@ -501,8 +501,7 @@ fn decompress_tokenize(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
     let compressed = data
         .get(pos..)
         .ok_or_else(|| FqcError::Format("Missing ID tokenize compressed payload".to_string()))?;
-    let uncompressed =
-        crate::memory_budget::zstd_decompress_bounded(compressed, uncompressed_size.max(1), "id tokenize")?;
+    let uncompressed = crate::memory::zstd_decompress_bounded(compressed, uncompressed_size.max(1), "id tokenize")?;
     if uncompressed.len() != uncompressed_size {
         return Err(FqcError::Format(format!(
             "ID tokenize payload size {} does not match declared {}",
@@ -764,7 +763,7 @@ fn decompress_legacy(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
     use std::io::{Cursor, Read};
 
     let max_out = (num_ids as usize).saturating_mul(64 * 1024).saturating_add(1024);
-    let buf = crate::memory_budget::zstd_decompress_bounded(data, max_out, "id legacy")?;
+    let buf = crate::memory::zstd_decompress_bounded(data, max_out, "id legacy")?;
 
     let mut ids = Vec::with_capacity(num_ids as usize);
     let mut cur = Cursor::new(&buf);

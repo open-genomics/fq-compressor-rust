@@ -2,6 +2,8 @@
 // fqc-rust - Types Unit Tests
 // =============================================================================
 
+use fqc::algo::block_compressor::BlockCompressorConfig;
+use fqc::plan::{plan_compression_layout, CompressionPlanInput};
 use fqc::types::*;
 
 #[test]
@@ -115,4 +117,159 @@ fn test_constants() {
     assert_eq!(MIN_COMPRESSION_LEVEL, 1);
     assert_eq!(MAX_COMPRESSION_LEVEL, 9);
     assert_eq!(SPRING_MAX_READ_LENGTH, 511);
+}
+
+#[test]
+fn memory_estimates_use_class_upper_bounds() {
+    // Decode falls back to class ceilings when the archive has no uniform
+    // length. These are upper bounds for Short/Medium and a practical fallback
+    // for Long, not the old fixed 256 bp short-read constant.
+    assert_eq!(
+        ReadLengthClass::Short.memory_estimate_read_length(),
+        SPRING_MAX_READ_LENGTH
+    );
+    assert_eq!(
+        ReadLengthClass::Medium.memory_estimate_read_length(),
+        LONG_READ_THRESHOLD
+    );
+    assert_eq!(
+        ReadLengthClass::Long.memory_estimate_read_length(),
+        LONG_READ_MEMORY_ESTIMATE_BP
+    );
+}
+
+#[test]
+fn compression_plan_sizes_blocks_from_memory_limited_workers() {
+    let config = BlockCompressorConfig::default();
+
+    // Plenty of budget: the auto worker cap (4) drives the target block count,
+    // so 100k short reads become eight 12.5k blocks rather than ten 10k blocks
+    // derived from a larger request-thread count.
+    let roomy = plan_compression_layout(CompressionPlanInput {
+        requested_block_size: 0,
+        avg_length: 150,
+        max_block_bases: 0,
+        thread_limit: 4,
+        worker_budget_bytes: 8 * 1024 * 1024 * 1024,
+        total_reads: Some(100_000),
+        total_bases: Some(15_000_000),
+        read_length_class: config.read_length_class,
+        codec_model_bytes: config.to_quality_config().estimated_model_bytes(),
+    });
+    assert_eq!(roomy.workers, 4);
+    assert_eq!(roomy.block_size, 12_500);
+
+    // A 96 MB worker budget cannot sustain four 12.5k-read order-2 workers.
+    // The planner must lower the worker count and enlarge blocks to match, not
+    // keep ten blocks while only running the memory-limited subset.
+    let constrained = plan_compression_layout(CompressionPlanInput {
+        requested_block_size: 0,
+        avg_length: 150,
+        max_block_bases: 0,
+        thread_limit: 8,
+        worker_budget_bytes: 96 * 1024 * 1024,
+        total_reads: Some(100_000),
+        total_bases: Some(15_000_000),
+        read_length_class: config.read_length_class,
+        codec_model_bytes: config.to_quality_config().estimated_model_bytes(),
+    });
+    assert!(constrained.workers <= 2, "{constrained:?}");
+    assert!(constrained.block_size > 10_000, "{constrained:?}");
+    let constrained_blocks = 100_000usize.div_ceil(constrained.block_size);
+    assert!(
+        constrained_blocks >= constrained.workers * 2,
+        "planner should retain at least two blocks per worker: {constrained:?}, blocks={constrained_blocks}"
+    );
+}
+
+#[test]
+fn decompression_estimate_does_not_treat_long_reads_as_short() {
+    let long = BlockCompressorConfig {
+        read_length_class: ReadLengthClass::Long,
+        ..Default::default()
+    };
+    let reads = 500;
+    let by_class = long.estimated_worker_bytes(reads, ReadLengthClass::Long.memory_estimate_read_length());
+    let old_short_constant = long.estimated_worker_bytes(reads, 256);
+    assert!(
+        by_class > old_short_constant,
+        "long-read estimate {by_class} must exceed the old 256 bp estimate {old_short_constant}"
+    );
+}
+
+#[test]
+fn adaptive_block_size_balances_workers_and_base_ceiling() {
+    // 100k short reads, 8 workers: two blocks per worker would be ~6.25k
+    // reads, but the short-read floor keeps blocks at 10k reads.
+    assert_eq!(
+        adaptive_block_size(0, ReadLengthClass::Short, 150, 0, 8, Some(100_000), Some(15_000_000)),
+        10_000
+    );
+    assert_eq!(
+        adaptive_block_size(0, ReadLengthClass::Short, 150, 0, 8, Some(200_000), Some(30_000_000)),
+        12_500
+    );
+
+    // 4k long reads at 16 kb each must become multiple blocks instead of one
+    // serial 65 Mbp block. Archive/pipeline use the 5 Mbp long-read ceiling.
+    assert_eq!(
+        adaptive_block_size(0, ReadLengthClass::Long, 16_000, 0, 8, Some(4_000), Some(64_000_000)),
+        312
+    );
+
+    // Streaming intentionally keeps its historical read-count sizing: the
+    // archive/pipeline long-read auto-split ceiling must not leak into it.
+    assert_eq!(
+        adaptive_block_size_with_policy(
+            0,
+            ReadLengthClass::Long,
+            16_000,
+            0,
+            8,
+            Some(4_000),
+            Some(64_000_000),
+            false
+        ),
+        500
+    );
+
+    // Exact totals override a stale sampled average when sizing the base cap.
+    assert_eq!(
+        adaptive_block_size(
+            0,
+            ReadLengthClass::Short,
+            1_000,
+            300_000,
+            8,
+            Some(100_000),
+            Some(15_000_000)
+        ),
+        2_000
+    );
+
+    // Explicit read count wins; the automatic base cap only applies in auto mode.
+    assert_eq!(
+        adaptive_block_size(
+            7_000,
+            ReadLengthClass::Short,
+            150,
+            0,
+            8,
+            Some(100_000),
+            Some(15_000_000)
+        ),
+        7_000
+    );
+    assert_eq!(
+        adaptive_block_size(
+            0,
+            ReadLengthClass::Short,
+            150,
+            300_000,
+            8,
+            Some(100_000),
+            Some(15_000_000)
+        ),
+        2_000
+    );
 }

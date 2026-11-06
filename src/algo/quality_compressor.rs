@@ -9,7 +9,6 @@ use crate::types::{encode_codec, CodecFamily, QualityMode, ReadRecord};
 pub const NUM_QUALITY_SYMBOLS: usize = 94; // Phred 0-93 (ASCII 33-126)
 pub const NUM_POSITION_BINS: usize = 8;
 const MAX_FREQUENCY: u32 = 16383;
-const INITIAL_FREQUENCY: u32 = 1;
 const ADAPT_INCREMENT: u32 = 8;
 
 // Arithmetic coding constants
@@ -23,69 +22,149 @@ const THIRD_QUARTER: u64 = 3 * FIRST_QUARTER;
 // Adaptive Frequency Model
 // =============================================================================
 
-struct AdaptiveModel {
-    num_symbols: usize,
-    frequencies: Vec<u32>,
-    cumulative: Vec<u32>,
+const QUALITY_TREE_STRIDE: usize = NUM_QUALITY_SYMBOLS + 1;
+
+/// Adaptive Fenwick models for every quality context.
+///
+/// The previous shape owned one `Vec<u16>` per context, so order-2 quality
+/// compression paid roughly 70k allocations and an indirection per symbol.
+/// Trees and totals now live in two contiguous allocations; each context is a
+/// fixed stride inside them.
+struct QualityContextModel {
+    order: ContextOrder,
+    num_position_bins: usize,
+    trees: Vec<u16>,
+    totals: Vec<u32>,
 }
 
-impl AdaptiveModel {
-    fn new(num_symbols: usize) -> Self {
-        let mut m = Self {
-            num_symbols,
-            frequencies: vec![INITIAL_FREQUENCY; num_symbols],
-            cumulative: vec![0; num_symbols + 1],
+impl QualityContextModel {
+    fn new(order: ContextOrder, num_position_bins: usize) -> Self {
+        let num_contexts = Self::compute_num_contexts(order, num_position_bins);
+        let mut trees = vec![0u16; num_contexts * QUALITY_TREE_STRIDE];
+        for tree in trees.chunks_exact_mut(QUALITY_TREE_STRIDE) {
+            Self::reset_tree(tree);
+        }
+        Self {
+            order,
+            num_position_bins,
+            trees,
+            totals: vec![NUM_QUALITY_SYMBOLS as u32; num_contexts],
+        }
+    }
+
+    fn compute_num_contexts(order: ContextOrder, num_position_bins: usize) -> usize {
+        let qual_contexts = match order {
+            ContextOrder::Order1 => NUM_QUALITY_SYMBOLS,
+            ContextOrder::Order2 => NUM_QUALITY_SYMBOLS * NUM_QUALITY_SYMBOLS,
         };
-        m.update_cumulative();
-        m
+        qual_contexts * num_position_bins
     }
 
-    fn get_cumulative(&self, symbol: usize) -> u32 {
-        self.cumulative[symbol]
+    fn context_index(&self, prev1: usize, prev2: usize, pos_bin: usize) -> usize {
+        let qual_ctx = match self.order {
+            ContextOrder::Order1 => prev1,
+            ContextOrder::Order2 => prev1 * NUM_QUALITY_SYMBOLS + prev2,
+        };
+        qual_ctx * self.num_position_bins + pos_bin
     }
 
-    fn get_total(&self) -> u32 {
-        self.cumulative[self.num_symbols]
+    fn tree(&self, context: usize) -> &[u16] {
+        let base = context * QUALITY_TREE_STRIDE;
+        &self.trees[base..base + QUALITY_TREE_STRIDE]
     }
 
-    fn find_symbol(&self, cum_freq: u32) -> usize {
-        let mut low = 0usize;
-        let mut high = self.num_symbols;
-        while low < high {
-            let mid = (low + high) / 2;
-            if self.cumulative[mid + 1] <= cum_freq {
-                low = mid + 1;
-            } else {
-                high = mid;
+    fn tree_mut(&mut self, context: usize) -> &mut [u16] {
+        let base = context * QUALITY_TREE_STRIDE;
+        &mut self.trees[base..base + QUALITY_TREE_STRIDE]
+    }
+
+    fn get_total(&self, context: usize) -> u32 {
+        self.totals[context]
+    }
+
+    fn get_cumulative(&self, context: usize, symbol: usize) -> u32 {
+        let tree = self.tree(context);
+        let mut index = symbol;
+        let mut sum = 0u32;
+        while index > 0 {
+            sum += u32::from(tree[index]);
+            index -= index & index.wrapping_neg();
+        }
+        sum
+    }
+
+    fn find_symbol(&self, context: usize, cum_freq: u32) -> usize {
+        let tree = self.tree(context);
+        let mut index = 0usize;
+        let mut sum = 0u32;
+        let mut bit = 1usize << (usize::BITS - 1 - NUM_QUALITY_SYMBOLS.leading_zeros());
+        while bit != 0 {
+            let next = index + bit;
+            if next <= NUM_QUALITY_SYMBOLS {
+                let candidate = sum + u32::from(tree[next]);
+                if candidate <= cum_freq {
+                    index = next;
+                    sum = candidate;
+                }
+            }
+            bit >>= 1;
+        }
+        index.min(NUM_QUALITY_SYMBOLS - 1)
+    }
+
+    fn update(&mut self, context: usize, symbol: usize) {
+        let previous_total = self.totals[context];
+        self.add(context, symbol, ADAPT_INCREMENT);
+        self.totals[context] += ADAPT_INCREMENT;
+        if previous_total + ADAPT_INCREMENT > MAX_FREQUENCY {
+            self.rescale(context);
+        }
+    }
+
+    fn add(&mut self, context: usize, symbol: usize, delta: u32) {
+        let tree = self.tree_mut(context);
+        let mut index = symbol + 1;
+        while index <= NUM_QUALITY_SYMBOLS {
+            tree[index] += delta as u16;
+            index += index & index.wrapping_neg();
+        }
+    }
+
+    fn rescale(&mut self, context: usize) {
+        let mut frequencies = [0u16; NUM_QUALITY_SYMBOLS];
+        let mut previous = 0u32;
+        for (offset, frequency) in frequencies.iter_mut().enumerate() {
+            let current = self.get_cumulative(context, offset + 1);
+            *frequency = (current - previous).div_ceil(2).max(1) as u16;
+            previous = current;
+        }
+
+        let tree = self.tree_mut(context);
+        tree.fill(0);
+        for (index, frequency) in frequencies.iter().enumerate() {
+            tree[index + 1] = *frequency;
+        }
+        for index in 1..=NUM_QUALITY_SYMBOLS {
+            let parent = index + (index & index.wrapping_neg());
+            if parent <= NUM_QUALITY_SYMBOLS {
+                tree[parent] += tree[index];
             }
         }
-        low
+        self.totals[context] = frequencies.iter().map(|&frequency| u32::from(frequency)).sum();
     }
 
-    fn update(&mut self, symbol: usize) {
-        self.frequencies[symbol] += ADAPT_INCREMENT;
-        if self.get_total() + ADAPT_INCREMENT > MAX_FREQUENCY {
-            self.rescale();
+    fn reset_tree(tree: &mut [u16]) {
+        tree.fill(0);
+        for (index, slot) in tree.iter_mut().enumerate().skip(1) {
+            *slot = (index & index.wrapping_neg()) as u16;
         }
-        self.update_cumulative();
     }
 
     fn reset(&mut self) {
-        self.frequencies.fill(INITIAL_FREQUENCY);
-        self.update_cumulative();
-    }
-
-    fn update_cumulative(&mut self) {
-        self.cumulative[0] = 0;
-        for i in 0..self.num_symbols {
-            self.cumulative[i + 1] = self.cumulative[i] + self.frequencies[i];
+        for tree in self.trees.chunks_exact_mut(QUALITY_TREE_STRIDE) {
+            Self::reset_tree(tree);
         }
-    }
-
-    fn rescale(&mut self) {
-        for f in &mut self.frequencies {
-            *f = (*f).div_ceil(2).max(1);
-        }
+        self.totals.fill(NUM_QUALITY_SYMBOLS as u32);
     }
 }
 
@@ -114,11 +193,11 @@ impl ArithmeticEncoder {
         }
     }
 
-    fn encode(&mut self, symbol: usize, model: &AdaptiveModel) {
+    fn encode(&mut self, symbol: usize, model: &QualityContextModel, context: usize) {
         let range = self.high - self.low + 1;
-        let total = model.get_total() as u64;
-        let cum_low = model.get_cumulative(symbol) as u64;
-        let cum_high = model.get_cumulative(symbol + 1) as u64;
+        let total = model.get_total(context) as u64;
+        let cum_low = model.get_cumulative(context, symbol) as u64;
+        let cum_high = model.get_cumulative(context, symbol + 1) as u64;
 
         self.high = self.low + (range * cum_high) / total - 1;
         self.low += (range * cum_low) / total;
@@ -211,15 +290,15 @@ impl<'a> ArithmeticDecoder<'a> {
         dec
     }
 
-    fn decode(&mut self, model: &mut AdaptiveModel) -> usize {
+    fn decode(&mut self, model: &QualityContextModel, context: usize) -> usize {
         let range = self.high - self.low + 1;
-        let total = model.get_total() as u64;
+        let total = model.get_total(context) as u64;
         let cum_freq = (((self.value - self.low + 1) * total - 1) / range) as u32;
 
-        let symbol = model.find_symbol(cum_freq);
+        let symbol = model.find_symbol(context, cum_freq);
 
-        let cum_low = model.get_cumulative(symbol) as u64;
-        let cum_high = model.get_cumulative(symbol + 1) as u64;
+        let cum_low = model.get_cumulative(context, symbol) as u64;
+        let cum_high = model.get_cumulative(context, symbol + 1) as u64;
 
         self.high = self.low + (range * cum_high) / total - 1;
         self.low += (range * cum_low) / total;
@@ -271,53 +350,6 @@ impl<'a> ArithmeticDecoder<'a> {
 pub enum ContextOrder {
     Order1,
     Order2,
-}
-
-struct QualityContextModel {
-    order: ContextOrder,
-    num_position_bins: usize,
-    models: Vec<AdaptiveModel>,
-}
-
-impl QualityContextModel {
-    fn new(order: ContextOrder, num_position_bins: usize) -> Self {
-        let num_contexts = Self::compute_num_contexts(order, num_position_bins);
-        let models = (0..num_contexts)
-            .map(|_| AdaptiveModel::new(NUM_QUALITY_SYMBOLS))
-            .collect();
-        Self {
-            order,
-            num_position_bins,
-            models,
-        }
-    }
-
-    fn compute_num_contexts(order: ContextOrder, num_position_bins: usize) -> usize {
-        let qual_contexts = match order {
-            ContextOrder::Order1 => NUM_QUALITY_SYMBOLS,
-            ContextOrder::Order2 => NUM_QUALITY_SYMBOLS * NUM_QUALITY_SYMBOLS,
-        };
-        qual_contexts * num_position_bins
-    }
-
-    fn context_index(&self, prev1: usize, prev2: usize, pos_bin: usize) -> usize {
-        let qual_ctx = match self.order {
-            ContextOrder::Order1 => prev1,
-            ContextOrder::Order2 => prev1 * NUM_QUALITY_SYMBOLS + prev2,
-        };
-        qual_ctx * self.num_position_bins + pos_bin
-    }
-
-    fn get_model(&mut self, prev1: usize, prev2: usize, pos_bin: usize) -> &mut AdaptiveModel {
-        let idx = self.context_index(prev1, prev2, pos_bin);
-        &mut self.models[idx]
-    }
-
-    fn reset(&mut self) {
-        for m in &mut self.models {
-            m.reset();
-        }
-    }
 }
 
 fn compute_position_bin(pos: usize, read_len: usize, num_bins: usize) -> usize {
@@ -401,6 +433,22 @@ impl Default for QualityCompressorConfig {
     }
 }
 
+impl QualityCompressorConfig {
+    /// Conservative resident estimate for the adaptive context tables.
+    ///
+    /// Trees and totals are two flat allocations now, so the dominant term is
+    /// one fixed-stride tree and one total per context. This is intentionally
+    /// approximate: it bounds worker counts, not exact allocation sizes.
+    pub fn estimated_model_bytes(&self) -> usize {
+        let contexts = match self.context_order {
+            ContextOrder::Order1 => NUM_QUALITY_SYMBOLS,
+            ContextOrder::Order2 => NUM_QUALITY_SYMBOLS * NUM_QUALITY_SYMBOLS,
+        } * self.num_position_bins.max(1);
+        let per_context = QUALITY_TREE_STRIDE * std::mem::size_of::<u16>() + std::mem::size_of::<u32>();
+        contexts.saturating_mul(per_context).saturating_add(4 * 1024)
+    }
+}
+
 pub struct QualityCompressor {
     config: QualityCompressorConfig,
     ctx_model: QualityContextModel,
@@ -463,9 +511,9 @@ impl QualityCompressor {
                 qv = qv.min(NUM_QUALITY_SYMBOLS - 1);
 
                 let pos_bin = compute_position_bin(pos, read_len, self.config.num_position_bins);
-                let model = self.ctx_model.get_model(prev1, prev2, pos_bin);
-                encoder.encode(qv, model);
-                model.update(qv);
+                let context = self.ctx_model.context_index(prev1, prev2, pos_bin);
+                encoder.encode(qv, &self.ctx_model, context);
+                self.ctx_model.update(context, qv);
 
                 prev2 = prev1;
                 prev1 = qv;
@@ -509,7 +557,7 @@ impl QualityCompressor {
         // Arithmetic-coded stream after zstd; bound by total quality bytes * 2 + overhead.
         let total_q: usize = lengths.iter().map(|&l| l as usize).fold(0usize, usize::saturating_add);
         if total_q == 0 {
-            let decoded = crate::memory_budget::zstd_decompress_bounded(data, 64, "quality")?;
+            let decoded = crate::memory::zstd_decompress_bounded(data, 64, "quality")?;
             // `ArithmeticEncoder::finish` emits the two bits `01` when no
             // symbols were encoded, padded to one byte (0x40).  Keep this
             // canonical marker strict so a random one-byte payload cannot be
@@ -520,7 +568,7 @@ impl QualityCompressor {
             return Ok(vec![String::new(); lengths.len()]);
         }
         let max_out = total_q.saturating_mul(2).saturating_add(1024).max(64);
-        let decoded = crate::memory_budget::zstd_decompress_bounded(data, max_out, "quality")?;
+        let decoded = crate::memory::zstd_decompress_bounded(data, max_out, "quality")?;
         // The decoder intentionally pads missing tail bits with zero while
         // priming its 32-bit state.  Short but valid streams (for example a
         // single quality symbol) therefore contain fewer than four bytes;
@@ -541,9 +589,9 @@ impl QualityCompressor {
 
             for pos in 0..len as usize {
                 let pos_bin = compute_position_bin(pos, len as usize, self.config.num_position_bins);
-                let model = self.ctx_model.get_model(prev1, prev2, pos_bin);
-                let qv = decoder.decode(model);
-                model.update(qv);
+                let context = self.ctx_model.context_index(prev1, prev2, pos_bin);
+                let qv = decoder.decode(&self.ctx_model, context);
+                self.ctx_model.update(context, qv);
 
                 let out_qv = match self.config.quality_mode {
                     QualityMode::Illumina8 => illumina8_from_bin(qv as u8) as usize,

@@ -62,8 +62,8 @@ pub fn detect_format_from_bytes(magic: &[u8]) -> CompressionFormat {
 }
 
 /// Detect compression format from file extension
-pub fn detect_format_from_extension(path: &str) -> CompressionFormat {
-    let path = std::path::Path::new(path);
+pub fn detect_format_from_extension(path: impl AsRef<std::path::Path>) -> CompressionFormat {
+    let path = path.as_ref();
     match path
         .extension()
         .and_then(|e| e.to_str())
@@ -79,7 +79,8 @@ pub fn detect_format_from_extension(path: &str) -> CompressionFormat {
 }
 
 /// Detect compression format by magic bytes first, falling back to extension
-pub fn detect_compression_format(path: &str) -> CompressionFormat {
+pub fn detect_compression_format(path: impl AsRef<std::path::Path>) -> CompressionFormat {
+    let path = path.as_ref();
     if let Ok(mut f) = std::fs::File::open(path) {
         let mut magic = [0u8; 6];
         match std::io::Read::read(&mut f, &mut magic) {
@@ -91,11 +92,11 @@ pub fn detect_compression_format(path: &str) -> CompressionFormat {
             }
             Ok(_) => {
                 // File too small for magic detection, fall back to extension
-                log::debug!("File too small for magic detection: {}", path);
+                log::debug!("File too small for magic detection: {}", path.display());
             }
             Err(e) => {
                 // Read error, fall back to extension
-                log::debug!("Failed to read magic bytes from {}: {}", path, e);
+                log::debug!("Failed to read magic bytes from {}: {}", path.display(), e);
             }
         }
     }
@@ -144,16 +145,17 @@ pub fn supported_formats() -> Vec<CompressionFormat> {
 
 /// Open a file as a decompressed reader, auto-detecting compression format.
 /// Returns a boxed reader that transparently decompresses.
-pub fn open_compressed_reader(path: &str) -> Result<Box<dyn Read + Send>> {
+pub fn open_compressed_reader(path: impl AsRef<std::path::Path>) -> Result<Box<dyn Read + Send>> {
+    let path = path.as_ref();
     let format = detect_compression_format(path);
     let file = std::fs::File::open(path).map_err(|e| {
         FqcError::Io(std::io::Error::new(
             e.kind(),
-            format!("Cannot open file '{}': {}", path, e),
+            format!("Cannot open file '{}': {}", path.display(), e),
         ))
     })?;
 
-    log::debug!("Opening {} (format: {})", path, format.as_str());
+    log::debug!("Opening {} (format: {})", path.display(), format.as_str());
 
     let reader: Box<dyn Read + Send> = match format {
         #[cfg(feature = "gz")]
@@ -180,7 +182,7 @@ pub fn open_compressed_reader(path: &str) -> Result<Box<dyn Read + Send>> {
 }
 
 /// Open a file as a buffered decompressed reader
-pub fn open_buffered_reader(path: &str) -> Result<BufReader<Box<dyn Read + Send>>> {
+pub fn open_buffered_reader(path: impl AsRef<std::path::Path>) -> Result<BufReader<Box<dyn Read + Send>>> {
     let reader = open_compressed_reader(path)?;
     Ok(BufReader::new(reader))
 }

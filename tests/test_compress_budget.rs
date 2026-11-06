@@ -2,7 +2,7 @@
 
 use fqc::commands::compress::{CompressCommand, CompressOptions};
 use fqc::error::FqcError;
-use fqc::memory_budget::{
+use fqc::memory::{
     check_archive_ingest, estimate_archive_ingest_bytes, resolve_compress_limit_mb, HARD_MAX_COMPRESS_MEMORY_MB,
     MIN_COMPRESS_MEMORY_MB,
 };
@@ -31,7 +31,11 @@ fn compress_with(input: &Path, output: &Path, memory_limit_mb: usize, streaming:
         memory_limit_mb,
         streaming_mode: streaming,
         use_pipeline: pipeline,
-        enable_reorder: !streaming,
+        reorder: if streaming {
+            fqc::plan::ReorderMode::Never
+        } else {
+            fqc::plan::ReorderMode::Auto
+        },
         force_overwrite: true,
         show_progress: false,
         ..Default::default()

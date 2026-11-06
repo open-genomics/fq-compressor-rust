@@ -11,7 +11,8 @@ use std::io::Write as _;
 
 use fqc::algo::block_compressor::{BlockCompressor, BlockCompressorConfig};
 use fqc::pipeline::compression::{CompressionPipeline, CompressionPipelineConfig};
-use fqc::pipeline::{DEFAULT_MAX_IN_FLIGHT_BLOCKS, MIN_BLOCK_SIZE};
+use fqc::pipeline::DEFAULT_MAX_IN_FLIGHT_BLOCKS;
+use fqc::plan::MIN_BLOCK_SIZE;
 use fqc::types::*;
 
 // =============================================================================
@@ -60,20 +61,20 @@ fn decompress_archive(archive: &std::path::Path) -> Vec<ReadRecord> {
     let mut out = std::io::BufWriter::new(std::fs::File::create(&restored).unwrap());
     for block_id in 0..reader.block_count() {
         let bd = reader.read_block(block_id as u32).unwrap();
-        let bh = &bd.header;
+        let bh = &bd.meta;
         let dec = compressor
             .decompress_raw(
                 bh.block_id,
-                bh.uncompressed_count,
+                bh.read_count,
                 bh.uniform_read_length,
                 bh.codec_ids,
                 bh.codec_seq,
                 bh.codec_qual,
                 bh.codec_aux,
-                &bd.ids_data,
-                &bd.seq_data,
-                &bd.qual_data,
-                &bd.aux_data,
+                &bd.id_stream,
+                &bd.seq_stream,
+                &bd.qual_stream,
+                &bd.aux_stream,
             )
             .unwrap();
         for read in &dec.reads {
@@ -112,14 +113,13 @@ fn run_pipeline_to_archive(
         read_length_class: ReadLengthClass::Short,
         quality_mode: QualityMode::Lossless,
         id_mode: IdMode::Exact,
-        enable_reorder: false,
+        reorder: fqc::plan::ReorderMode::Never,
         save_reorder_map: false,
-        streaming_mode: false,
         force_overwrite: true,
         ..Default::default()
     };
     let mut pipeline = CompressionPipeline::new(config);
-    pipeline.run(&fastq.to_string_lossy(), &archive, "in.fastq").unwrap();
+    pipeline.run(&fastq, &archive, "in.fastq").unwrap();
 
     (archive, dir)
 }
@@ -194,13 +194,13 @@ fn pipeline_rejects_too_small_block_size() {
     let config = CompressionPipelineConfig {
         num_threads: 2,
         block_size: MIN_BLOCK_SIZE - 1,
-        enable_reorder: false,
+        reorder: fqc::plan::ReorderMode::Never,
         save_reorder_map: false,
         force_overwrite: true,
         ..Default::default()
     };
     let mut pipeline = CompressionPipeline::new(config);
-    let result = pipeline.run(&fastq.to_string_lossy(), &archive, "in.fastq");
+    let result = pipeline.run(&fastq, &archive, "in.fastq");
     assert!(result.is_err(), "block size below MIN_BLOCK_SIZE must be rejected");
     assert!(!archive.exists(), "no output must be left behind");
 }
@@ -215,13 +215,13 @@ fn pipeline_empty_input_is_rejected() {
     let config = CompressionPipelineConfig {
         num_threads: 2,
         block_size: MIN_BLOCK_SIZE,
-        enable_reorder: false,
+        reorder: fqc::plan::ReorderMode::Never,
         save_reorder_map: false,
         force_overwrite: true,
         ..Default::default()
     };
     let mut pipeline = CompressionPipeline::new(config);
-    let result = pipeline.run(&fastq.to_string_lossy(), &archive, "empty.fastq");
+    let result = pipeline.run(&fastq, &archive, "empty.fastq");
     assert!(result.is_err(), "empty input must be rejected");
     assert!(!archive.exists(), "no output must be left behind");
 }

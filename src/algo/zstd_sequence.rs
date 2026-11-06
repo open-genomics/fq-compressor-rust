@@ -5,7 +5,7 @@
 
 use crate::algo::compressor_traits::SequenceCompressor;
 use crate::error::{FqcError, Result};
-use crate::memory_budget::zstd_decompress_bounded;
+use crate::memory::zstd_decompress_bounded;
 use crate::types::{encode_codec, CodecFamily, ReadRecord};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use std::io::{Cursor, Read};

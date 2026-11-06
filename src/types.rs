@@ -36,7 +36,35 @@ pub const DEFAULT_BLOCK_SIZE_MEDIUM: usize = 50_000;
 pub const DEFAULT_BLOCK_SIZE_LONG: usize = 10_000;
 
 /// Default maximum bases per auto-split long-read block.
+/// Long reads are split in archive/pipeline modes; streaming keeps its
+/// historical block sizing unless the user passes an explicit base limit.
 pub const DEFAULT_LONG_READ_BLOCK_BASES: usize = 5_000_000;
+
+/// Automatic per-block base ceiling used when `--max-block-bases` is not set.
+/// Blocks are also sized by the number of reads; this cap keeps a block from
+/// becoming a single multi-hundred-megabase unit on long-read data.
+pub const AUTO_MAX_BLOCK_BASES: usize = 8 * 1024 * 1024;
+
+/// Minimum read count per block used by adaptive sizing. These values keep
+/// per-block model setup and Zstd frame overhead amortized while still
+/// producing enough blocks to feed the worker pool.
+pub const MIN_BLOCK_READS_SHORT: usize = 10_000;
+pub const MIN_BLOCK_READS_MEDIUM: usize = 2_000;
+pub const MIN_BLOCK_READS_LONG: usize = 500;
+
+/// Default cap for auto-selected codec workers.
+///
+/// The order-2 quality model still carries a non-trivial per-worker table
+/// (~14 MB after the flat Fenwick model), so using every core by default
+/// on a large machine can be a poor memory/throughput trade. An
+/// explicit `--threads` or `--memory-limit` opts out of this guard.
+pub const DEFAULT_AUTO_CODEC_WORKERS: usize = 4;
+
+/// Fallback read length for Long-class memory estimates when the archive does
+/// not expose a uniform block length. This is a practical upper estimate, not
+/// a hard maximum: a single ultra-long read can exceed it, in which case the
+/// block-header estimate should be preferred.
+pub const LONG_READ_MEMORY_ESTIMATE_BP: usize = 100_000;
 
 /// Spring ABC max read length
 pub const SPRING_MAX_READ_LENGTH: usize = 511;
@@ -184,6 +212,20 @@ impl ReadLengthClass {
             Self::Long => "long",
         }
     }
+
+    /// Upper-bound read length for memory estimates when only the archive's
+    /// length class is known.
+    ///
+    /// `Short` and `Medium` use the class ceilings. `Long` has no finite
+    /// ceiling, so it uses a practical fallback; callers that can read a
+    /// block header should prefer its uniform length instead.
+    pub fn memory_estimate_read_length(self) -> usize {
+        match self {
+            Self::Short => SPRING_MAX_READ_LENGTH,
+            Self::Medium => LONG_READ_THRESHOLD,
+            Self::Long => LONG_READ_MEMORY_ESTIMATE_BP,
+        }
+    }
 }
 
 /// Classify read length based on statistics
@@ -207,6 +249,101 @@ pub fn recommended_block_size(class: ReadLengthClass) -> usize {
         ReadLengthClass::Medium => DEFAULT_BLOCK_SIZE_MEDIUM,
         ReadLengthClass::Long => DEFAULT_BLOCK_SIZE_LONG,
     }
+}
+
+/// Choose a block size from read count, base budget, and available workers.
+///
+/// `requested` is an explicit user override and wins. Otherwise the target is
+/// two blocks per codec worker (clamped to 4..=64 blocks), with a class-specific
+/// minimum read count and a base ceiling. Callers pass the memory-limited worker
+/// count, not the requested thread count, so block sizing follows the pool that
+/// will actually run. This keeps short-read blocks large enough for compression
+/// locality while preventing long reads from falling into one serial block.
+pub fn adaptive_block_size(
+    requested: usize,
+    class: ReadLengthClass,
+    avg_length: usize,
+    max_block_bases: usize,
+    threads: usize,
+    total_reads: Option<u64>,
+    total_bases: Option<u64>,
+) -> usize {
+    // Preserve the archive/pipeline auto-split policy for existing callers.
+    adaptive_block_size_with_policy(
+        requested,
+        class,
+        avg_length,
+        max_block_bases,
+        threads,
+        total_reads,
+        total_bases,
+        true,
+    )
+}
+
+/// Adaptive block sizing with an explicit long-read auto-split policy.
+///
+/// `auto_split_long_reads = false` is used by the bounded streaming path: it
+/// must not silently impose the archive/pipeline base ceiling. Explicit
+/// `max_block_bases` still applies in both cases.
+pub fn adaptive_block_size_with_policy(
+    requested: usize,
+    class: ReadLengthClass,
+    avg_length: usize,
+    max_block_bases: usize,
+    threads: usize,
+    total_reads: Option<u64>,
+    total_bases: Option<u64>,
+    auto_split_long_reads: bool,
+) -> usize {
+    if requested > 0 {
+        return requested;
+    }
+
+    let effective_threads = if threads == 0 {
+        std::thread::available_parallelism().map(|n| n.get()).unwrap_or(1)
+    } else {
+        threads
+    };
+    let target_blocks = effective_threads.saturating_mul(2).clamp(4, 64);
+
+    // Prefer exact totals when the caller has already ingested the input.
+    // Sampled length stats are only a fallback for streaming, where totals are
+    // not known yet; a divergent length distribution can otherwise mis-size
+    // the base ceiling.
+    let avg_length = total_bases
+        .zip(total_reads)
+        .filter(|(_, reads)| *reads > 0)
+        .map(|(bases, reads)| usize::try_from(bases / reads).unwrap_or(usize::MAX).max(1))
+        .unwrap_or_else(|| avg_length.max(1));
+
+    let min_reads = match class {
+        ReadLengthClass::Short => MIN_BLOCK_READS_SHORT,
+        ReadLengthClass::Medium => MIN_BLOCK_READS_MEDIUM,
+        ReadLengthClass::Long => MIN_BLOCK_READS_LONG,
+    };
+
+    let by_count = total_reads
+        .map(|reads| usize::try_from(reads).unwrap_or(usize::MAX).div_ceil(target_blocks))
+        .unwrap_or_else(|| recommended_block_size(class))
+        .max(min_reads);
+
+    let base_ceiling = if max_block_bases > 0 {
+        Some(max_block_bases)
+    } else if auto_split_long_reads {
+        Some(if class == ReadLengthClass::Long {
+            DEFAULT_LONG_READ_BLOCK_BASES
+        } else {
+            AUTO_MAX_BLOCK_BASES
+        })
+    } else {
+        None
+    };
+    let by_bases = base_ceiling
+        .map(|ceiling| (ceiling / avg_length).max(1))
+        .unwrap_or(usize::MAX);
+
+    by_count.min(by_bases).max(1)
 }
 
 // =============================================================================
@@ -446,72 +583,5 @@ impl ReadRecord {
 
     pub fn is_empty(&self) -> bool {
         self.sequence.is_empty()
-    }
-}
-
-// =============================================================================
-// Compression Options
-// =============================================================================
-
-#[derive(Debug, Clone)]
-pub struct CompressOptions {
-    pub level: CompressionLevel,
-    pub quality_mode: QualityMode,
-    pub id_mode: IdMode,
-    pub enable_reorder: bool,
-    pub save_reorder_map: bool,
-    pub streaming_mode: bool,
-    pub block_size: usize,
-    pub memory_limit_mb: usize,
-    pub threads: usize,
-    pub pe_layout: PeLayout,
-    pub read_length_class: Option<ReadLengthClass>,
-}
-
-impl Default for CompressOptions {
-    fn default() -> Self {
-        Self {
-            level: DEFAULT_COMPRESSION_LEVEL,
-            quality_mode: QualityMode::Lossless,
-            id_mode: IdMode::Exact,
-            enable_reorder: true,
-            save_reorder_map: true,
-            streaming_mode: false,
-            block_size: 0,
-            memory_limit_mb: 0,
-            threads: 0,
-            pe_layout: PeLayout::Interleaved,
-            read_length_class: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct DecompressOptions {
-    pub range_start: ReadId,
-    pub range_end: ReadId,
-    pub original_order: bool,
-    pub header_only: bool,
-    pub verify: bool,
-    pub skip_corrupted: bool,
-    pub placeholder_qual: char,
-    /// ID prefix for discard mode reconstruction (e.g., "read" → @read1, @read2, ...)
-    pub id_prefix: String,
-    pub threads: usize,
-}
-
-impl Default for DecompressOptions {
-    fn default() -> Self {
-        Self {
-            range_start: 1,
-            range_end: 0,
-            original_order: false,
-            header_only: false,
-            verify: true,
-            skip_corrupted: false,
-            placeholder_qual: DEFAULT_PLACEHOLDER_QUAL,
-            id_prefix: String::from("read"),
-            threads: 0,
-        }
     }
 }

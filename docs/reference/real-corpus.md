@@ -1,5 +1,7 @@
 # 真实语料压缩/吞吐证据
 
+> 历史说明：文中 “默认 reorder” 指 2026-08 的旧默认。2026-11 起默认 `--reorder auto`：空间有序短读会自动跳过重排；表中 `--reorder false` 行仍可作为该路径的参考。
+
 收尾关账测量：用两份公开 FASTQ 前缀切片（与 C++ 侧 `fq-compressor/docs/real-corpus.md` **同一切片、同一 sha256**）
 验证 Rust 端 round-trip 无损、压缩比与吞吐，并给出 C++ 横向参考。切片不入库，用 `scripts/fetch_real_corpus.sh` 重建。
 

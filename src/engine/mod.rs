@@ -5,4 +5,3 @@
 //! pipeline) and normalized compression requests.
 
 pub mod compression_engine;
-pub mod compression_request;

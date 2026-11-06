@@ -35,6 +35,8 @@ fn frozen_fixture_info_matches_manifest() {
 
     assert_eq!(reader.block_count(), 1);
     assert_eq!(reader.total_read_count(), 3);
+    assert_eq!(reader.uniform_read_length(), Some(50));
+    assert_eq!(reader.memory_estimate_read_length(), 50);
 }
 
 #[test]

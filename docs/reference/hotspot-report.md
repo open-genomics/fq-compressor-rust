@@ -1,5 +1,7 @@
 # 热点测量报告（阶段计时）
 
+> 历史说明：下表是 2026-08 的测量，当时默认 `--reorder true`。2026-11 起默认改为 `--reorder auto`，并加入按实际 codec worker 上限/碱基预算的自适应分块与 Fenwick 质量模型；新默认在有序真实短读上会自动跳过重排。本文保留原始对照数据，不把旧默认当成当前行为。
+
 > 范围：`docs/explanation/architecture/performance-roadmap.md` 中"热点测量"切片（2026-08-18 起，7d）的收口。
 >
 > **2026-10-26 说明**：长读 archive/pipeline 已改为默认自动分块；下表中的 ONT 单 block
@@ -41,11 +43,12 @@
 - 结论：对真实短读，重排是净亏。**下一步路线图切片应是「自适应/默认关闭重排」**（先做离线判定：
   采样算重叠率，只在输入非空间有序时启用）。这不是本切片顺手优化能解决的算法级问题。
 
-### 2. 长读压缩是单 block 串行
+### 2. 长读压缩曾为单 block 串行
 
-ONT 切片（4000 条长读，65.36 Mbp）自动归为 Long，`--max-block-bases` 默认 0 时整份只有 1 个 block，
-`process` 聚合 CPU ≈ 墙钟（9216ms vs 9.62s），8 线程只用了 1 个。要让长读压缩并行，需显式
-`--max-block-bases <N>` 切多块（解压侧不受影响，块序由索引决定）。
+ONT 切片（4000 条长读，65.36 Mbp）自动归为 Long，旧默认 `--max-block-bases 0` 时整份只有 1 个 block，
+`process` 聚合 CPU ≈ 墙钟（9216ms vs 9.62s），8 线程只用了 1 个。2026-10-26 起 archive/pipeline
+在默认情况下按 5 Mbp 自动切块；下表保留旧测量作为历史基线，当前默认块数与吞吐应重新测量。
+streaming 不自动改块，显式 `--max-block-bases <N>` 仍可覆盖 archive/pipeline 的自动策略。
 
 ### 3. pipeline 的 `write_ms` 含信道等待
 
@@ -63,5 +66,25 @@ pipeline 的 writer 线程在 `write_ms` 内包含阻塞收信道的等待时间
 
 ## 对路线图的回写
 
-- "热点测量"切片完成：热点已定位（短读 = reorder/analyze；长读 = 单 block 串行）。
-- 下一刀建议：**重排自适应/默认关闭**（发现 1 有明确数据支撑），其次长读 `--max-block-bases` 自动切块。
+- "热点测量"切片完成：旧热点已定位（短读 = reorder/analyze；长读 = 单 block 串行）；长读默认分块已随后修复。
+- 已完成：重排自适应、长读 archive/pipeline 自动切块（5 Mbp）。下一刀建议：bounded streaming pipeline 与真实 WXS/ONT 默认参数复测。
+
+## 2026-11 优化后复测（合成数据，机制验证）
+
+> 100,000 条 150 bp、约 33 MB 的合成短读；release 构建；本机 8 线程。合成数据只用于验证机制，绝对值不代表真实 WXS。
+
+| 配置 | 墙钟 | 归档大小 | 峰值 RSS | 说明 |
+|---|---:|---:|---:|---|
+| 旧默认（reorder on，1 block） | 2.75 s | 9.06 MB | 222 MB | 重排慢且更大 |
+| 扁平模型 + worker 规划后默认（8 blocks） | 0.39 s | 6.93 MB | 171 MB | auto 跳过重排；块数跟随实际 worker 上限 |
+| 上一版默认（reorder auto，10 blocks，Fenwick per-context） | 0.42 s | 6.94 MB | 187 MB | 保留用于机制对照 |
+| 新默认 + `--threads 8`（10 blocks） | 0.32 s | 6.94 MB | 229 MB | 显式线程覆盖自动上限；更多 block |
+| 新默认 + `--memory-limit 256`（8 blocks） | 0.37 s | 6.93 MB | 171 MB | worker/块规划按内存收紧 |
+| 打乱输入，reorder auto | 1.88 s | 9.20 MB | 271 MB | 检测到无序后执行重排 |
+| 打乱输入，`--reorder false` | 0.45 s | 10.70 MB | 189 MB | 不重排更快，但归档大 16% |
+
+解压同一切片：最新默认约 0.42 s / 175 MB；`--threads 8` 约 0.32 s / 277 MB；`--memory-limit 256` 约 0.33 s / 221 MB。上一版默认为约 0.48 s / 255 MB（旧默认约 1.69 s / 178 MB）。
+
+质量模型从 `u32` 频率 + cumulative 改为 `u16` Fenwick，再把约 7 万个上下文各自的 `Vec` 合并为连续 `trees`/`totals`。固定质量样本的压缩流 xxHash64 为 `839fc7efbf59b7d3`，改造前后一致；`--reorder auto` 的归档变化来自块边界，而不是质量编码字节变化。
+
+`--reorder auto` 还要求采样读段存在全局共享 k-mer；独立随机读段即使相邻重叠为 0 也会跳过重排，避免触发无收益的重排路径。

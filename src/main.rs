@@ -15,6 +15,7 @@ use fqc::commands::compress::{CompressCommand, CompressOptions};
 use fqc::commands::decompress::{parse_range, DecompressCommand, DecompressOptions};
 use fqc::commands::info::{InfoCommand, InfoOptions};
 use fqc::commands::verify::{VerifyCommand, VerifyOptions};
+use fqc::plan::ReorderMode;
 use fqc::types::*;
 
 // =============================================================================
@@ -84,9 +85,10 @@ enum Commands {
         )]
         level: u8,
 
-        /// Enable global read reordering (improves compression for short reads)
-        #[arg(long, default_value_t = true, action = clap::ArgAction::Set)]
-        reorder: bool,
+        /// Read reordering: auto skips it for already spatially ordered input
+        #[arg(long, default_value = "auto",
+              value_parser = clap::builder::PossibleValuesParser::new(["auto", "true", "false"]))]
+        reorder: String,
 
         /// Streaming mode (disables reordering, suitable for stdin)
         #[arg(long)]
@@ -115,15 +117,19 @@ enum Commands {
         #[arg(long)]
         interleaved: bool,
 
-        /// Maximum bases per block (for long reads, 0 = auto)
+        /// Maximum bases per block (all read classes, 0 = auto)
         #[arg(long, default_value_t = 0)]
         max_block_bases: usize,
+
+        /// Explicit reads per block, 1..=1,000,000 (pipeline requires >=100; 0 = auto from codec worker cap and base budget)
+        #[arg(long, default_value_t = 0)]
+        block_reads: usize,
 
         /// Scan all reads for length detection (slower but more accurate)
         #[arg(long)]
         scan_all_lengths: bool,
 
-        /// Use pipeline mode (3-stage Reader→Compressor→Writer with backpressure)
+        /// Parallel block compression after a full ingest (not bounded streaming)
         #[arg(long)]
         pipeline: bool,
 
@@ -267,16 +273,22 @@ fn main() {
             force,
             interleaved,
             max_block_bases,
+            block_reads,
             scan_all_lengths,
             pipeline,
             pe_layout,
         } => {
+            let reorder = match reorder.as_str() {
+                "false" => ReorderMode::Never,
+                "true" => ReorderMode::Always,
+                _ => ReorderMode::Auto,
+            };
             let mut opts = CompressOptions {
                 input_path: input,
                 input2_path: input2,
                 output_path: output,
                 level,
-                enable_reorder: reorder,
+                reorder,
                 streaming_mode: streaming,
                 quality_mode: parse_quality_mode(&lossy_quality),
                 id_mode: parse_id_mode(&id_mode),
@@ -287,6 +299,7 @@ fn main() {
                 pe_layout: parse_pe_layout(&pe_layout),
                 interleaved,
                 max_block_bases,
+                block_size: block_reads,
                 scan_all_lengths,
                 use_pipeline: pipeline,
                 ..CompressOptions::default()
@@ -295,19 +308,15 @@ fn main() {
             // Parse long read mode
             match long_read_mode.as_str() {
                 "auto" => {
-                    opts.auto_detect_length = true;
                     opts.read_length_class = None;
                 }
                 "short" => {
-                    opts.auto_detect_length = false;
                     opts.read_length_class = Some(ReadLengthClass::Short);
                 }
                 "medium" => {
-                    opts.auto_detect_length = false;
                     opts.read_length_class = Some(ReadLengthClass::Medium);
                 }
                 "long" => {
-                    opts.auto_detect_length = false;
                     opts.read_length_class = Some(ReadLengthClass::Long);
                 }
                 _ => {}
@@ -317,7 +326,7 @@ fn main() {
             if opts.input_path == "-" && !opts.streaming_mode {
                 log::warn!("stdin detected, enabling streaming mode (no reordering)");
                 opts.streaming_mode = true;
-                opts.enable_reorder = false;
+                opts.reorder = ReorderMode::Never;
             }
 
             CompressCommand::new(opts).execute()

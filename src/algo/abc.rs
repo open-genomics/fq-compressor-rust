@@ -11,7 +11,7 @@
 //! Best suited for short reads (≤511 bp) where reads have high similarity.
 
 use crate::algo::compressor_traits::SequenceCompressor;
-use crate::algo::dna::{is_valid_base, reverse_complement, BASE_TO_INDEX, INDEX_TO_BASE};
+use crate::dna::{is_valid_base, reverse_complement, BASE_TO_INDEX, INDEX_TO_BASE};
 use crate::error::{FqcError, Result};
 use crate::types::{encode_codec, CodecFamily, ReadRecord, SPRING_MAX_READ_LENGTH};
 use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
@@ -44,8 +44,10 @@ fn normalize_legacy_noise_char(c: u8) -> u8 {
     }
 }
 
-/// Short-read ABC packing becomes quadratic in block size, so larger blocks fall back to Zstd.
-pub const SHORT_READ_ABC_MAX_READS: usize = 4_096;
+/// Short-read ABC packing becomes quadratic in block size. Keep this path
+/// limited to tiny blocks until seeding replaces the O(n²) contig scan; larger
+/// blocks use Zstd (see `docs/explanation/algorithms/overview.md`).
+pub const SHORT_READ_ABC_MAX_READS: usize = 512;
 const MAX_ABC_DECODED_BYTES_PER_READ: usize = 4_096;
 
 // =============================================================================
@@ -788,7 +790,7 @@ impl AbcCompressor {
             .saturating_mul(MAX_ABC_DECODED_BYTES_PER_READ)
             .saturating_add(4096)
             .max(256);
-        let buf = crate::memory_budget::zstd_decompress_bounded(data, max_out, "abc sequences")?;
+        let buf = crate::memory::zstd_decompress_bounded(data, max_out, "abc sequences")?;
         let mut sequences = vec![String::new(); read_count as usize];
         let mut seen = vec![false; read_count as usize];
         let mut decoded_reads = 0usize;

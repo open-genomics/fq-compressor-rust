@@ -1,63 +1,48 @@
 # 架构概述
 
-`fqc` 是一个单一二进制 Rust CLI，具有少量定义清晰的层次。
-
-## 系统架构
+`fqc` 是一个单一二进制 Rust CLI。模块按依赖方向分层，而不是仅按文件名分组：
 
 ```mermaid
 flowchart TD
-    subgraph CLI["CLI 层"]
-        M[main.rs] --> CMD[commands/]
-    end
-    
-    subgraph IO["I/O 层"]
-        FP[fastq/parser.rs] --> ASYNC[io/async_io.rs]
-        FP --> CS[io/compressed_stream.rs]
-    end
-    
-    subgraph FORMAT["格式层"]
-        FR[archive/format.rs] --> FW[archive/writer.rs]
-        FR --> FR2[archive/reader.rs]
-    end
-    
-    subgraph ENGINE["编排层"]
-        CE[engine/compression_engine.rs]
-    end
-    
-    subgraph ALGO["算法层"]
-        ABC[algo/abc.rs] --> BC[algo/block_compressor.rs]
-        QC[algo/quality_compressor.rs] --> BC
-        IC[algo/id_compressor.rs] --> BC
-        ZS[algo/zstd_sequence.rs] --> BC
-    end
-    
-    subgraph PIPELINE["流水线层"]
-        PL_COMP[pipeline/compression.rs]
-        PL_DECOMP[pipeline/decompression.rs]
-        PL_DECOMP2[pipeline/decompression_classic.rs]
-    end
-    
-    CLI --> ENGINE
-    ENGINE --> IO
-    ENGINE --> ALGO
-    ENGINE --> FORMAT
-    IO --> FORMAT
-    ALGO --> FORMAT
-    PIPELINE --> ALGO
-    PIPELINE --> IO
+    CLI[main.rs] --> CMD[commands/]
+    CMD --> API[api.rs facade]
+    CLI --> API
+    API --> ENGINE[engine/]
+    ENGINE --> PLAN[plan/]
+    ENGINE --> PIPELINE[pipeline/]
+    ENGINE --> FASTQ[fastq/]
+    ENGINE --> MEMORY[memory/]
+    PIPELINE --> ALGO[algo/]
+    PIPELINE --> ARCHIVE[archive/]
+    ALGO --> BLOCK[block/]
+    ARCHIVE --> BLOCK
+    ARCHIVE --> IO[io/]
+    FASTQ --> DNA[dna.rs]
+    ALGO --> DNA
+    PLAN --> TYPES[types.rs]
+    MEMORY --> TYPES
+    BLOCK --> TYPES
 ```
+
+关键约束：
+
+- `algo` 与 `archive` 不互相依赖，只通过中立的 `block` 领域类型（`BlockMeta` / `EncodedBlock` / `DecodedBlock`）交接。
+- `io`、`fastq`、`memory`、`plan` 不依赖 `archive` / `algo` / `pipeline` / `engine` / `commands`。
+- `tests/test_architecture.rs` 对上述 import 方向做轻量守护，避免 Rust 模块循环在四门禁全绿时悄悄回退。
 
 ## 主要层次
 
 | 层次 | 关键文件 | 职责 |
 | --- | --- | --- |
-| CLI | `src/main.rs`, `src/commands/*` | 解析参数并分发命令行为 |
-| FASTQ I/O | `src/fastq/parser.rs`, `src/io/*` | 读取 FASTQ 输入和压缩流变体 |
-| 归档格式 | `src/archive/format.rs`, `src/archive/writer.rs`, `src/archive/reader.rs` | 编码和解码 `.fqc` 容器 |
-| 压缩逻辑 | `src/algo/*` | 序列、质量、ID、重排和双端逻辑 |
-| 压缩编排 | `src/engine/compression_engine.rs`, `src/engine/compression_request.rs` | 规范请求、路由执行模式并捕获结果 |
-| 流水线 | `src/pipeline/*` | 读取器/压缩器/写入器并行流（pipeline 模式） |
-| 共享类型 | `src/types.rs`, `src/error.rs` | 公共类型、默认值和退出码映射 |
+| CLI | `src/main.rs`, `src/commands/*` | 解析参数、打印摘要、映射退出码 |
+| Facade | `src/api.rs` | 稳定的 compress / decompress / info / verify 嵌入入口 |
+| 计划与校验 | `src/plan/*` | 私有字段的 request、执行模式、重排策略、块/worker 固定点规划 |
+| 压缩编排 | `src/engine/compression_engine.rs`, `src/engine/compression_engine/*_runner.rs` | 模式路由；archive / streaming / pipeline 各自 runner |
+| 流水线 | `src/pipeline/*` | 块级并行压缩与解压；compress pipeline 仍是完整摄入 |
+| 算法 | `src/algo/*` | ABC、质量模型、ID、全局分析；只依赖 `block` |
+| 归档格式 | `src/archive/*` | `.fqc` 字节布局、reader/writer、原子输出事务接入 |
+| 中立块域 | `src/block/*` | 编码块/解码块元数据与 ID varint 编解码 |
+| 基础设施 | `src/fastq`, `src/io`, `src/memory`, `src/dna.rs`, `src/stats.rs`, `src/types.rs` | 解析、压缩流、预算、DNA 工具、统计与核心类型 |
 
 ## 归档模型
 
@@ -88,7 +73,7 @@ flowchart TD
 
 - **Archive 模式**（默认）：完整摄入，可选重排和全局分析
 - **Streaming 模式**（`--streaming`）：单遍增量处理，禁用重排；严格低内存选项
-- **Pipeline 模式**（`--pipeline`）：分段并发读取器/压缩器/写入器执行，块缓冲在途
+- **Pipeline 模式**（`--pipeline`）：先完整摄入并做全局分析，再并行压缩块；块阶段有界，但不是低内存摄入路径
 
 每种模式保持相同输出格式和 CLI 语义，同时变化内存占用和并发行为。
 

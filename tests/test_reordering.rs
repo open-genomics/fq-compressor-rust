@@ -30,6 +30,40 @@ fn make_reads(n: usize, len: usize) -> Vec<ReadRecord> {
         .collect()
 }
 
+fn make_ordered_reads(n: usize, len: usize, step: usize) -> Vec<ReadRecord> {
+    let bases = b"ACGT";
+    let mut state = 0x1234_5678_9abc_def0u64;
+    let reference: Vec<u8> = (0..(n * step + len))
+        .map(|_| {
+            state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+            bases[((state >> 33) & 3) as usize]
+        })
+        .collect();
+    (0..n)
+        .map(|i| {
+            let start = i * step;
+            let seq = String::from_utf8(reference[start..start + len].to_vec()).unwrap();
+            ReadRecord::new(format!("ordered_{i:04}"), seq, "I".repeat(len))
+        })
+        .collect()
+}
+
+fn make_independent_reads(n: usize, len: usize) -> Vec<ReadRecord> {
+    let bases = b"ACGT";
+    let mut state = 0xa5a5_5a5a_1234_5678u64;
+    (0..n)
+        .map(|i| {
+            let seq: String = (0..len)
+                .map(|_| {
+                    state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+                    bases[((state >> 33) & 3) as usize] as char
+                })
+                .collect();
+            ReadRecord::new(format!("independent_{i:04}"), seq, "I".repeat(len))
+        })
+        .collect()
+}
+
 fn write_fastq(path: &std::path::Path, records: &[ReadRecord]) {
     let mut out = std::io::BufWriter::new(std::fs::File::create(path).unwrap());
     for record in records {
@@ -54,7 +88,7 @@ fn reorder_roundtrip(records: &[ReadRecord], threads: usize) -> Vec<ReadRecord> 
     let opts = CompressOptions {
         input_path: fastq.to_string_lossy().to_string(),
         output_path: archive.to_string_lossy().to_string(),
-        enable_reorder: true,
+        reorder: fqc::plan::ReorderMode::Always,
         show_progress: false,
         force_overwrite: true,
         threads,
@@ -78,20 +112,20 @@ fn reorder_roundtrip(records: &[ReadRecord], threads: usize) -> Vec<ReadRecord> 
     let mut out = std::io::BufWriter::new(std::fs::File::create(&restored).unwrap());
     for block_id in 0..reader.block_count() {
         let bd = reader.read_block(block_id as u32).unwrap();
-        let bh = &bd.header;
+        let bh = &bd.meta;
         let dec = compressor
             .decompress_raw(
                 bh.block_id,
-                bh.uncompressed_count,
+                bh.read_count,
                 bh.uniform_read_length,
                 bh.codec_ids,
                 bh.codec_seq,
                 bh.codec_qual,
                 bh.codec_aux,
-                &bd.ids_data,
-                &bd.seq_data,
-                &bd.qual_data,
-                &bd.aux_data,
+                &bd.id_stream,
+                &bd.seq_stream,
+                &bd.qual_stream,
+                &bd.aux_stream,
             )
             .unwrap();
         for read in &dec.reads {
@@ -175,7 +209,7 @@ fn forward_and_reverse_maps_are_inverses() {
         reads_per_block: 50,
         minimizer_k: 7,
         minimizer_w: 5,
-        enable_reorder: true,
+        reorder: fqc::plan::ReorderMode::Always,
         ..Default::default()
     });
     let result = analyzer.analyze(&seqs).unwrap();
@@ -204,7 +238,7 @@ fn reorder_map_is_a_permutation() {
         reads_per_block: 40,
         minimizer_k: 7,
         minimizer_w: 5,
-        enable_reorder: true,
+        reorder: fqc::plan::ReorderMode::Always,
         ..Default::default()
     });
     let result = analyzer.analyze(&seqs).unwrap();
@@ -225,7 +259,7 @@ fn reorder_disabled_produces_identity_maps() {
         reads_per_block: 30,
         minimizer_k: 7,
         minimizer_w: 5,
-        enable_reorder: false,
+        reorder: fqc::plan::ReorderMode::Never,
         ..Default::default()
     });
     let result = analyzer.analyze(&seqs).unwrap();
@@ -233,6 +267,81 @@ fn reorder_disabled_produces_identity_maps() {
     assert!(!result.reordering_performed);
     assert_eq!(result.forward_map, [] as [u64; 0]);
     assert_eq!(result.reverse_map, [] as [u64; 0]);
+}
+
+#[test]
+fn auto_reorder_skips_already_ordered_input() {
+    let reads = make_ordered_reads(200, 150, 8);
+    let seqs: Vec<String> = reads.iter().map(|r| r.sequence.clone()).collect();
+    let analyzer = GlobalAnalyzer::new(GlobalAnalyzerConfig {
+        reads_per_block: 50,
+        reorder: fqc::plan::ReorderMode::Auto,
+        read_length_class: Some(ReadLengthClass::Short),
+        ..Default::default()
+    });
+    let result = analyzer.analyze(&seqs).unwrap();
+    assert!(
+        !result.reordering_performed,
+        "auto reorder must skip an already spatially ordered stream"
+    );
+}
+
+#[test]
+fn auto_reorder_keeps_unordered_input_eligible() {
+    let mut reads = make_ordered_reads(200, 150, 8);
+    // Deterministic Fisher-Yates shuffle: adjacent pairs should no longer
+    // come from the same reference neighborhood.
+    let mut state = 0x9e37_79b9_7f4a_7c15u64;
+    for i in (1..reads.len()).rev() {
+        state = state.wrapping_mul(6_364_136_223_846_793_005).wrapping_add(1);
+        let j = (state as usize) % (i + 1);
+        reads.swap(i, j);
+    }
+    let seqs: Vec<String> = reads.iter().map(|r| r.sequence.clone()).collect();
+    let analyzer = GlobalAnalyzer::new(GlobalAnalyzerConfig {
+        reads_per_block: 50,
+        reorder: fqc::plan::ReorderMode::Auto,
+        read_length_class: Some(ReadLengthClass::Short),
+        ..Default::default()
+    });
+    let result = analyzer.analyze(&seqs).unwrap();
+    assert!(result.reordering_performed, "auto reorder must run for unordered input");
+}
+
+#[test]
+fn auto_reorder_skips_unordered_input_without_shared_structure() {
+    let reads = make_independent_reads(500, 150);
+    let seqs: Vec<String> = reads.iter().map(|r| r.sequence.clone()).collect();
+    let analyzer = GlobalAnalyzer::new(GlobalAnalyzerConfig {
+        reads_per_block: 100,
+        reorder: fqc::plan::ReorderMode::Auto,
+        read_length_class: Some(ReadLengthClass::Short),
+        ..Default::default()
+    });
+    let result = analyzer.analyze(&seqs).unwrap();
+    assert!(
+        !result.reordering_performed,
+        "independent reads have no adjacent or global k-mer structure; auto must not reorder them"
+    );
+}
+
+#[test]
+fn reorder_without_shared_kmers_returns_a_permutation() {
+    let reads = make_independent_reads(2_000, 150);
+    let seqs: Vec<String> = reads.iter().map(|r| r.sequence.clone()).collect();
+    let analyzer = GlobalAnalyzer::new(GlobalAnalyzerConfig {
+        reads_per_block: 500,
+        reorder: fqc::plan::ReorderMode::Always,
+        read_length_class: Some(ReadLengthClass::Short),
+        ..Default::default()
+    });
+    let result = analyzer.analyze(&seqs).unwrap();
+    assert!(result.reordering_performed);
+
+    let mut sorted = result.reverse_map.clone();
+    sorted.sort_unstable();
+    let expected: Vec<u64> = (0..seqs.len() as u64).collect();
+    assert_eq!(sorted, expected, "fallback reorder must remain a permutation");
 }
 
 // =============================================================================
@@ -274,7 +383,7 @@ fn reorder_archive_lookup_original_id_is_consistent() {
     let opts = CompressOptions {
         input_path: fastq.to_string_lossy().to_string(),
         output_path: archive.to_string_lossy().to_string(),
-        enable_reorder: true,
+        reorder: fqc::plan::ReorderMode::Always,
         show_progress: false,
         force_overwrite: true,
         ..Default::default()

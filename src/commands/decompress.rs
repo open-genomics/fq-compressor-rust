@@ -7,10 +7,9 @@
 // =============================================================================
 
 use crate::error::{FqcError, Result};
-use crate::pipeline::decompression::{DecompressionPipeline, DecompressionPipelineConfig};
-use crate::pipeline::decompression_classic::SequentialDecompressor;
-use crate::pipeline::PipelineStats;
+use crate::plan::decompress::{DecompressRequest, DecompressSettings};
 use crate::println_stdout;
+use crate::stats::OperationStats;
 use crate::types::*;
 
 // =============================================================================
@@ -63,13 +62,10 @@ impl DecompressCommand {
     }
 
     pub fn execute(self) -> i32 {
-        let start = std::time::Instant::now();
-
         match self.run() {
             Ok(stats) => {
-                let elapsed = start.elapsed();
                 if self.opts.show_progress {
-                    print_summary(&stats, elapsed.as_secs_f64());
+                    print_summary(&stats);
                 }
                 0
             }
@@ -80,73 +76,46 @@ impl DecompressCommand {
         }
     }
 
-    fn run(&self) -> Result<PipelineStats> {
-        self.validate_options()?;
-
-        let config = DecompressionPipelineConfig {
-            num_threads: self.opts.threads,
-            range_start: self.opts.range_start,
-            range_end: self.opts.range_end,
-            original_order: self.opts.original_order,
-            header_only: self.opts.header_only,
-            skip_corrupted: self.opts.skip_corrupted,
-            corrupted_placeholder: self.opts.corrupted_placeholder.clone(),
-            force_overwrite: self.opts.force_overwrite,
-            split_pe: self.opts.split_pe,
-            memory_limit_mb: self.opts.memory_limit_mb,
-            ..Default::default()
-        };
-
-        // The threaded pipeline covers the plain decompress case; split-pe
-        // and original-order restore run on the sequential orchestrator.
-        if self.opts.use_pipeline && !self.opts.original_order && !self.opts.split_pe {
-            log::info!("Using pipeline decompression mode");
-            let mut pipeline = DecompressionPipeline::new(config);
-            pipeline.run(&self.opts.input_path, &self.opts.output_path)?;
-            Ok(pipeline.stats().clone())
-        } else {
-            let mut sequential = SequentialDecompressor::new(config);
-            sequential.run(&self.opts.input_path, &self.opts.output_path)
-        }
-    }
-
-    fn validate_options(&self) -> Result<()> {
+    fn run(&self) -> Result<OperationStats> {
         if !std::path::Path::new(&self.opts.input_path).exists() {
             return Err(FqcError::Io(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
                 format!("Input file not found: {}", self.opts.input_path),
             )));
         }
-        if self.opts.split_pe && self.opts.output_path == "-" {
-            return Err(FqcError::InvalidArgument(
-                "--split-pe cannot be used with stdout output".to_string(),
-            ));
-        }
-        if self.opts.range_start > 0 && self.opts.range_end > 0 && self.opts.range_start > self.opts.range_end {
-            return Err(FqcError::InvalidArgument(format!(
-                "Invalid read range: start {} is greater than end {}",
-                self.opts.range_start, self.opts.range_end
-            )));
-        }
-        Ok(())
+        let request =
+            DecompressRequest::new(&self.opts.input_path, &self.opts.output_path).with_settings(DecompressSettings {
+                range_start: self.opts.range_start,
+                range_end: self.opts.range_end,
+                header_only: self.opts.header_only,
+                original_order: self.opts.original_order,
+                skip_corrupted: self.opts.skip_corrupted,
+                corrupted_placeholder: self.opts.corrupted_placeholder.clone(),
+                split_pe: self.opts.split_pe,
+                threads: self.opts.threads,
+                force_overwrite: self.opts.force_overwrite,
+                use_pipeline: self.opts.use_pipeline,
+                memory_limit_mb: self.opts.memory_limit_mb,
+            });
+        crate::api::decompress(request)
     }
 }
 
-fn print_summary(stats: &PipelineStats, elapsed_seconds: f64) {
+fn print_summary(stats: &OperationStats) {
     println_stdout!("\n=== Decompression Summary ===");
     println_stdout!("  Total reads:       {}", stats.total_reads);
     println_stdout!("  Total bases:       {}", stats.total_bases);
-    println_stdout!("  Blocks processed:  {}", stats.total_blocks);
+    println_stdout!("  Blocks processed:  {}", stats.blocks);
     if stats.corrupted_blocks > 0 {
         println_stdout!("  Corrupted blocks:  {}", stats.corrupted_blocks);
     }
     println_stdout!("  Input size:        {} bytes", stats.input_bytes);
     println_stdout!("  Output size:       {} bytes", stats.output_bytes);
-    println_stdout!("  Elapsed time:      {elapsed_seconds:.2} s");
-    let throughput = if elapsed_seconds == 0.0 {
+    println_stdout!("  Elapsed time:      {:.2} s", stats.elapsed_seconds);
+    let throughput = if stats.elapsed_seconds == 0.0 {
         0.0
     } else {
-        (stats.output_bytes as f64 / 1_048_576.0) / elapsed_seconds
+        (stats.output_bytes as f64 / 1_048_576.0) / stats.elapsed_seconds
     };
     println_stdout!("  Throughput:        {throughput:.2} MB/s");
     println_stdout!(

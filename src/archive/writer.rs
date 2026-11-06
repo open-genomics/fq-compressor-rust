@@ -2,14 +2,17 @@
 // fqc-rust - FQC Archive Writer
 // =============================================================================
 
-use crate::algo::block_compressor::{delta_encode_ids, CompressedBlockData};
 use crate::archive::format::*;
+use crate::block::id_codec::delta_encode_ids;
+use crate::block::EncodedBlock;
 use crate::error::{FqcError, Result};
+use crate::io::OutputTransaction;
 use byteorder::LittleEndian;
 use byteorder::WriteBytesExt;
 use std::fs::File;
 use std::io::{BufWriter, Seek, SeekFrom, Write};
 use std::path::Path;
+use std::time::{SystemTime, UNIX_EPOCH};
 use xxhash_rust::xxh64::Xxh64;
 
 // =============================================================================
@@ -23,6 +26,34 @@ pub struct FqcWriter {
     reorder_map_offset: u64,
     global_hasher: Xxh64,
     block_count: u64,
+}
+
+/// Write the global header with a current timestamp.
+///
+/// Compression runners share this so archive/streaming/pipeline paths cannot
+/// drift on header construction.
+pub fn write_global_header(
+    writer: &mut FqcWriter,
+    flags: u64,
+    total_read_count: u64,
+    original_filename: &str,
+) -> Result<()> {
+    let timestamp = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_secs())
+        .unwrap_or(0);
+    let header = GlobalHeader::new(flags, total_read_count, original_filename, timestamp);
+    writer.write_global_header(&header)
+}
+
+/// Open an [`FqcWriter`] backed by a same-directory temporary file.
+///
+/// The archive layer owns this helper so the generic I/O layer does not depend
+/// on the `.fqc` container format.
+pub fn begin_fqc_writer(path: impl AsRef<Path>, force: bool) -> Result<(FqcWriter, OutputTransaction)> {
+    let mut tx = OutputTransaction::begin(path, force)?;
+    let writer = FqcWriter::from_file(tx.take_file()?)?;
+    Ok((writer, tx))
 }
 
 impl FqcWriter {
@@ -70,7 +101,7 @@ impl FqcWriter {
     }
 
     /// Write a compressed block. Returns the block's starting offset.
-    pub fn write_block(&mut self, compressed: &CompressedBlockData) -> Result<u64> {
+    pub fn write_block(&mut self, compressed: &EncodedBlock) -> Result<u64> {
         let archive_id_start = self
             .index_entries
             .last()
@@ -80,18 +111,18 @@ impl FqcWriter {
     }
 
     /// Write a block with explicit archive_id_start
-    pub fn write_block_with_id(&mut self, compressed: &CompressedBlockData, archive_id_start: u64) -> Result<u64> {
+    pub fn write_block_with_id(&mut self, compressed: &EncodedBlock, archive_id_start: u64) -> Result<u64> {
         let block_start = self.current_offset;
 
         let mut bh = BlockHeader::default();
-        bh.block_id = compressed.block_id;
-        bh.uncompressed_count = compressed.read_count;
-        bh.uniform_read_length = compressed.uniform_read_length;
-        bh.block_xxhash64 = compressed.block_checksum;
-        bh.codec_ids = compressed.codec_ids;
-        bh.codec_seq = compressed.codec_seq;
-        bh.codec_qual = compressed.codec_qual;
-        bh.codec_aux = compressed.codec_aux;
+        bh.block_id = compressed.meta.block_id;
+        bh.uncompressed_count = compressed.meta.read_count;
+        bh.uniform_read_length = compressed.meta.uniform_read_length;
+        bh.block_xxhash64 = compressed.meta.block_checksum;
+        bh.codec_ids = compressed.meta.codec_ids;
+        bh.codec_seq = compressed.meta.codec_seq;
+        bh.codec_qual = compressed.meta.codec_qual;
+        bh.codec_aux = compressed.meta.codec_aux;
         bh.checksum_type = 0;
 
         bh.offset_ids = 0;
@@ -127,7 +158,7 @@ impl FqcWriter {
             offset: block_start,
             compressed_size: total_block_bytes,
             archive_id_start,
-            read_count: compressed.read_count,
+            read_count: compressed.meta.read_count,
         });
 
         self.current_offset += total_block_bytes;
@@ -232,7 +263,10 @@ impl FqcWriter {
     }
 
     /// Finalize the archive: write block index and footer.
-    pub fn finalize(mut self) -> Result<()> {
+    ///
+    /// Returns the actual archive size in bytes, including all headers,
+    /// index entries, reorder map and footer.
+    pub fn finalize(mut self) -> Result<u64> {
         let index_offset = self.current_offset;
 
         // Write block index
@@ -249,9 +283,10 @@ impl FqcWriter {
         // Write footer
         let footer = FileFooter::new(index_offset, self.reorder_map_offset, global_checksum);
         footer.write(&mut self.writer)?;
+        self.current_offset += FILE_FOOTER_SIZE as u64;
 
         self.writer.flush()?;
-        Ok(())
+        Ok(self.current_offset)
     }
 }
 

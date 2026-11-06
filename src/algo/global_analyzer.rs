@@ -2,11 +2,12 @@
 // fqc-rust - Global Analyzer (Minimizer Bucketing + Read Reordering)
 // =============================================================================
 
-use crate::algo::dna::BASE_TO_INDEX;
-use crate::error::Result;
+use crate::dna::BASE_TO_INDEX;
+use crate::error::{FqcError, Result};
+use crate::plan::ReorderMode;
 use crate::types::*;
 use rayon::prelude::*;
-use std::collections::{HashMap, VecDeque};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 
 // =============================================================================
 // Minimizer Extraction
@@ -146,6 +147,136 @@ pub fn extract_minimizers(seq: &[u8], k: usize, w: usize) -> Vec<Minimizer> {
     minimizers
 }
 
+const ORDER_DETECTION_WINDOWS: usize = 8;
+const ORDER_DETECTION_READS_PER_WINDOW: usize = 256;
+const ORDER_DETECTION_KMER: usize = 15;
+const ORDER_DETECTION_ADJACENT_FRACTION: f64 = 0.25;
+/// A low adjacent-overlap score alone does not make reordering worthwhile.
+/// Random reads with no shared sequence structure also have low adjacency.
+/// Require a minimum fraction of sampled reads to share at least one k-mer
+/// before paying for the global reorder pass.
+const ORDER_DETECTION_GLOBAL_FRACTION: f64 = 0.25;
+
+fn sorted_kmers(seq: &[u8], k: usize) -> Vec<u64> {
+    if seq.len() < k {
+        return Vec::new();
+    }
+    let mut hashes: Vec<u64> = (0..=seq.len() - k)
+        .map(|start| compute_kmer_hash(&seq[start..start + k]))
+        .collect();
+    hashes.sort_unstable();
+    hashes.dedup();
+    hashes
+}
+
+fn has_shared_kmer(left: &[u64], right: &[u64]) -> bool {
+    let (mut i, mut j) = (0usize, 0usize);
+    while i < left.len() && j < right.len() {
+        match left[i].cmp(&right[j]) {
+            std::cmp::Ordering::Less => i += 1,
+            std::cmp::Ordering::Greater => j += 1,
+            std::cmp::Ordering::Equal => return true,
+        }
+    }
+    false
+}
+
+/// Return the contiguous windows used by order detection.
+fn sample_windows(total: usize) -> Vec<(usize, usize)> {
+    if total < 4 {
+        return Vec::new();
+    }
+
+    let windows = ORDER_DETECTION_WINDOWS.min(total / 2).max(1);
+    let window_len = ORDER_DETECTION_READS_PER_WINDOW.min(total / windows).max(2);
+    (0..windows)
+        .map(|window| {
+            let max_start = total.saturating_sub(window_len);
+            let start = if windows == 1 {
+                0
+            } else {
+                window * max_start / (windows - 1)
+            };
+            (start, window_len)
+        })
+        .collect()
+}
+
+fn sampled_indices(total: usize) -> Vec<usize> {
+    let mut indices: Vec<usize> = sample_windows(total)
+        .into_iter()
+        .flat_map(|(start, len)| start..start + len)
+        .collect();
+    indices.sort_unstable();
+    indices.dedup();
+    indices
+}
+
+/// Estimate whether consecutive reads already share sequence locality.
+///
+/// Coordinate-sorted FASTQ from a sequencing pipeline has many adjacent
+/// overlapping reads. Sampling a few contiguous windows separates that case
+/// from a shuffled stream by orders of magnitude without a full minimizer
+/// index. Returns `None` when the input is too small to judge.
+fn adjacent_shared_fraction(sequences: &[String]) -> Option<f64> {
+    let mut pairs = 0usize;
+    let mut shared_pairs = 0usize;
+
+    for (start, window_len) in sample_windows(sequences.len()) {
+        let mut previous = sorted_kmers(sequences[start].as_bytes(), ORDER_DETECTION_KMER);
+        for offset in 1..window_len {
+            let current = sorted_kmers(sequences[start + offset].as_bytes(), ORDER_DETECTION_KMER);
+            if has_shared_kmer(&previous, &current) {
+                shared_pairs += 1;
+            }
+            pairs += 1;
+            previous = current;
+        }
+    }
+
+    if pairs == 0 {
+        None
+    } else {
+        Some(shared_pairs as f64 / pairs as f64)
+    }
+}
+
+/// Estimate whether the sample has enough shared k-mer structure for
+/// reordering to have any chance of helping.
+///
+/// This is deliberately separate from the adjacent-overlap test: a shuffled
+/// WXS stream has low adjacent overlap but high global sharing, while a stream
+/// of independent random reads has both scores near zero. Only the former
+/// should pay for global reordering.
+fn global_shared_fraction(sequences: &[String]) -> Option<f64> {
+    let indices = sampled_indices(sequences.len());
+    if indices.len() < 2 {
+        return None;
+    }
+
+    let mut first_owner: HashMap<u64, u32> = HashMap::new();
+    let mut linked = vec![false; indices.len()];
+    for (local_index, &read_index) in indices.iter().enumerate() {
+        for hash in sorted_kmers(sequences[read_index].as_bytes(), ORDER_DETECTION_KMER) {
+            match first_owner.get(&hash).copied() {
+                Some(previous) => {
+                    let previous = previous as usize;
+                    if previous != local_index {
+                        linked[previous] = true;
+                        linked[local_index] = true;
+                    }
+                }
+                None => {
+                    first_owner.insert(hash, local_index as u32);
+                }
+            }
+        }
+    }
+
+    let linked_count = linked.into_iter().filter(|linked| *linked).count();
+    Some(linked_count as f64 / indices.len() as f64)
+}
+
 // =============================================================================
 // GlobalAnalyzer Configuration
 // =============================================================================
@@ -155,7 +286,8 @@ pub struct GlobalAnalyzerConfig {
     pub reads_per_block: usize,
     pub minimizer_k: usize,
     pub minimizer_w: usize,
-    pub enable_reorder: bool,
+    /// Reordering policy. `Always` skips the auto-detection check.
+    pub reorder: ReorderMode,
     pub max_search_reorder: usize,
     pub read_length_class: Option<ReadLengthClass>,
 }
@@ -166,7 +298,7 @@ impl Default for GlobalAnalyzerConfig {
             reads_per_block: DEFAULT_BLOCK_SIZE_SHORT,
             minimizer_k: 15,
             minimizer_w: 10,
-            enable_reorder: true,
+            reorder: ReorderMode::Always,
             max_search_reorder: 64,
             read_length_class: None,
         }
@@ -232,7 +364,34 @@ impl GlobalAnalyzer {
             classify_read_length(stats.median_length, stats.max_length)
         };
 
-        let should_reorder = self.config.enable_reorder && result.length_class == ReadLengthClass::Short;
+        let mut should_reorder = self.config.reorder.enabled() && result.length_class == ReadLengthClass::Short;
+
+        if should_reorder && self.config.reorder.auto() {
+            if let Some(adjacent_fraction) = adjacent_shared_fraction(sequences) {
+                if adjacent_fraction >= ORDER_DETECTION_ADJACENT_FRACTION {
+                    log::info!(
+                        "Reorder auto: adjacent overlap {:.1}%; input already spatially ordered, skipping reorder",
+                        adjacent_fraction * 100.0
+                    );
+                    should_reorder = false;
+                } else if let Some(global_fraction) = global_shared_fraction(sequences) {
+                    if global_fraction >= ORDER_DETECTION_GLOBAL_FRACTION {
+                        log::info!(
+                            "Reorder auto: adjacent overlap {:.3}%, global shared reads {:.1}%; input looks unordered with reorderable redundancy, enabling reorder",
+                            adjacent_fraction * 100.0,
+                            global_fraction * 100.0
+                        );
+                    } else {
+                        log::info!(
+                            "Reorder auto: adjacent overlap {:.3}%, global shared reads {:.1}%; too little shared sequence structure, skipping reorder",
+                            adjacent_fraction * 100.0,
+                            global_fraction * 100.0
+                        );
+                        should_reorder = false;
+                    }
+                }
+            }
+        }
 
         if should_reorder {
             log::info!("Performing global reordering on {} reads", total_reads);
@@ -292,13 +451,17 @@ impl GlobalAnalyzer {
         }
 
         // Step 2: Greedy reordering (approximate Hamiltonian path).
-        // Reuse the minimizers from step 1; recomputing them for every visited
-        // read doubles the scalar extraction work in the reorder hot path.
+        //
+        // `unused` makes the no-candidate fallback O(log n) instead of scanning
+        // the whole read set for every emitted read. The old `(0..n).find`
+        // fallback was quadratic on independent reads with no shared k-mers.
         let mut used = vec![false; total_reads];
+        let mut unused: BTreeSet<usize> = (0..total_reads).collect();
         let mut ordered: Vec<ReadId> = Vec::with_capacity(total_reads);
 
         ordered.push(0);
         used[0] = true;
+        unused.remove(&0);
 
         while ordered.len() < total_reads {
             let last_read = *ordered.last().expect("ordered is never empty - initialized with 0") as usize;
@@ -334,14 +497,17 @@ impl GlobalAnalyzer {
             }
 
             let next = if let Some(m) = best_match {
-                m
+                let id = m as usize;
+                unused.remove(&id);
+                id
             } else {
-                // Find first unused
-                (0..total_reads as u64).find(|&i| !used[i as usize]).unwrap_or(0)
+                unused.pop_first().ok_or_else(|| {
+                    FqcError::Compression("reorder planning exhausted unused reads unexpectedly".to_string())
+                })?
             };
 
-            ordered.push(next);
-            used[next as usize] = true;
+            ordered.push(next as u64);
+            used[next] = true;
         }
 
         Ok(ordered)

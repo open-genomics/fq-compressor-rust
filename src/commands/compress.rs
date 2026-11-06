@@ -2,8 +2,9 @@
 // fqc-rust - Compress Command
 // =============================================================================
 
-use crate::engine::compression_request::{CompressionExecutionMode, CompressionInputTopology, CompressionRequest};
 use crate::error::{FqcError, Result};
+use crate::plan::compress::{CompressionInputTopology, CompressionRequest, CompressionSettings};
+use crate::plan::{CompressionExecutionMode, ReorderMode};
 use crate::println_stdout;
 use crate::types::*;
 use std::path::PathBuf;
@@ -18,7 +19,7 @@ pub struct CompressOptions {
     pub input2_path: Option<String>,
     pub output_path: String,
     pub level: CompressionLevel,
-    pub enable_reorder: bool,
+    pub reorder: ReorderMode,
     pub streaming_mode: bool,
     pub quality_mode: QualityMode,
     pub id_mode: IdMode,
@@ -27,7 +28,6 @@ pub struct CompressOptions {
     pub force_overwrite: bool,
     pub show_progress: bool,
     pub read_length_class: Option<ReadLengthClass>,
-    pub auto_detect_length: bool,
     pub block_size: usize,
     pub pe_layout: PeLayout,
     pub interleaved: bool,
@@ -43,7 +43,7 @@ impl Default for CompressOptions {
             input2_path: None,
             output_path: String::new(),
             level: DEFAULT_COMPRESSION_LEVEL,
-            enable_reorder: true,
+            reorder: ReorderMode::Auto,
             streaming_mode: false,
             quality_mode: QualityMode::Lossless,
             id_mode: IdMode::Tokenize,
@@ -52,7 +52,6 @@ impl Default for CompressOptions {
             force_overwrite: false,
             show_progress: true,
             read_length_class: None,
-            auto_detect_length: true,
             block_size: 0,
             pe_layout: PeLayout::Interleaved,
             interleaved: false,
@@ -112,23 +111,23 @@ impl CompressOptions {
             }
         };
 
-        CompressionRequest {
-            mode,
-            input,
-            output_path: PathBuf::from(&self.output_path),
+        CompressionRequest::new(mode, input, PathBuf::from(&self.output_path)).with_settings(CompressionSettings {
             level: self.level,
             quality_mode: self.quality_mode,
             id_mode: self.id_mode,
-            enable_reorder: self.enable_reorder,
+            reorder: if mode == CompressionExecutionMode::Streaming {
+                ReorderMode::Never
+            } else {
+                self.reorder
+            },
             requested_read_length_class: self.read_length_class,
             threads: self.threads,
             memory_limit_mb: self.memory_limit_mb,
             force_overwrite: self.force_overwrite,
-            show_progress: self.show_progress,
             block_size: self.block_size,
             max_block_bases: self.max_block_bases,
             scan_all_lengths: self.scan_all_lengths,
-        }
+        })
     }
 }
 
@@ -136,31 +135,7 @@ impl CompressOptions {
 // CompressStats
 // =============================================================================
 
-use crate::engine::compression_engine::ProcessingStats;
-
-#[derive(Debug, Default)]
-struct CompressStats {
-    /// Inner processing stats from engine
-    inner: ProcessingStats,
-    elapsed_seconds: f64,
-}
-
-impl CompressStats {
-    fn compression_ratio(&self) -> f64 {
-        self.inner.compression_ratio()
-    }
-
-    fn bits_per_base(&self) -> f64 {
-        self.inner.bits_per_base()
-    }
-
-    fn throughput_mbps(&self) -> f64 {
-        if self.elapsed_seconds == 0.0 {
-            return 0.0;
-        }
-        (self.inner.input_bytes as f64 / 1_048_576.0) / self.elapsed_seconds
-    }
-}
+use crate::stats::OperationStats;
 
 // =============================================================================
 // CompressCommand
@@ -168,23 +143,20 @@ impl CompressStats {
 
 pub struct CompressCommand {
     opts: CompressOptions,
-    stats: CompressStats,
+    stats: OperationStats,
 }
 
 impl CompressCommand {
     pub fn new(opts: CompressOptions) -> Self {
         Self {
             opts,
-            stats: CompressStats::default(),
+            stats: OperationStats::default(),
         }
     }
 
     pub fn execute(mut self) -> i32 {
-        let start = std::time::Instant::now();
-
         match self.run() {
             Ok(()) => {
-                self.stats.elapsed_seconds = start.elapsed().as_secs_f64();
                 if self.opts.show_progress {
                     self.print_summary();
                 }
@@ -201,12 +173,10 @@ impl CompressCommand {
         self.validate_options()?;
 
         // All modes now route through the engine
-        use crate::engine::compression_engine::CompressionEngine;
         let request = self.opts.to_request();
-        let outcome = CompressionEngine::new().run(&request)?;
+        let outcome = crate::api::compress(request)?;
 
-        // Update stats from outcome
-        self.stats.inner = outcome.stats.clone();
+        self.stats = outcome.stats;
 
         Ok(())
     }
@@ -218,31 +188,25 @@ impl CompressCommand {
                 format!("Input file not found: {}", self.opts.input_path),
             )));
         }
-        if self.opts.level < MIN_COMPRESSION_LEVEL || self.opts.level > MAX_COMPRESSION_LEVEL {
-            return Err(FqcError::InvalidArgument(format!(
-                "Compression level must be {}-{}",
-                MIN_COMPRESSION_LEVEL, MAX_COMPRESSION_LEVEL
-            )));
-        }
         Ok(())
     }
 
     fn print_summary(&self) {
         println_stdout!("\n=== Compression Summary ===");
-        println_stdout!("  Total reads:       {}", self.stats.inner.total_reads);
-        println_stdout!("  Total bases:       {}", self.stats.inner.total_bases);
-        println_stdout!("  Blocks written:    {}", self.stats.inner.blocks_written);
-        println_stdout!("  Output size:       {} bytes", self.stats.inner.output_bytes);
+        println_stdout!("  Total reads:       {}", self.stats.total_reads);
+        println_stdout!("  Total bases:       {}", self.stats.total_bases);
+        println_stdout!("  Blocks written:    {}", self.stats.blocks);
+        println_stdout!("  Output size:       {} bytes", self.stats.output_bytes);
         println_stdout!("  Compression ratio: {:.2}x", self.stats.compression_ratio());
         println_stdout!("  Bits per base:     {:.3}", self.stats.bits_per_base());
         println_stdout!("  Elapsed time:      {:.2} s", self.stats.elapsed_seconds);
         println_stdout!("  Throughput:        {:.2} MB/s", self.stats.throughput_mbps());
         println_stdout!(
             "  Stage timings:    parse {:.0} ms | reorder {:.0} ms | process {:.0} ms | write {:.0} ms",
-            self.stats.inner.parse_ms as f64,
-            self.stats.inner.reorder_ms as f64,
-            self.stats.inner.process_ms as f64,
-            self.stats.inner.write_ms as f64
+            self.stats.parse_ms as f64,
+            self.stats.reorder_ms as f64,
+            self.stats.process_ms as f64,
+            self.stats.write_ms as f64
         );
         println_stdout!("===========================");
     }
