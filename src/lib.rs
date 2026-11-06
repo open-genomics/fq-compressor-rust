@@ -64,6 +64,4 @@ pub mod types;
 #[doc(hidden)]
 pub mod verify;
 
-pub use algo::compressor_traits::{AuxCompressor, IdCompressor, QualityCompressor, SequenceCompressor};
-
 pub use api::{compress, decompress, info, verify};

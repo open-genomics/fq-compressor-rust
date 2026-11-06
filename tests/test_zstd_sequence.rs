@@ -7,9 +7,9 @@
 // pin each branch at the codec boundary.
 // =============================================================================
 
+use fqc::algo::compressor_traits::SequenceCompressor;
 use fqc::algo::zstd_sequence::ZstdSequenceCompressor;
 use fqc::types::ReadRecord;
-use fqc::SequenceCompressor;
 
 fn make_reads(lens: &[usize]) -> Vec<ReadRecord> {
     lens.iter()

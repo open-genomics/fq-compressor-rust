@@ -13,6 +13,8 @@
 
 ### Changed
 
+- 移除 crate 根部的 compressor trait 再导出；`fqc::api` 是稳定入口，内部 trait
+  需从 `fqc::algo::compressor_traits` 导入。新增根级内部再导出守卫。
 - `GlobalAnalyzer` 直接接收 `&[ReadRecord]`，archive 与 pipeline 不再为了全局
   分析复制整库 sequence；已知读长类别时跳过全量长度排序，并移动而非克隆
   reorder map。100k 随机读段的 release 冒烟 archive 峰值 RSS 从约 139 MB 降到

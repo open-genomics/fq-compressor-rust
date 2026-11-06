@@ -68,3 +68,23 @@ fn low_level_io_and_parser_do_not_depend_on_higher_layers() {
     assert_no_imports("memory", higher);
     assert_no_imports("plan", higher);
 }
+
+#[test]
+fn crate_root_does_not_reexport_internal_types() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("src/lib.rs");
+    let source = fs::read_to_string(root).unwrap();
+    for prefix in [
+        "pub use algo::",
+        "pub use archive::",
+        "pub use block::",
+        "pub use pipeline::",
+        "pub use plan::",
+        "pub use stats::",
+        "pub use types::",
+    ] {
+        assert!(
+            !source.contains(prefix),
+            "crate root must not re-export internal API `{prefix}`; use fqc::api or fqc::<module>"
+        );
+    }
+}
