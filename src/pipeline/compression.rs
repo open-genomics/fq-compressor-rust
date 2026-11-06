@@ -14,7 +14,6 @@ use crate::algo::block_compressor::{BlockCodecSettings, BlockCompressorConfig};
 use crate::algo::global_analyzer::{GlobalAnalyzer, GlobalAnalyzerConfig};
 use crate::archive::format::build_flags;
 use crate::error::{FqcError, Result};
-use crate::fastq::parser::{open_fastq, open_fastq_interleaved, open_fastq_paired, open_fastq_stdin};
 use crate::plan::{plan_compression_layout, CompressionPlan, CompressionPlanInput, ReorderMode};
 use crate::types::*;
 
@@ -255,13 +254,7 @@ impl CompressionPipeline {
 
         // ---- Phase 1: Read all records (needed for global analysis) ----
         let t_parse = Instant::now();
-        let all_reads = if input_path == Path::new("-") {
-            let mut parser = open_fastq_stdin();
-            parser.collect_all_within_archive_budget(self.config.memory_limit_mb)?
-        } else {
-            let mut parser = open_fastq(input_path)?;
-            parser.collect_all_within_archive_budget(self.config.memory_limit_mb)?
-        };
+        let all_reads = crate::fastq::ingest::read_all_records(input_path, self.config.memory_limit_mb)?;
 
         if all_reads.is_empty() {
             return Err(FqcError::InvalidArgument("Input file is empty".to_string()));
@@ -302,8 +295,12 @@ impl CompressionPipeline {
             input2_path.display()
         );
         let t_parse = Instant::now();
-        let mut pe_reader = open_fastq_paired(input1_path, input2_path)?;
-        let all_reads = pe_reader.collect_pairs_within_archive_budget(pe_layout, self.config.memory_limit_mb)?;
+        let all_reads = crate::fastq::ingest::read_all_paired_records(
+            input1_path,
+            input2_path,
+            pe_layout,
+            self.config.memory_limit_mb,
+        )?;
         if all_reads.is_empty() {
             return Err(FqcError::InvalidArgument("Input files are empty".to_string()));
         }
@@ -336,12 +333,8 @@ impl CompressionPipeline {
 
         log::info!("Reading interleaved paired-end file: {}", input_path.display());
         let t_parse = Instant::now();
-        let mut parser = if input_path == Path::new("-") {
-            crate::fastq::parser::InterleavedPeParser::new(open_fastq_stdin())
-        } else {
-            open_fastq_interleaved(input_path)?
-        };
-        let all_reads = parser.collect_pairs_within_archive_budget(pe_layout, self.config.memory_limit_mb)?;
+        let all_reads =
+            crate::fastq::ingest::read_all_interleaved_records(input_path, pe_layout, self.config.memory_limit_mb)?;
         if all_reads.is_empty() {
             return Err(FqcError::InvalidArgument("Input file is empty".to_string()));
         }

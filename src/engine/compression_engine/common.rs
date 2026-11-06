@@ -4,7 +4,7 @@
 
 use crate::algo::block_compressor::{BlockCodecSettings, BlockCompressorConfig};
 use crate::error::Result;
-use crate::fastq::parser::{open_fastq, open_fastq_interleaved, open_fastq_paired, open_fastq_stdin};
+use crate::fastq::parser::{open_fastq, open_fastq_interleaved, open_fastq_paired};
 use crate::plan::compress::CompressionSettings;
 use crate::plan::DEFAULT_LENGTH_SAMPLE_READS;
 use crate::types::*;
@@ -39,36 +39,6 @@ pub(super) fn input_bytes_for(primary: &Path, secondary: Option<&Path>, fallback
         paths.push(path);
     }
     crate::stats::input_bytes_for_paths(&paths, fallback)
-}
-
-pub(super) fn read_all_records(input_path: &Path, memory_limit_mb: usize) -> Result<Vec<ReadRecord>> {
-    if input_path == Path::new("-") {
-        open_fastq_stdin().collect_all_within_archive_budget(memory_limit_mb)
-    } else {
-        open_fastq(input_path)?.collect_all_within_archive_budget(memory_limit_mb)
-    }
-}
-
-pub(super) fn read_all_paired_records(
-    input_path: &Path,
-    input2_path: &Path,
-    pe_layout: PeLayout,
-    memory_limit_mb: usize,
-) -> Result<Vec<ReadRecord>> {
-    open_fastq_paired(input_path, input2_path)?.collect_pairs_within_archive_budget(pe_layout, memory_limit_mb)
-}
-
-pub(super) fn read_all_interleaved_records(
-    input_path: &Path,
-    pe_layout: PeLayout,
-    memory_limit_mb: usize,
-) -> Result<Vec<ReadRecord>> {
-    let mut parser = if input_path == Path::new("-") {
-        crate::fastq::parser::InterleavedPeParser::new(open_fastq_stdin())
-    } else {
-        open_fastq_interleaved(input_path)?
-    };
-    parser.collect_pairs_within_archive_budget(pe_layout, memory_limit_mb)
 }
 
 pub(super) fn effective_block_size(

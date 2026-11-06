@@ -2,4 +2,5 @@
 // fqc-rust - FASTQ Module
 // =============================================================================
 
+pub(crate) mod ingest;
 pub mod parser;

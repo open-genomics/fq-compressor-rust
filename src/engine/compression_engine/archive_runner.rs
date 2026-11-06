@@ -21,20 +21,20 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
     let t_parse = std::time::Instant::now();
     log::info!("Reading input file: {}", input.primary_path.display());
     let records = if let Some(path2) = input.secondary_path.as_deref() {
-        common::read_all_paired_records(
+        crate::fastq::ingest::read_all_paired_records(
             &input.primary_path,
             path2,
             input.archive_layout,
             request.settings().memory_limit_mb,
         )?
     } else if input.is_interleaved {
-        common::read_all_interleaved_records(
+        crate::fastq::ingest::read_all_interleaved_records(
             &input.primary_path,
             input.archive_layout,
             request.settings().memory_limit_mb,
         )?
     } else {
-        common::read_all_records(&input.primary_path, request.settings().memory_limit_mb)?
+        crate::fastq::ingest::read_all_records(&input.primary_path, request.settings().memory_limit_mb)?
     };
 
     if records.is_empty() {
