@@ -26,6 +26,15 @@
   两种模式仍先完整摄入以支持全局分析/重排，因此这不是 bounded ingest。
 - pipeline 分块改为单次移动扫描，移除反复 `split_off` 造成的二次拷贝和超大
   `Vec` 容量；100k 随机读段的 release 冒烟峰值 RSS 从约 565 MB 降到约 112 MB。
+- `CompressionSettings` 到 codec 配置的映射收敛为 engine 的 `CodecProfile`；
+  archive / pipeline / streaming 不再各自翻译 quality/id/level/class。
+  `CompressionPipelineConfig` 使用与类别无关的 `BlockCodecSettings`，摄入后
+  再解析读长类别。
+- archive 与 pipeline 的完整摄入共用 `fastq::ingest` 的三个拓扑入口，stdin /
+  paired / interleaved 选择只保留一份实现；`engine` 只保留 streaming 的前缀
+  长度扫描。
+- `--scan-all-lengths` 改用长度直方图统计，内存从 O(reads) 降为
+  O(distinct lengths)，中位数语义与旧的排序实现逐值一致。
 
 ### Added
 
@@ -223,6 +232,16 @@
 
 ### Fixed
 
+- 块流水线按 `Root < Panicked < Derived` 报告阶段错误：writer 的 I/O 根因
+  不再被 reader/compressor 的 channel closed 症状覆盖，compressor 的编码错误
+  也不再被 writer 的“块数不足”覆盖；新增输出目录不存在的回归测试。
+- pipeline 读长分类改为完整摄入后统一执行，删除“只预扫描前 4,096 条”的路径。
+  长读只出现在尾部时，archive 与 pipeline 现在得到相同的 class、block size、
+  worker 数和块数；stdin pipeline 也按实际读段分类，`--scan-all-lengths` 不再
+  需要额外预扫描一遍文件。真实 Illumina / Nanopore / paired mito 数据的
+  archive/pipeline/streaming round-trip 均与输入逐字节一致。
+- streaming 交错输入的长度采样在达到上限后立即停止，不再解析完整文件却只保留
+  前 4,096 条长度。
 - 加固 indexed v2 解码边界：恢复历史无损块校验和语义，有损/丢弃块不再携带
   不可能匹配的逻辑校验和；ABC V3 使用 codec `0x11`，并严格校验载荷版本、计数、
   映射、偏移、UTF-8 与尾随字节；Zstd、辅助流、ID 流和算术质量流拒绝截断或不一致数据。
