@@ -72,7 +72,7 @@ flowchart TD
 压缩操作通过 `CompressionEngine` 路由，选择三种执行模式之一：
 
 - **Archive 模式**（默认）：完整摄入，可选重排和全局分析
-- **Streaming 模式**（`--streaming`）：单遍增量处理，禁用重排；严格低内存选项
+- **Streaming 模式**（`--streaming`）：按块增量摄入，禁用重排；块阶段与 archive/pipeline 共享，但只预取固定数量的块，常驻内存与输入大小无关
 - **Pipeline 模式**（`--pipeline`）：先完整摄入并做全局分析，再并行压缩块；块阶段有界，但不是低内存摄入路径
 
 每种模式保持相同输出格式和 CLI 语义，同时变化内存占用和并发行为。

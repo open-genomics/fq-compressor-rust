@@ -3,13 +3,13 @@
 // =============================================================================
 //! Reader -> parallel compressor -> ordered writer.
 //!
-//! The caller supplies already-chunked reads in archive order. This module
-//! owns the bounded channels, worker lifecycle, ordered block writes,
-//! transactional output and the error propagation contract shared by archive
-//! and pipeline compression.
+//! The caller supplies a block source: archive/pipeline feed pre-chunked reads,
+//! while streaming pulls blocks from a parser on demand. This module owns the
+//! bounded channels, worker lifecycle, ordered block writes, transactional
+//! output and the error propagation contract shared by all compression modes.
 
 use std::collections::BTreeMap;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::thread;
@@ -21,6 +21,7 @@ use crate::algo::block_compressor::{BlockCompressor, BlockCompressorConfig};
 use crate::archive::writer::{begin_fqc_writer, write_global_header};
 use crate::block::EncodedBlock;
 use crate::error::{FqcError, Result};
+use crate::io::OutputTransaction;
 use crate::types::{ReadId, ReadRecord};
 
 /// Everything the shared block pipeline needs after parsing and analysis.
@@ -29,7 +30,10 @@ pub(crate) struct BlockPipelineConfig {
     pub max_in_flight_blocks: usize,
     pub force_overwrite: bool,
     pub flags: u64,
-    pub total_reads: u64,
+    /// Known total for archive/pipeline; `None` patches it after streaming.
+    pub total_reads: Option<u64>,
+    /// Known block count for archive/pipeline; `None` accepts source length.
+    pub expected_blocks: Option<u32>,
     pub original_filename: String,
     pub reorder_map: Option<(Vec<ReadId>, Vec<ReadId>)>,
     pub compressor_config: BlockCompressorConfig,
@@ -40,6 +44,9 @@ pub(crate) struct BlockPipelineConfig {
 pub(crate) struct BlockPipelineReport {
     pub output_bytes: u64,
     pub blocks_written: u64,
+    pub total_reads: u64,
+    pub total_bases: u64,
+    pub parse_ms: u64,
     pub process_ms: u64,
     pub write_ms: u64,
 }
@@ -52,6 +59,21 @@ struct ReadChunk {
 struct OrderedBlock {
     chunk_id: u32,
     compressed: EncodedBlock,
+}
+
+struct ReaderOutcome {
+    total_reads: u64,
+    total_bases: u64,
+    parse_ns: u64,
+}
+
+struct WriterOutcome {
+    output_bytes: u64,
+    blocks_written: u32,
+    total_reads: u64,
+    write_ns: u64,
+    /// Kept uncommitted until every stage has reported success.
+    output_tx: OutputTransaction,
 }
 
 /// Result of one pipeline stage.
@@ -97,55 +119,83 @@ fn join_stage<T>(handle: thread::JoinHandle<StageResult<T>>, stage: &'static str
     handle.join().unwrap_or_else(|_| Err(StageFailure::Panicked(stage)))
 }
 
-/// Compress chunks in parallel and write complete blocks in archive order.
+/// Compress blocks from `next_chunk` in parallel and write them in block order.
 ///
-/// The input chunk order defines block order; block IDs are assigned from the
-/// slice position. A worker or writer error aborts the transaction and never
-/// commits a partial archive.
+/// The source is pulled on the reader thread; `None` ends the stream. A worker
+/// or writer error aborts the transaction and never commits a partial archive.
 pub(crate) fn run(
-    chunks: Vec<Vec<ReadRecord>>,
+    mut next_chunk: impl FnMut() -> Result<Option<Vec<ReadRecord>>> + Send + 'static,
     output_path: impl AsRef<Path>,
     config: BlockPipelineConfig,
 ) -> Result<BlockPipelineReport> {
-    let num_chunks = chunks.len();
-    if num_chunks == 0 {
-        return Err(FqcError::InvalidArgument("no blocks to write".to_string()));
-    }
-
-    let num_chunks_u32 =
-        u32::try_from(num_chunks).map_err(|_| FqcError::Compression("block count exceeds u32".to_string()))?;
     let BlockPipelineConfig {
         num_workers,
         max_in_flight_blocks,
         force_overwrite,
         flags,
         total_reads,
+        expected_blocks,
         original_filename,
         reorder_map,
         compressor_config,
     } = config;
+
+    // Archive and pipeline know their block count up front; an empty input is a
+    // caller error there. Streaming passes `None` and may legitimately write an
+    // empty archive.
+    if expected_blocks == Some(0) {
+        return Err(FqcError::InvalidArgument("no blocks to write".to_string()));
+    }
+
     let max_inflight = max_in_flight_blocks.max(1);
-    let num_workers = num_workers.min(num_chunks).max(1);
-    let output_path_owned: PathBuf = output_path.as_ref().to_path_buf();
+    let num_workers = expected_blocks
+        .map(|expected| num_workers.min(expected as usize))
+        .unwrap_or(num_workers)
+        .max(1);
+
+    // Open the output before pulling any input so an unwritable path fails
+    // fast, even when the source is an interactive stdin that may never reach
+    // EOF on its own.
+    let t_setup = Instant::now();
+    let (writer, output_tx) = begin_fqc_writer(output_path.as_ref(), force_overwrite)?;
+    let setup_ns = t_setup.elapsed().as_nanos() as u64;
+
     let compressor_config = Arc::new(compressor_config);
     let (chunk_tx, chunk_rx): (Sender<ReadChunk>, Receiver<ReadChunk>) = bounded(max_inflight);
     let (block_tx, block_rx): (Sender<OrderedBlock>, Receiver<OrderedBlock>) = bounded(max_inflight);
 
-    // ---- Reader thread: feed pre-chunked reads in order ----
-    let reader_handle = thread::spawn(move || -> StageResult<()> {
-        for (chunk_id, reads) in chunks.into_iter().enumerate() {
-            chunk_tx
-                .send(ReadChunk {
-                    reads,
-                    chunk_id: chunk_id as u32,
-                })
-                .map_err(|_| {
-                    StageFailure::Derived(
-                        "Compression aborted: compressor stage stopped before reading all blocks".to_string(),
-                    )
-                })?;
+    // ---- Reader thread: pull blocks from the caller's bounded source ----
+    let reader_handle = thread::spawn(move || -> StageResult<ReaderOutcome> {
+        let mut chunk_id: u32 = 0;
+        let mut total_reads = 0u64;
+        let mut total_bases = 0u64;
+        let mut parse_ns = 0u64;
+        loop {
+            let t_parse = Instant::now();
+            let next = next_chunk()?;
+            parse_ns += t_parse.elapsed().as_nanos() as u64;
+            let Some(reads) = next else {
+                break;
+            };
+            if reads.is_empty() {
+                continue;
+            }
+            total_reads = total_reads.saturating_add(reads.len() as u64);
+            total_bases = total_bases.saturating_add(reads.iter().map(|r| r.sequence.len() as u64).sum::<u64>());
+            chunk_tx.send(ReadChunk { reads, chunk_id }).map_err(|_| {
+                StageFailure::Derived(
+                    "Compression aborted: compressor stage stopped before reading all blocks".to_string(),
+                )
+            })?;
+            chunk_id = chunk_id
+                .checked_add(1)
+                .ok_or_else(|| StageFailure::Root(FqcError::Compression("block count exceeds u32".to_string())))?;
         }
-        Ok(())
+        Ok(ReaderOutcome {
+            total_reads,
+            total_bases,
+            parse_ns,
+        })
     });
 
     // ---- Compressor threads ----
@@ -184,34 +234,51 @@ pub(crate) fn run(
     drop(block_tx);
 
     // ---- Writer thread: reorder completed blocks and commit atomically ----
-    let writer_handle = thread::spawn(move || -> StageResult<(u64, u64)> {
-        let t_setup = Instant::now();
-        let (mut writer, output_tx) = begin_fqc_writer(&output_path_owned, force_overwrite)?;
-        write_global_header(&mut writer, flags, total_reads, &original_filename)?;
-        let mut write_ns = t_setup.elapsed().as_nanos() as u64;
+    let writer_handle = thread::spawn(move || -> StageResult<WriterOutcome> {
+        let mut writer = writer;
+        let t_header = Instant::now();
+        write_global_header(&mut writer, flags, total_reads.unwrap_or(0), &original_filename)?;
+        let mut write_ns = t_header.elapsed().as_nanos() as u64;
 
         let mut pending: BTreeMap<u32, OrderedBlock> = BTreeMap::new();
         let mut next_expected: u32 = 0;
+        let mut blocks_received: u32 = 0;
+        let mut reads_written = 0u64;
 
         for ordered_block in block_rx.iter() {
+            blocks_received = blocks_received
+                .checked_add(1)
+                .ok_or_else(|| StageFailure::Root(FqcError::Compression("block count exceeds u32".to_string())))?;
             pending.insert(ordered_block.chunk_id, ordered_block);
             while let Some(block) = pending.remove(&next_expected) {
                 let t = Instant::now();
                 writer.write_block(&block.compressed)?;
                 write_ns += t.elapsed().as_nanos() as u64;
-                next_expected += 1;
+                reads_written = reads_written.saturating_add(block.compressed.meta.read_count as u64);
+                next_expected = next_expected
+                    .checked_add(1)
+                    .ok_or_else(|| StageFailure::Root(FqcError::Compression("block count exceeds u32".to_string())))?;
             }
         }
 
-        // A compressor error closes the channel early. Never commit a partial
-        // archive: the transaction drops the temp file. This is a symptom of
-        // the upstream failure, so it ranks below every stage's own error.
-        if next_expected < num_chunks_u32 || !pending.is_empty() {
+        let (complete, expected) = match expected_blocks {
+            Some(expected) => (
+                next_expected == expected && blocks_received == expected && pending.is_empty(),
+                expected,
+            ),
+            None => (next_expected == blocks_received && pending.is_empty(), blocks_received),
+        };
+        if !complete {
             return Err(StageFailure::Derived(format!(
                 "Compression incomplete: wrote {}/{} blocks; output aborted",
-                next_expected + pending.len() as u32,
-                num_chunks
+                next_expected, expected
             )));
+        }
+
+        if total_reads.is_none() {
+            let t = Instant::now();
+            writer.patch_total_read_count(reads_written)?;
+            write_ns += t.elapsed().as_nanos() as u64;
         }
 
         if let Some((forward, reverse)) = reorder_map.as_ref() {
@@ -222,17 +289,22 @@ pub(crate) fn run(
 
         let t = Instant::now();
         let output_bytes = writer.finalize()?;
-        output_tx.commit()?;
         write_ns += t.elapsed().as_nanos() as u64;
-        Ok((output_bytes, write_ns / 1_000_000))
+        Ok(WriterOutcome {
+            output_bytes,
+            blocks_written: next_expected,
+            total_reads: reads_written,
+            write_ns,
+            output_tx,
+        })
     });
 
     // Join every stage before returning so no detached worker can keep writing
     // after the caller observes an error. Root failures outrank panics and
     // channel-closed symptoms; see `StageFailure::rank`.
     let mut failures = Vec::new();
-    let writer_report = match join_stage(writer_handle, "writer") {
-        Ok(report) => Some(report),
+    let writer_outcome = match join_stage(writer_handle, "writer") {
+        Ok(outcome) => Some(outcome),
         Err(failure) => {
             failures.push(failure);
             None
@@ -243,9 +315,13 @@ pub(crate) fn run(
             failures.push(failure);
         }
     }
-    if let Err(failure) = join_stage(reader_handle, "reader") {
-        failures.push(failure);
-    }
+    let reader_outcome = match join_stage(reader_handle, "reader") {
+        Ok(outcome) => Some(outcome),
+        Err(failure) => {
+            failures.push(failure);
+            None
+        }
+    };
 
     let process_ms = process_ns.load(Ordering::Relaxed) / 1_000_000;
 
@@ -254,13 +330,42 @@ pub(crate) fn run(
         return Err(failure.into_error());
     }
 
-    let (output_bytes, write_ms) = writer_report
-        .ok_or_else(|| FqcError::Compression("Compression aborted without a recorded stage error".to_string()))?;
+    let writer = writer_outcome
+        .ok_or_else(|| FqcError::Compression("Compression aborted without a writer result".to_string()))?;
+    let reader = reader_outcome
+        .ok_or_else(|| FqcError::Compression("Compression aborted without a reader result".to_string()))?;
+
+    // The reader counted what the source handed over; the writer counted what
+    // each compressed block declares. They must agree, otherwise a block lost
+    // reads between parsing and archiving.
+    if reader.total_reads != writer.total_reads {
+        return Err(FqcError::Compression(format!(
+            "Compression integrity check failed: reader produced {} reads, writer stored {}",
+            reader.total_reads, writer.total_reads
+        )));
+    }
+
+    // Only publish after every stage is known good. Keeping the commit off the
+    // writer thread also means a late reader/compressor failure cannot leave a
+    // committed partial archive behind.
+    let WriterOutcome {
+        output_bytes,
+        blocks_written,
+        total_reads: stored_reads,
+        write_ns,
+        output_tx,
+    } = writer;
+    let t_commit = Instant::now();
+    output_tx.commit()?;
+    let commit_ns = t_commit.elapsed().as_nanos() as u64;
 
     Ok(BlockPipelineReport {
         output_bytes,
-        blocks_written: num_chunks as u64,
+        blocks_written: blocks_written as u64,
+        total_reads: stored_reads,
+        total_bases: reader.total_bases,
+        parse_ms: reader.parse_ns / 1_000_000,
         process_ms,
-        write_ms,
+        write_ms: (setup_ns + write_ns + commit_ns) / 1_000_000,
     })
 }

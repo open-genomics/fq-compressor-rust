@@ -1,13 +1,16 @@
 // =============================================================================
 // fqc - Streaming compression runner
 // =============================================================================
+//! Bounded-ingest streaming: the parser feeds a block source on demand, the
+//! shared block pipeline compresses blocks in parallel and the ordered writer
+//! commits them transactionally. Nothing holds the whole input in memory.
 
-use crate::algo::block_compressor::BlockCompressor;
+use crate::algo::block_compressor::BlockCompressorConfig;
 use crate::archive::format::build_flags;
-use crate::archive::writer::{begin_fqc_writer, write_global_header};
 use crate::engine::compression_engine::CompressionOutcome;
 use crate::error::Result;
 use crate::fastq::parser::{open_fastq, open_fastq_interleaved, open_fastq_paired, open_fastq_stdin};
+use crate::pipeline::block_pipeline::{self, BlockPipelineConfig};
 use crate::plan::compress::CompressionRequest;
 use crate::plan::CompressionExecutionMode;
 use crate::stats::OperationStats;
@@ -16,6 +19,19 @@ use std::path::Path;
 use std::time::Instant;
 
 use super::common;
+
+/// Streaming prefetches one chunk. The parser is serial, so a deeper queue
+/// only multiplies resident blocks without feeding workers faster.
+const STREAMING_MAX_IN_FLIGHT_BLOCKS: usize = 1;
+
+/// Block sizing and codec layout resolved before the source starts pulling.
+struct StreamingPlan {
+    length_class: ReadLengthClass,
+    block_size: usize,
+    num_workers: usize,
+    max_in_flight_blocks: usize,
+    codec_config: BlockCompressorConfig,
+}
 
 pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
     log::info!("Streaming compression mode");
@@ -51,14 +67,38 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
         false,
     );
 
+    let codec = common::codec_profile(request.settings(), effective_length_class);
+    let num_workers = crate::plan::memory_limited_worker_count(
+        codec.thread_limit,
+        codec.worker_budget_bytes,
+        codec.model_bytes,
+        block_size,
+        length_stats.avg_length,
+    );
+    let max_in_flight_blocks = crate::plan::effective_in_flight_blocks(
+        block_size,
+        &length_stats,
+        request.settings().memory_limit_mb,
+        STREAMING_MAX_IN_FLIGHT_BLOCKS,
+    );
+    let plan = StreamingPlan {
+        length_class: effective_length_class,
+        block_size,
+        num_workers,
+        max_in_flight_blocks,
+        codec_config: codec.config,
+    };
+
     log::info!(
-        "Streaming profile: sample={} avg={}bp median={}bp max={}bp, class={}, block_size={}",
+        "Streaming profile: sample={} avg={}bp median={}bp max={}bp, class={}, block_size={}, workers={}, in_flight={}",
         length_stats.sample_size,
         length_stats.avg_length,
         length_stats.median_length,
         length_stats.max_length,
         effective_length_class.as_str(),
-        block_size
+        block_size,
+        num_workers,
+        max_in_flight_blocks
     );
 
     // Get archive layout for paired/interleaved
@@ -68,44 +108,26 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
             &input.primary_path,
             &path2,
             request,
-            effective_length_class,
-            block_size,
+            &plan,
             input.archive_layout,
             inspect_ns,
         )
     } else if input.is_interleaved {
-        run_interleaved(
-            &input.primary_path,
-            request,
-            effective_length_class,
-            block_size,
-            input.archive_layout,
-            inspect_ns,
-        )
+        run_interleaved(&input.primary_path, request, &plan, input.archive_layout, inspect_ns)
     } else {
-        run_single(
-            &input.primary_path,
-            request,
-            effective_length_class,
-            block_size,
-            inspect_ns,
-        )
+        run_single(&input.primary_path, request, &plan, inspect_ns)
     }
 }
 
-/// Execute streaming compression: pull one block at a time through a single
-/// compressor and the ordered writer, so memory is bounded by the block size.
+/// Run the shared block pipeline over a bounded streaming block source.
 fn run_core(
     request: &CompressionRequest,
-    effective_length_class: ReadLengthClass,
+    plan: &StreamingPlan,
     pe_layout: PeLayout,
     single_end: bool,
     initial_parse_ns: u64,
-    mut next_block: impl FnMut() -> Result<Option<Vec<ReadRecord>>>,
+    next_block: impl FnMut() -> Result<Option<Vec<ReadRecord>>> + Send + 'static,
 ) -> Result<CompressionOutcome> {
-    let t_setup = Instant::now();
-    let (mut writer, output_tx) = begin_fqc_writer(request.output_path(), request.settings().force_overwrite)?;
-
     let flags = build_flags(
         !single_end,
         true,
@@ -113,7 +135,7 @@ fn run_core(
         request.settings().id_mode,
         false,
         pe_layout,
-        effective_length_class,
+        plan.length_class,
         true,
     );
     let input = request.input().resolve();
@@ -122,68 +144,45 @@ fn run_core(
         .file_name()
         .and_then(|n| n.to_str())
         .unwrap_or("stdin");
-    write_global_header(&mut writer, flags, 0, input_filename)?;
-    let mut write_ns = t_setup.elapsed().as_nanos() as u64;
 
-    let block_config = common::codec_profile(request.settings(), effective_length_class).config;
-    let mut compressor = BlockCompressor::new(block_config);
+    let report = block_pipeline::run(
+        next_block,
+        request.output_path(),
+        BlockPipelineConfig {
+            num_workers: plan.num_workers,
+            max_in_flight_blocks: plan.max_in_flight_blocks,
+            force_overwrite: request.settings().force_overwrite,
+            flags,
+            total_reads: None,
+            expected_blocks: None,
+            original_filename: input_filename.to_string(),
+            reorder_map: None,
+            compressor_config: plan.codec_config.clone(),
+        },
+    )?;
+    log::info!(
+        "Streaming compression complete! {} blocks written.",
+        report.blocks_written
+    );
 
-    let mut block_id = 0u32;
-    let mut archive_id_start = 0u64;
-    let mut total_reads = 0u64;
-    let mut total_bases = 0u64;
-    let mut blocks_written = 0;
-    let mut parse_ns = initial_parse_ns;
-    let mut process_ns = 0u64;
-
-    loop {
-        let t_parse = Instant::now();
-        let next = next_block()?;
-        parse_ns += t_parse.elapsed().as_nanos() as u64;
-        let Some(block_reads) = next else {
-            break;
-        };
-
-        total_reads += block_reads.len() as u64;
-        total_bases += block_reads.iter().map(|r| r.sequence.len() as u64).sum::<u64>();
-
-        let t_process = Instant::now();
-        let compressed = compressor.compress(&block_reads, block_id)?;
-        process_ns += t_process.elapsed().as_nanos() as u64;
-
-        let t_write = Instant::now();
-        writer.write_block_with_id(&compressed, archive_id_start)?;
-        write_ns += t_write.elapsed().as_nanos() as u64;
-        archive_id_start += block_reads.len() as u64;
-        blocks_written += 1;
-        block_id += 1;
-    }
-
-    let t_finish = Instant::now();
-    writer.patch_total_read_count(total_reads)?;
-    let output_bytes = writer.finalize()?;
-    output_tx.commit()?;
-    write_ns += t_finish.elapsed().as_nanos() as u64;
-    log::info!("Streaming compression complete! {} blocks written.", blocks_written);
-
-    let input_bytes = common::input_bytes_for(&input.primary_path, input.secondary_path.as_deref(), total_bases);
+    let input_bytes = common::input_bytes_for(&input.primary_path, input.secondary_path.as_deref(), report.total_bases);
     let stats = OperationStats {
-        total_reads,
-        total_bases,
+        total_reads: report.total_reads,
+        total_bases: report.total_bases,
         input_bytes,
-        output_bytes,
-        blocks: blocks_written as u64,
+        output_bytes: report.output_bytes,
+        blocks: report.blocks_written,
         elapsed_seconds: 0.0,
-        parse_ms: parse_ns / 1_000_000,
+        parse_ms: report.parse_ms + initial_parse_ns / 1_000_000,
         reorder_ms: 0,
-        process_ms: process_ns / 1_000_000,
-        write_ms: write_ns / 1_000_000,
+        process_ms: report.process_ms,
+        write_ms: report.write_ms,
         ..Default::default()
     };
 
     Ok(CompressionOutcome {
         mode: CompressionExecutionMode::Streaming,
-        detected_read_length_class: effective_length_class,
+        detected_read_length_class: plan.length_class,
         stats,
     })
 }
@@ -191,8 +190,7 @@ fn run_core(
 fn run_single(
     input_path: &Path,
     request: &CompressionRequest,
-    effective_length_class: ReadLengthClass,
-    block_size: usize,
+    plan: &StreamingPlan,
     inspect_ns: u64,
 ) -> Result<CompressionOutcome> {
     let mut parser = if input_path == Path::new("-") {
@@ -200,77 +198,62 @@ fn run_single(
     } else {
         open_fastq(input_path)?
     };
-    run_core(
-        request,
-        effective_length_class,
-        PeLayout::Interleaved,
-        true,
-        inspect_ns,
-        move || {
-            let mut buf: Vec<ReadRecord> = Vec::with_capacity(block_size);
-            loop {
-                match parser.next_record()? {
-                    Some(rec) => {
-                        buf.push(rec);
-                        if buf.len() >= block_size {
-                            break;
-                        }
+    let block_size = plan.block_size;
+    run_core(request, plan, PeLayout::Interleaved, true, inspect_ns, move || {
+        let mut buf: Vec<ReadRecord> = Vec::with_capacity(block_size);
+        loop {
+            match parser.next_record()? {
+                Some(rec) => {
+                    buf.push(rec);
+                    if buf.len() >= block_size {
+                        break;
                     }
-                    None => break,
                 }
+                None => break,
             }
-            Ok(if buf.is_empty() { None } else { Some(buf) })
-        },
-    )
+        }
+        Ok(if buf.is_empty() { None } else { Some(buf) })
+    })
 }
 
 fn run_paired(
     input_path: &Path,
     input2_path: &Path,
     request: &CompressionRequest,
-    effective_length_class: ReadLengthClass,
-    block_size: usize,
+    plan: &StreamingPlan,
     pe_layout: PeLayout,
     inspect_ns: u64,
 ) -> Result<CompressionOutcome> {
     let mut pe_reader = open_fastq_paired(input_path, input2_path)?;
-    let target_pairs = (block_size.max(2)) / 2;
-    run_core(
-        request,
-        effective_length_class,
-        pe_layout,
-        false,
-        inspect_ns,
-        move || {
-            let mut r1_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
-            let mut r2_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
-            loop {
-                match pe_reader.next_pair()? {
-                    Some((r1, r2)) => {
-                        r1_buf.push(r1);
-                        r2_buf.push(r2);
-                        if r1_buf.len() >= target_pairs {
-                            break;
-                        }
+    let target_pairs = (plan.block_size.max(2)) / 2;
+    run_core(request, plan, pe_layout, false, inspect_ns, move || {
+        let mut r1_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
+        let mut r2_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
+        loop {
+            match pe_reader.next_pair()? {
+                Some((r1, r2)) => {
+                    r1_buf.push(r1);
+                    r2_buf.push(r2);
+                    if r1_buf.len() >= target_pairs {
+                        break;
                     }
-                    None => break,
                 }
+                None => break,
             }
-            if r1_buf.is_empty() && r2_buf.is_empty() {
-                Ok(None)
-            } else {
-                let block_buf = pe_layout.arrange(r1_buf, r2_buf);
-                Ok(if block_buf.is_empty() { None } else { Some(block_buf) })
-            }
-        },
-    )
+        }
+        if r1_buf.is_empty() && r2_buf.is_empty() {
+            Ok(None)
+        } else {
+            let block_buf = pe_layout.arrange(r1_buf, r2_buf);
+            Ok(if block_buf.is_empty() { None } else { Some(block_buf) })
+        }
+    })
 }
 
 fn run_interleaved(
     input_path: &Path,
     request: &CompressionRequest,
-    effective_length_class: ReadLengthClass,
-    block_size: usize,
+    plan: &StreamingPlan,
     pe_layout: PeLayout,
     inspect_ns: u64,
 ) -> Result<CompressionOutcome> {
@@ -279,34 +262,27 @@ fn run_interleaved(
     } else {
         open_fastq_interleaved(input_path)?
     };
-    let target_pairs = (block_size.max(2)) / 2;
-    run_core(
-        request,
-        effective_length_class,
-        pe_layout,
-        false,
-        inspect_ns,
-        move || {
-            let mut r1_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
-            let mut r2_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
-            loop {
-                match parser.next_pair()? {
-                    Some((r1, r2)) => {
-                        r1_buf.push(r1);
-                        r2_buf.push(r2);
-                        if r1_buf.len() >= target_pairs {
-                            break;
-                        }
+    let target_pairs = (plan.block_size.max(2)) / 2;
+    run_core(request, plan, pe_layout, false, inspect_ns, move || {
+        let mut r1_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
+        let mut r2_buf: Vec<ReadRecord> = Vec::with_capacity(target_pairs);
+        loop {
+            match parser.next_pair()? {
+                Some((r1, r2)) => {
+                    r1_buf.push(r1);
+                    r2_buf.push(r2);
+                    if r1_buf.len() >= target_pairs {
+                        break;
                     }
-                    None => break,
                 }
+                None => break,
             }
-            if r1_buf.is_empty() && r2_buf.is_empty() {
-                Ok(None)
-            } else {
-                let block_buf = pe_layout.arrange(r1_buf, r2_buf);
-                Ok(if block_buf.is_empty() { None } else { Some(block_buf) })
-            }
-        },
-    )
+        }
+        if r1_buf.is_empty() && r2_buf.is_empty() {
+            Ok(None)
+        } else {
+            let block_buf = pe_layout.arrange(r1_buf, r2_buf);
+            Ok(if block_buf.is_empty() { None } else { Some(block_buf) })
+        }
+    })
 }

@@ -506,15 +506,19 @@ impl CompressionPipeline {
         } = prepared;
         let reorder_map_written = reorder_map.is_some();
 
+        let expected_blocks =
+            u32::try_from(chunks.len()).map_err(|_| FqcError::Compression("block count exceeds u32".to_string()))?;
+        let mut chunks = chunks.into_iter();
         let report = block_pipeline::run(
-            chunks,
+            move || Ok(chunks.next()),
             output_path,
             BlockPipelineConfig {
                 num_workers: planned_workers,
                 max_in_flight_blocks,
                 force_overwrite: self.config.force_overwrite,
                 flags,
-                total_reads: total_reads as u64,
+                total_reads: Some(total_reads as u64),
+                expected_blocks: Some(expected_blocks),
                 original_filename: original_filename.to_string(),
                 reorder_map,
                 compressor_config,

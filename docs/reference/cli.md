@@ -42,7 +42,7 @@ fqc compress -i INPUT -o OUTPUT [OPTIONS]
 
 说明：
 
-- archive 模式将完整读段集保留在内存中进行全局分析和可选重排；默认块大小按实际 codec worker 上限、读段数和碱基预算自动计算。worker 受 `--memory-limit` 限制时，块大小会同步放大以保持每 worker 的缓冲块数。streaming 是单线程增量路径，块大小只作为内存/批次粒度，不套并行 worker 规划。
+- archive 模式将完整读段集保留在内存中进行全局分析和可选重排；默认块大小按实际 codec worker 上限、读段数和碱基预算自动计算。worker 受 `--memory-limit` 限制时，块大小会同步放大以保持每 worker 的缓冲块数。streaming 复用同一块流水线，但输入按块增量摄取、不重排；worker 数同样受 `--threads` 与 `--memory-limit` 约束，且只预取 1 个块，因此常驻内存与输入大小无关。
 - 长读在 archive 与 pipeline 的 `--max-block-bases 0` 下按 5M bases/block 自动切块；显式值覆盖自动选择，streaming 保持其原有块大小（显式值仍生效）。
 - `--reorder auto` 只对短读单端数据生效；双端/交错输入保持现有语义（不重排）。`auto` 的全局共享判定使用采样 minimizer/k-mer 结构，目标是不对独立随机读段支付重排成本
 - archive/pipeline 在完整摄入后按全库均匀抽样（或 `--scan-all-lengths` 全量）分类读长；streaming 无法回读输入，自动检测只采样前缀 4,096 条长度，`--scan-all-lengths` 会完整扫描一次以换取准确分类。混合读长且长读集中在尾部时，streaming 的自动分类可能与 archive/pipeline 不同；需要一致分类时请显式 `--long-read-mode` 或 `--scan-all-lengths`

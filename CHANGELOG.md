@@ -13,6 +13,12 @@
 
 ### Changed
 
+- streaming 改用与 archive/pipeline 相同的块流水线：解析器按需供给块，压缩
+  worker 并行编码，写入器按 block id 顺序提交；只预取 1 个块，常驻内存仍与
+  输入大小无关。输出事务改为所有阶段成功后由主线程提交，解析中途失败不会
+  发布截断归档。370 MB / 16 块真实语料 release 冒烟从 6.9 s / 130 MB 变为
+  2.5 s / 约 575 MB（4 worker），`--memory-limit 512` 时为 2.9 s / 463 MB、
+  `--memory-limit 256` 时为 6.6 s / 218 MB；归档体与旧 streaming 逐字节一致。
 - 移除未实现的 `PipelineControl` 取消/进度状态；解压 pipeline 的退出条件只由
   channel 关闭、worker 错误和事务完整性决定，热路径少一次原子读。
 - 移除 crate 根部的 compressor trait 再导出；`fqc::api` 是稳定入口，内部 trait

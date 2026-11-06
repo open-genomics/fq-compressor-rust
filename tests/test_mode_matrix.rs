@@ -12,7 +12,9 @@ use std::path::Path;
 use fqc::commands::compress::{CompressCommand, CompressOptions};
 use fqc::commands::decompress::{DecompressCommand, DecompressOptions};
 use fqc::commands::verify::{VerifyCommand, VerifyOptions};
+use fqc::engine::compression_engine::CompressionEngine;
 use fqc::fastq::parser::FastqParser;
+use fqc::plan::CompressionExecutionMode;
 use fqc::types::ReadRecord;
 
 // =============================================================================
@@ -330,4 +332,53 @@ fn pipeline_decompress_matches_classic_on_archive_and_streaming_inputs() {
             "classic and pipeline decompression disagree for {mode:?}"
         );
     }
+}
+
+// =============================================================================
+// Streaming block pipeline
+// =============================================================================
+
+/// Streaming now shares the block pipeline: multiple blocks compress in
+/// parallel and must still be written and restored in input order.
+#[test]
+fn streaming_parallel_blocks_keep_order_and_content() {
+    let dir = tempfile::tempdir().unwrap();
+    let reads = make_records("m", 250, 80);
+    let input = dir.path().join("multi.fastq");
+    write_fastq(&input, &reads);
+    let archive = dir.path().join("multi.fqc");
+
+    let opts = CompressOptions {
+        input_path: input.to_string_lossy().into_owned(),
+        output_path: archive.to_string_lossy().into_owned(),
+        streaming_mode: true,
+        block_size: 100,
+        threads: 2,
+        force_overwrite: true,
+        show_progress: false,
+        ..Default::default()
+    };
+    let outcome = CompressionEngine::new().run(opts.to_request()).unwrap();
+    assert_eq!(outcome.mode, CompressionExecutionMode::Streaming);
+    assert_eq!(outcome.stats.blocks, 3, "250 reads at 100 reads/block");
+    assert_eq!(outcome.stats.total_reads, reads.len() as u64);
+
+    let restored = dir.path().join("multi.out.fastq");
+    let code = DecompressCommand::new(DecompressOptions {
+        input_path: archive.to_string_lossy().into_owned(),
+        output_path: restored.to_string_lossy().into_owned(),
+        force_overwrite: true,
+        ..Default::default()
+    })
+    .execute();
+    assert_eq!(code, 0);
+
+    let got = parse_fastq(&restored);
+    assert_eq!(got.len(), reads.len());
+    assert_eq!(
+        got.iter().map(|r| r.id.clone()).collect::<Vec<_>>(),
+        reads.iter().map(|r| r.id.clone()).collect::<Vec<_>>(),
+        "streaming must write blocks in input order"
+    );
+    assert_eq!(sorted_content(&got), sorted_content(&reads));
 }

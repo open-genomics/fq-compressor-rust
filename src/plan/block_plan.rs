@@ -42,12 +42,33 @@ pub fn estimated_worker_bytes(codec_model_bytes: usize, reads: usize, avg_length
         .saturating_add(16 * 1024 * 1024) as u64
 }
 
-fn memory_limited_workers(input: CompressionPlanInput, block_size: usize, block_count: usize) -> usize {
-    let worker_bytes = estimated_worker_bytes(input.codec_model_bytes, block_size, input.avg_length).max(1);
-    let by_memory = usize::try_from(input.worker_budget_bytes / worker_bytes)
+/// Codec workers that fit the block-level worker budget.
+///
+/// Streaming knows its block size but not the total block count; archive and
+/// pipeline additionally cap by block count inside [`plan_compression_layout`].
+pub fn memory_limited_worker_count(
+    thread_limit: usize,
+    worker_budget_bytes: u64,
+    codec_model_bytes: usize,
+    block_size: usize,
+    avg_length: usize,
+) -> usize {
+    let worker_bytes = estimated_worker_bytes(codec_model_bytes, block_size, avg_length).max(1);
+    usize::try_from(worker_budget_bytes / worker_bytes)
         .unwrap_or(usize::MAX)
-        .max(1);
-    by_memory.min(input.thread_limit.max(1)).min(block_count.max(1)).max(1)
+        .max(1)
+        .min(thread_limit.max(1))
+}
+
+fn memory_limited_workers(input: CompressionPlanInput, block_size: usize, block_count: usize) -> usize {
+    memory_limited_worker_count(
+        input.thread_limit,
+        input.worker_budget_bytes,
+        input.codec_model_bytes,
+        block_size,
+        input.avg_length,
+    )
+    .min(block_count.max(1))
 }
 
 /// Resolve block size and worker count together.

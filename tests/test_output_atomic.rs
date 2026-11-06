@@ -104,3 +104,44 @@ fn decompress_force_failure_keeps_old_fastq() {
         .collect();
     assert!(leftovers.is_empty(), "leftover temps: {leftovers:?}");
 }
+
+/// A parse failure after the first block must not publish a partial archive.
+/// The writer finalizes a temp file, but the transaction commits only after
+/// every pipeline stage has reported success.
+#[test]
+fn streaming_malformed_input_aborts_without_publishing() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("bad.fastq");
+    let output = dir.path().join("out.fqc");
+    use std::fmt::Write as _;
+    let mut text = String::new();
+    for i in 0..150 {
+        write!(
+            text,
+            "@r{i}\nACGTACGTACGTACGTACGTACGTACGTACGTACGTACGT\n+\nIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIIII\n"
+        )
+        .unwrap();
+    }
+    text.push_str("@truncated\nACGT\n");
+    fs::write(&input, text).unwrap();
+
+    let code = CompressCommand::new(CompressOptions {
+        input_path: input.to_string_lossy().into_owned(),
+        output_path: output.to_string_lossy().into_owned(),
+        streaming_mode: true,
+        block_size: 100,
+        force_overwrite: true,
+        show_progress: false,
+        ..Default::default()
+    })
+    .execute();
+
+    assert_ne!(code, 0);
+    assert!(!output.exists(), "malformed input must not publish a partial archive");
+    let leftovers: Vec<_> = fs::read_dir(dir.path())
+        .unwrap()
+        .filter_map(|e| e.ok())
+        .filter(|e| e.file_name().to_string_lossy().starts_with(".fqc-tmp-"))
+        .collect();
+    assert!(leftovers.is_empty(), "aborted transaction must remove its temp file");
+}
