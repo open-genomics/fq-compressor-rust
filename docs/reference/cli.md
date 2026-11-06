@@ -45,6 +45,7 @@ fqc compress -i INPUT -o OUTPUT [OPTIONS]
 - archive 模式将完整读段集保留在内存中进行全局分析和可选重排；默认块大小按实际 codec worker 上限、读段数和碱基预算自动计算。worker 受 `--memory-limit` 限制时，块大小会同步放大以保持每 worker 的缓冲块数。streaming 是单线程增量路径，块大小只作为内存/批次粒度，不套并行 worker 规划。
 - 长读在 archive 与 pipeline 的 `--max-block-bases 0` 下按 5M bases/block 自动切块；显式值覆盖自动选择，streaming 保持其原有块大小（显式值仍生效）。
 - `--reorder auto` 只对短读单端数据生效；双端/交错输入保持现有语义（不重排）。`auto` 的全局共享判定使用采样 minimizer/k-mer 结构，目标是不对独立随机读段支付重排成本
+- archive/pipeline 在完整摄入后按全库均匀抽样（或 `--scan-all-lengths` 全量）分类读长；streaming 无法回读输入，自动检测只采样前缀 4,096 条长度，`--scan-all-lengths` 会完整扫描一次以换取准确分类。混合读长且长读集中在尾部时，streaming 的自动分类可能与 archive/pipeline 不同；需要一致分类时请显式 `--long-read-mode` 或 `--scan-all-lengths`
 - `--memory-limit 0` 在 compress / decompress / verify 上都是有限预算（约可用内存 75%，带硬性结构上限），不是无限内存。Linux 自动预算取 `/proc/meminfo` 的 `MemAvailable` 与 cgroup v2/v1 剩余额度的较小值；archive 与 pipeline 压缩按摄入峰值估计拒绝超预算，并提示改 `--streaming`
 - 自动线程数（`--threads 0`）在没有显式 `--memory-limit` 时最多使用 4 个编解码 worker；显式 `--threads` 或 `--memory-limit` 可覆盖该保护。自动分块与 worker 规划会迭代到一致，不会按请求线程数生成远超实际 worker 的块数。
 - `--id-mode tokenize` 会尝试公共前缀 + 可变字段编码，模式不稳定则该块回退 exact；归档 flags 仍记录所选模式。`--id-mode exact` 从不 tokenize

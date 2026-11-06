@@ -131,9 +131,10 @@ pub(super) fn inspect_input_lengths_for_streaming(
     } else if is_interleaved {
         let mut parser = open_fastq_interleaved(input_path)?;
         while let Some((r1, r2)) = parser.next_pair()? {
-            if scan_all || lengths.len() < sample_limit {
-                lengths.push(r1.sequence.len());
-                lengths.push(r2.sequence.len());
+            lengths.push(r1.sequence.len());
+            lengths.push(r2.sequence.len());
+            if lengths.len() >= sample_limit {
+                break;
             }
         }
     } else {
