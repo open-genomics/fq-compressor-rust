@@ -13,6 +13,8 @@
 
 ### Changed
 
+- 输入字节统计收敛为 `stats::input_bytes_for` / `input_bytes_for_paths`，
+  streaming 与 pipeline 不再各自维护包装函数。
 - streaming 的块规划辅助从 `engine/common` 更名为 `streaming_support`（现在只服务
   streaming）；解压 worker 自动上限复用 `plan::codec_thread_limit`，不再维护第二份
   线程上限判断。

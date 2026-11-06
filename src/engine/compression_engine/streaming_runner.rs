@@ -166,7 +166,7 @@ fn run_core(
     );
 
     let input_bytes =
-        streaming_support::input_bytes_for(&input.primary_path, input.secondary_path.as_deref(), report.total_bases);
+        crate::stats::input_bytes_for(&input.primary_path, input.secondary_path.as_deref(), report.total_bases);
     let stats = OperationStats {
         total_reads: report.total_reads,
         total_bases: report.total_bases,

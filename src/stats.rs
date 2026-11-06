@@ -93,3 +93,11 @@ pub fn input_bytes_for_paths(paths: &[&Path], fallback: u64) -> u64 {
         total
     }
 }
+
+/// Sum the primary path and an optional mate, with a parser-provided fallback.
+pub fn input_bytes_for(primary: &Path, secondary: Option<&Path>, fallback: u64) -> u64 {
+    match secondary {
+        Some(second) => input_bytes_for_paths(&[primary, second], fallback),
+        None => input_bytes_for_paths(&[primary], fallback),
+    }
+}

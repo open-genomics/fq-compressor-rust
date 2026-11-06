@@ -109,10 +109,6 @@ impl CompressionPipelineConfig {
 // Shared convergence helpers
 // =============================================================================
 
-fn input_bytes_for_paths(paths: &[&Path], fallback: usize) -> u64 {
-    crate::stats::input_bytes_for_paths(paths, fallback as u64)
-}
-
 fn fold_read_bytes(reads: &[ReadRecord]) -> (usize, u64) {
     reads.iter().fold((0usize, 0u64), |(bytes, bases), record| {
         (
@@ -271,7 +267,7 @@ impl CompressionPipeline {
         }
         let parse_ms = t_parse.elapsed().as_millis() as u64;
         let (parsed_bytes, total_bases) = fold_read_bytes(&all_reads);
-        let input_bytes = input_bytes_for_paths(&[input_path], parsed_bytes);
+        let input_bytes = crate::stats::input_bytes_for_paths(&[input_path], parsed_bytes as u64);
         self.finish_ingest(
             all_reads,
             total_bases,
@@ -319,7 +315,7 @@ impl CompressionPipeline {
         let parse_ms = t_parse.elapsed().as_millis() as u64;
 
         let (parsed_bytes, _) = fold_read_bytes(&all_reads);
-        let input_bytes = input_bytes_for_paths(&[input1_path, input2_path], parsed_bytes);
+        let input_bytes = crate::stats::input_bytes_for_paths(&[input1_path, input2_path], parsed_bytes as u64);
         self.run_pair_based(
             all_reads,
             input_bytes,
@@ -355,7 +351,7 @@ impl CompressionPipeline {
         let parse_ms = t_parse.elapsed().as_millis() as u64;
 
         let (parsed_bytes, _) = fold_read_bytes(&all_reads);
-        let input_bytes = input_bytes_for_paths(&[input_path], parsed_bytes);
+        let input_bytes = crate::stats::input_bytes_for_paths(&[input_path], parsed_bytes as u64);
         self.run_pair_based(
             all_reads,
             input_bytes,

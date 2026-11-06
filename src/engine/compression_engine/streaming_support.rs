@@ -33,14 +33,6 @@ pub(super) fn codec_profile(settings: &CompressionSettings, read_length_class: R
     }
 }
 
-pub(super) fn input_bytes_for(primary: &Path, secondary: Option<&Path>, fallback: u64) -> u64 {
-    let mut paths = vec![primary];
-    if let Some(path) = secondary {
-        paths.push(path);
-    }
-    crate::stats::input_bytes_for_paths(&paths, fallback)
-}
-
 pub(super) fn effective_block_size(
     requested_block_size: usize,
     class: ReadLengthClass,
