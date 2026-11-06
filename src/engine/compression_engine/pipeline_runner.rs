@@ -33,7 +33,7 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
 
     let effective_length_class =
         common::effective_length_class(request.settings().requested_read_length_class, &length_stats);
-    let effective_threads = common::codec_thread_limit(request.settings().threads, request.settings().memory_limit_mb);
+    let codec = common::codec_profile(request.settings(), effective_length_class);
     // This is only a sizing hint for the bounded channel; the pipeline
     // recomputes the real block/worker plan once it knows exact totals.
     let block_size_hint = common::effective_block_size(
@@ -41,7 +41,7 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
         effective_length_class,
         &length_stats,
         request.settings().max_block_bases,
-        effective_threads,
+        codec.thread_limit,
         None,
         None,
         true,
@@ -66,13 +66,10 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
     // Create pipeline config. Keep the explicit user block override only:
     // an auto value is resolved by the pipeline after exact totals arrive.
     let pipeline_config = CompressionPipelineConfig {
-        num_threads: effective_threads,
+        num_threads: codec.thread_limit,
         max_in_flight_blocks,
         block_size: request.settings().block_size,
-        read_length_class: effective_length_class,
-        quality_mode: request.settings().quality_mode,
-        id_mode: request.settings().id_mode,
-        compression_level: request.settings().level,
+        compressor_config: codec.config,
         reorder: if input.is_paired {
             ReorderMode::Never
         } else {

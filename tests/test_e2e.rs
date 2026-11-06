@@ -1012,10 +1012,6 @@ fn test_e2e_pipeline_roundtrip() {
     let config = CompressionPipelineConfig {
         num_threads: 2,
         block_size: 100,
-        read_length_class: ReadLengthClass::Short,
-        quality_mode: QualityMode::Lossless,
-        id_mode: IdMode::Exact,
-        compression_level: 3,
         reorder: fqc::plan::ReorderMode::Never,
         save_reorder_map: false,
         pe_layout: PeLayout::Interleaved,
@@ -1046,10 +1042,6 @@ fn test_e2e_pipeline_respects_save_reorder_map_flag() {
     let config = CompressionPipelineConfig {
         num_threads: 2,
         block_size: 100,
-        read_length_class: ReadLengthClass::Short,
-        quality_mode: QualityMode::Lossless,
-        id_mode: IdMode::Exact,
-        compression_level: 3,
         reorder: fqc::plan::ReorderMode::Always,
         save_reorder_map: false,
         pe_layout: PeLayout::Interleaved,
@@ -1087,10 +1079,10 @@ fn test_e2e_pipeline_long_reads_no_reorder_nonempty_archive() {
     let config = CompressionPipelineConfig {
         num_threads: 2,
         block_size: 100,
-        read_length_class: ReadLengthClass::Long,
-        quality_mode: QualityMode::Lossless,
-        id_mode: IdMode::Exact,
-        compression_level: 3,
+        compressor_config: BlockCompressorConfig {
+            read_length_class: ReadLengthClass::Long,
+            ..Default::default()
+        },
         reorder: fqc::plan::ReorderMode::Always,
         save_reorder_map: false,
         pe_layout: PeLayout::Interleaved,

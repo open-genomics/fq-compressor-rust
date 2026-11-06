@@ -32,10 +32,8 @@ pub struct CompressionPipelineConfig {
     pub num_threads: usize,
     pub max_in_flight_blocks: usize,
     pub block_size: usize,
-    pub read_length_class: ReadLengthClass,
-    pub quality_mode: QualityMode,
-    pub id_mode: IdMode,
-    pub compression_level: CompressionLevel,
+    /// Codec settings produced by the engine's single settings-to-codec mapping.
+    pub compressor_config: BlockCompressorConfig,
     pub reorder: ReorderMode,
     pub save_reorder_map: bool,
     pub pe_layout: PeLayout,
@@ -50,10 +48,7 @@ impl Default for CompressionPipelineConfig {
             num_threads: 0,
             max_in_flight_blocks: DEFAULT_MAX_IN_FLIGHT_BLOCKS,
             block_size: 0,
-            read_length_class: ReadLengthClass::Short,
-            quality_mode: QualityMode::Lossless,
-            id_mode: IdMode::Exact,
-            compression_level: DEFAULT_COMPRESSION_LEVEL,
+            compressor_config: BlockCompressorConfig::default(),
             reorder: ReorderMode::Auto,
             save_reorder_map: true,
             pe_layout: PeLayout::Interleaved,
@@ -68,7 +63,6 @@ impl CompressionPipelineConfig {
     fn block_plan(&self, total_reads: usize, total_bases: u64) -> CompressionPlan {
         let avg_length = crate::plan::avg_read_length(total_bases, total_reads as u64);
         let worker_budget = crate::plan::worker_budget_bytes(self.memory_limit_mb);
-        let config = self.block_compressor_config();
         plan_compression_layout(CompressionPlanInput {
             requested_block_size: self.block_size,
             avg_length,
@@ -77,8 +71,8 @@ impl CompressionPipelineConfig {
             worker_budget_bytes: worker_budget,
             total_reads: Some(total_reads as u64),
             total_bases: Some(total_bases),
-            read_length_class: self.read_length_class,
-            codec_model_bytes: config.to_quality_config().estimated_model_bytes(),
+            read_length_class: self.compressor_config.read_length_class,
+            codec_model_bytes: self.compressor_config.to_quality_config().estimated_model_bytes(),
         })
     }
 
@@ -98,16 +92,6 @@ impl CompressionPipelineConfig {
             )));
         }
         Ok(())
-    }
-
-    fn block_compressor_config(&self) -> BlockCompressorConfig {
-        BlockCompressorConfig {
-            read_length_class: self.read_length_class,
-            quality_mode: self.quality_mode,
-            id_mode: self.id_mode,
-            zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(self.compression_level),
-            ..Default::default()
-        }
     }
 }
 
@@ -290,7 +274,7 @@ impl CompressionPipeline {
             all_reads,
             block_size,
             self.config.reorder,
-            self.config.read_length_class,
+            self.config.compressor_config.read_length_class,
         )?;
         let reorder_ms = t_reorder.elapsed().as_millis() as u64;
 
@@ -315,14 +299,15 @@ impl CompressionPipeline {
         };
 
         // ---- Phase 2+3: parallel compression and ordered write ----
+        let compressor_config = &self.config.compressor_config;
         let flags = build_flags(
             false,
             !reordering_performed,
-            self.config.quality_mode,
-            self.config.id_mode,
+            compressor_config.quality_mode,
+            compressor_config.id_mode,
             reorder_map_written,
             self.config.pe_layout,
-            self.config.read_length_class,
+            compressor_config.read_length_class,
             false,
         );
 
@@ -443,7 +428,7 @@ impl CompressionPipeline {
             all_reads,
             block_size,
             self.config.reorder,
-            self.config.read_length_class,
+            self.config.compressor_config.read_length_class,
         )?;
         let reorder_ms = t_reorder.elapsed().as_millis() as u64;
 
@@ -467,14 +452,15 @@ impl CompressionPipeline {
             None
         };
 
+        let compressor_config = &self.config.compressor_config;
         let flags = build_flags(
             true,
             !reordering_performed,
-            self.config.quality_mode,
-            self.config.id_mode,
+            compressor_config.quality_mode,
+            compressor_config.id_mode,
             reorder_map_written,
             pe_layout,
-            self.config.read_length_class,
+            compressor_config.read_length_class,
             false,
         );
 
@@ -524,7 +510,7 @@ impl CompressionPipeline {
                 total_reads: total_reads as u64,
                 original_filename: original_filename.to_string(),
                 reorder_map,
-                compressor_config: self.config.block_compressor_config(),
+                compressor_config: self.config.compressor_config.clone(),
             },
         )?;
 

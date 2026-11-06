@@ -2,7 +2,6 @@
 // fqc - Archive compression runner
 // =============================================================================
 
-use crate::algo::block_compressor::BlockCompressorConfig;
 use crate::algo::global_analyzer::{GlobalAnalyzer, GlobalAnalyzerConfig};
 use crate::archive::format::build_flags;
 use crate::engine::compression_engine::CompressionOutcome;
@@ -55,27 +54,19 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
     let effective_length_class =
         common::effective_length_class(request.settings().requested_read_length_class, &length_stats);
 
-    // Resolve block size and codec workers together before global analysis.
-    let block_config = BlockCompressorConfig {
-        read_length_class: effective_length_class,
-        quality_mode: request.settings().quality_mode,
-        id_mode: request.settings().id_mode,
-        zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(request.settings().level),
-        ..Default::default()
-    };
-    let thread_limit = common::codec_thread_limit(request.settings().threads, request.settings().memory_limit_mb);
-    let worker_budget = crate::plan::worker_budget_bytes(request.settings().memory_limit_mb);
+    // Resolve codec settings and worker budgets once before global analysis.
+    let codec = common::codec_profile(request.settings(), effective_length_class);
     let avg_length = crate::plan::avg_read_length(total_bases, total_reads);
     let plan = plan_compression_layout(CompressionPlanInput {
         requested_block_size: request.settings().block_size,
         avg_length,
         max_block_bases: request.settings().max_block_bases,
-        thread_limit,
-        worker_budget_bytes: worker_budget,
+        thread_limit: codec.thread_limit,
+        worker_budget_bytes: codec.worker_budget_bytes,
         total_reads: Some(total_reads),
         total_bases: Some(total_bases),
         read_length_class: effective_length_class,
-        codec_model_bytes: block_config.to_quality_config().estimated_model_bytes(),
+        codec_model_bytes: codec.model_bytes,
     });
     let block_size = plan.block_size;
     let reorder = if input.is_paired || effective_length_class != ReadLengthClass::Short {
@@ -198,7 +189,7 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
             total_reads,
             original_filename: input_filename.to_string(),
             reorder_map,
-            compressor_config: block_config,
+            compressor_config: codec.config,
         },
     )?;
 

@@ -2,7 +2,7 @@
 // fqc - Streaming compression runner
 // =============================================================================
 
-use crate::algo::block_compressor::{BlockCompressor, BlockCompressorConfig};
+use crate::algo::block_compressor::BlockCompressor;
 use crate::archive::format::build_flags;
 use crate::archive::writer::{begin_fqc_writer, write_global_header};
 use crate::engine::compression_engine::CompressionOutcome;
@@ -115,13 +115,7 @@ fn run_core(
         .unwrap_or("stdin");
     write_global_header(&mut writer, flags, 0, input_filename)?;
 
-    let block_config = BlockCompressorConfig {
-        read_length_class: effective_length_class,
-        quality_mode: request.settings().quality_mode,
-        id_mode: request.settings().id_mode,
-        zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(request.settings().level),
-        ..Default::default()
-    };
+    let block_config = common::codec_profile(request.settings(), effective_length_class).config;
     let mut compressor = BlockCompressor::new(block_config);
 
     let mut block_id = 0u32;

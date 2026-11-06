@@ -2,12 +2,42 @@
 // fqc - Shared compression planning and input helpers
 // =============================================================================
 
+use crate::algo::block_compressor::BlockCompressorConfig;
 use crate::error::Result;
 use crate::fastq::parser::{open_fastq, open_fastq_interleaved, open_fastq_paired, open_fastq_stdin};
+use crate::plan::compress::CompressionSettings;
 use crate::types::*;
 use std::path::Path;
 
 pub(super) const DEFAULT_LENGTH_SAMPLE_READS: usize = 4_096;
+
+/// Compression settings resolved once for codec construction and layout planning.
+///
+/// Keeping this mapping in one place stops archive, pipeline and streaming from
+/// drifting on how CLI settings become codec configuration and worker budgets.
+pub(super) struct CodecProfile {
+    pub config: BlockCompressorConfig,
+    pub thread_limit: usize,
+    pub worker_budget_bytes: u64,
+    pub model_bytes: usize,
+}
+
+pub(super) fn codec_profile(settings: &CompressionSettings, read_length_class: ReadLengthClass) -> CodecProfile {
+    let config = BlockCompressorConfig {
+        read_length_class,
+        quality_mode: settings.quality_mode,
+        id_mode: settings.id_mode,
+        zstd_level: BlockCompressorConfig::zstd_level_for_compression_level(settings.level),
+        ..Default::default()
+    };
+    let model_bytes = config.to_quality_config().estimated_model_bytes();
+    CodecProfile {
+        config,
+        thread_limit: crate::plan::codec_thread_limit(settings.threads, settings.memory_limit_mb),
+        worker_budget_bytes: crate::plan::worker_budget_bytes(settings.memory_limit_mb),
+        model_bytes,
+    }
+}
 
 pub(super) fn input_bytes_for(primary: &Path, secondary: Option<&Path>, fallback: u64) -> u64 {
     let mut paths = vec![primary];
@@ -65,10 +95,6 @@ pub(super) fn length_stats_from_records_sampled(records: &[ReadRecord], scan_all
 
 pub(super) fn effective_length_class(requested: Option<ReadLengthClass>, stats: &LengthStats) -> ReadLengthClass {
     requested.unwrap_or_else(|| crate::types::classify_read_length(stats.median_length, stats.max_length))
-}
-
-pub(super) fn codec_thread_limit(threads: usize, memory_limit_mb: usize) -> usize {
-    crate::plan::codec_thread_limit(threads, memory_limit_mb)
 }
 
 pub(super) fn effective_block_size(
