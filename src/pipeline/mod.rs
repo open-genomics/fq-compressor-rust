@@ -21,6 +21,7 @@ pub(crate) mod block_pipeline;
 pub mod compression;
 pub mod decompression;
 pub mod decompression_classic;
+pub(crate) mod decompression_writer;
 
 // =============================================================================
 // Constants

@@ -17,11 +17,11 @@ use crate::archive::format::{get_id_mode, get_quality_mode, get_read_length_clas
 use crate::archive::reader::FqcReader;
 use crate::block::{DecodedBlock, EncodedBlock};
 use crate::error::{FqcError, Result};
-use crate::fastq::parser::write_record;
 use crate::io::async_io::AsyncWriter;
 use crate::io::OutputTransaction;
 use crate::memory::DecodeBudget;
 
+use super::decompression_writer::{placeholder_record, OutputWriters};
 use super::DEFAULT_MAX_IN_FLIGHT_BLOCKS;
 use crate::stats::OperationStats;
 
@@ -97,40 +97,6 @@ struct DecompressedResult {
     block_id: u32,
     result: std::result::Result<DecodedBlock, FqcError>,
     expected_read_count: u32,
-}
-
-fn placeholder_record(placeholder_seq: &str, block_id: u32, read_idx: usize) -> crate::types::ReadRecord {
-    crate::types::ReadRecord {
-        id: format!("corrupted_block{}_read{}", block_id, read_idx),
-        comment: String::new(),
-        sequence: placeholder_seq.to_string(),
-        quality: "!".repeat(placeholder_seq.len()),
-    }
-}
-
-fn write_output_read(
-    output: &mut dyn std::io::Write,
-    read: &crate::types::ReadRecord,
-    header_only: bool,
-) -> Result<u64> {
-    if header_only {
-        let line = if read.comment.is_empty() {
-            format!("@{}\n", read.id)
-        } else {
-            format!("@{} {}\n", read.id, read.comment)
-        };
-        output.write_all(line.as_bytes()).map_err(FqcError::Io)?;
-        Ok(line.len() as u64)
-    } else {
-        write_record(output, read)?;
-        let comment_bytes = if read.comment.is_empty() {
-            0_u64
-        } else {
-            read.comment.len() as u64 + 1
-        };
-        // FASTQ layout: '@' + id + (space + comment) + '\n' + seq + '\n+\n' + qual + '\n'
-        Ok(read.id.len() as u64 + comment_bytes + read.sequence.len() as u64 + read.quality.len() as u64 + 6)
-    }
 }
 
 struct PreparedRun {
@@ -439,17 +405,16 @@ impl DecompressionPipeline {
             const ASYNC_WRITE_BUF: usize = 4 * 1024 * 1024; // 4 MB write-behind buffer
             const ASYNC_WRITE_DEPTH: usize = 4;
 
-            let (mut output, output_tx): (Box<dyn std::io::Write>, Option<OutputTransaction>) =
-                if output_path_owned.as_path() == Path::new("-") {
-                    (Box::new(std::io::BufWriter::new(std::io::stdout())), None)
-                } else {
-                    let mut tx = OutputTransaction::begin(&output_path_owned, force_overwrite)?;
-                    let file = tx.take_file()?;
-                    (
-                        Box::new(AsyncWriter::new(file, ASYNC_WRITE_DEPTH, ASYNC_WRITE_BUF)),
-                        Some(tx),
-                    )
-                };
+            let mut output = if output_path_owned.as_path() == Path::new("-") {
+                OutputWriters::single_raw(Box::new(std::io::BufWriter::new(std::io::stdout())), None)
+            } else {
+                let mut tx = OutputTransaction::begin(&output_path_owned, force_overwrite)?;
+                let file = tx.take_file()?;
+                OutputWriters::single_raw(
+                    Box::new(AsyncWriter::new(file, ASYNC_WRITE_DEPTH, ASYNC_WRITE_BUF)),
+                    Some(tx),
+                )
+            };
 
             let mut pending: std::collections::BTreeMap<u32, DecompressedResult> = std::collections::BTreeMap::new();
             let mut next_expected: u32 = start_block as u32;
@@ -477,7 +442,7 @@ impl DecompressionPipeline {
                                         continue;
                                     }
                                 }
-                                total_output_bytes += write_output_read(output.as_mut(), read, header_only)?;
+                                total_output_bytes += output.write_record(read, header_only, 0, 0, None)?;
                                 total_reads_written += 1;
                                 total_bases += read.sequence.len() as u64;
                             }
@@ -495,8 +460,7 @@ impl DecompressionPipeline {
                                         }
                                     }
                                     let placeholder = placeholder_record(&corrupted_placeholder, dr.block_id, read_idx);
-                                    total_output_bytes +=
-                                        write_output_read(output.as_mut(), &placeholder, header_only)?;
+                                    total_output_bytes += output.write_record(&placeholder, header_only, 0, 0, None)?;
                                     total_reads_written += 1;
                                     total_bases += placeholder.sequence.len() as u64;
                                 }
@@ -521,11 +485,7 @@ impl DecompressionPipeline {
                 )));
             }
 
-            output.flush().map_err(FqcError::Io)?;
-            drop(output);
-            if let Some(tx) = output_tx {
-                tx.commit()?;
-            }
+            output.commit()?;
             Ok((
                 total_reads_written,
                 total_output_bytes,

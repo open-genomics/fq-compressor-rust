@@ -13,6 +13,9 @@
 
 ### Changed
 
+- 解压输出层收敛到 `pipeline/decompression_writer`：单文件/stdout、split
+  R1/R2、header-only、corrupted placeholder、split 路径推导和事务提交只保留
+  一份；sequential 与 threaded pipeline 只保留各自的块调度。
 - 块大小与 worker 规划收敛到 `plan_compression_layout`：`CompressionPlanInput`
   新增 `auto_split_long_reads`，archive/pipeline 传 true，streaming 传 false 保持
   原有块大小；streaming 不再维护单独的 `effective_block_size` / worker 估算入口。
