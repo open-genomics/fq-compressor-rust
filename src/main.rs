@@ -129,7 +129,7 @@ enum Commands {
         #[arg(long)]
         scan_all_lengths: bool,
 
-        /// Parallel block compression after a full ingest (not bounded streaming)
+        /// Explicit full-ingest mode (same implementation as archive; not bounded streaming)
         #[arg(long)]
         pipeline: bool,
 

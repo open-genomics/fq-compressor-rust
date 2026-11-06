@@ -9,7 +9,7 @@
 //! - ABC algorithm for short reads with consensus-based compression
 //! - Zstd compression for long reads
 //! - Paired-end read handling with automatic detection
-//! - Pipe mode for low-memory scenarios
+//! - Bounded streaming mode (`--streaming`) for large files and low memory
 //! - Multiple input formats: gzip, bzip2, xz, zstd
 //!
 //! ## Commands
