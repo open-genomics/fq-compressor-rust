@@ -237,8 +237,8 @@
   也不再被 writer 的“块数不足”覆盖；新增输出目录不存在的回归测试。
 - pipeline 读长分类改为完整摄入后统一执行，删除“只预扫描前 4,096 条”的路径。
   长读只出现在尾部时，archive 与 pipeline 现在得到相同的 class、block size、
-  worker 数和块数；stdin pipeline 也按实际读段分类，`--scan-all-lengths` 不再
-  需要额外预扫描一遍文件。真实 Illumina / Nanopore / paired mito 数据的
+  worker 数和块数；通过 API 构造的 stdin pipeline 也按实际读段分类（CLI 仍把
+  stdin 强制转为 streaming），`--scan-all-lengths` 不再需要额外预扫描一遍文件。真实 Illumina / Nanopore / paired mito 数据的
   archive/pipeline/streaming round-trip 均与输入逐字节一致。
 - streaming 交错输入的长度采样在达到上限后立即停止，不再解析完整文件却只保留
   前 4,096 条长度。

@@ -69,7 +69,9 @@ pipeline 不再预扫描，统一在完整摄入后分类：
 - pipeline 不再预扫描输入：默认少一遍 4,096 条读段读取，
   `--scan-all-lengths` 少一整遍文件读取；
 - archive 与 pipeline 对同一输入得到相同的读长分类、block size、worker 数和块数；
-- stdin pipeline 也能根据实际读段分类，而不是固定 150 bp / Short；
+- 通过 API 构造 `Stdin + Pipeline` 时也能根据实际读段分类，而不是固定
+  150 bp / Short；CLI 仍按既有策略把 stdin 强制转为 streaming，本次不改变该
+  入口行为；
 - `max_in_flight_blocks` 仍尊重调用方上限，但会按精确 block size 与内存预算收紧；
 - paired pipeline 的重排行为与 archive 对齐；
 - `.fqc` wire format、codec 字节格式不变；块布局可能因分类修正而变化，这是预期
