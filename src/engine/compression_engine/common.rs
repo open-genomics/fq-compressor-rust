@@ -13,8 +13,8 @@ use std::path::Path;
 
 /// Compression settings resolved once for codec construction and layout planning.
 ///
-/// Keeping this mapping in one place stops archive, pipeline and streaming from
-/// drifting on how CLI settings become codec configuration and worker budgets.
+/// Archive and streaming use this directly; pipeline resolves the same
+/// `BlockCodecSettings` after it has classified the ingested reads.
 pub(super) struct CodecProfile {
     pub config: BlockCompressorConfig,
     pub thread_limit: usize,

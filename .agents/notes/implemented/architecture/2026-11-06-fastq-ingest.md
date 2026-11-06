@@ -56,4 +56,5 @@ streaming 的长度预扫描保留在 `engine::common`：它需要在摄入前�
 - `cargo doc --no-deps --locked`
 - `cargo +1.75.0 check --all-targets --locked`
 - `npm run verify-notes`
-- 真实数据与合成数据的 archive/pipeline/streaming round-trip 由既有测试覆盖。
+- archive/pipeline/streaming 的 round-trip 由集成测试覆盖；真实语料为
+  手工 release 冒烟，未纳入 CI。

@@ -26,10 +26,9 @@
   两种模式仍先完整摄入以支持全局分析/重排，因此这不是 bounded ingest。
 - pipeline 分块改为单次移动扫描，移除反复 `split_off` 造成的二次拷贝和超大
   `Vec` 容量；100k 随机读段的 release 冒烟峰值 RSS 从约 565 MB 降到约 112 MB。
-- `CompressionSettings` 到 codec 配置的映射收敛为 engine 的 `CodecProfile`；
-  archive / pipeline / streaming 不再各自翻译 quality/id/level/class。
-  `CompressionPipelineConfig` 使用与类别无关的 `BlockCodecSettings`，摄入后
-  再解析读长类别。
+- `CompressionSettings` 到 codec 配置的映射收敛为单一构造入口：archive 与
+  streaming 用 engine 的 `CodecProfile`，pipeline 用与类别无关的
+  `BlockCodecSettings`，摄入后再解析读长类别。
 - archive 与 pipeline 的完整摄入共用 `fastq::ingest` 的三个拓扑入口，stdin /
   paired / interleaved 选择只保留一份实现；`engine` 只保留 streaming 的前缀
   长度扫描。

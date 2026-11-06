@@ -31,7 +31,8 @@ archive / pipeline / streaming 会静默产生不同码流。`CompressionPipelin
 - 内存限制 → worker 预算；
 - codec 配置 → quality model 驻留字节数（供块/worker 规划）。
 
-archive、pipeline、streaming 都只调用 `common::codec_profile(...)`。同时：
+archive 与 streaming 调用 `common::codec_profile(...)`；pipeline 使用同一
+`BlockCodecSettings` 构造入口，在摄入后解析读长类别。同时：
 
 - `CompressionPipelineConfig` 用与类别无关的 `codec: BlockCodecSettings` 取代
   四个 codec 字段，删除内部的 `block_compressor_config()` 二次映射；读长类别由
