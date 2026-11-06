@@ -21,6 +21,7 @@ use crate::error::{FqcError, Result};
 use crate::io::async_io::AsyncWriter;
 use crate::io::OutputTransaction;
 use crate::memory::DecodeBudget;
+use crate::plan::decompress::DecompressSettings;
 
 use super::decompression_writer::{placeholder_record, OutputWriters};
 use super::DEFAULT_MAX_IN_FLIGHT_BLOCKS;
@@ -61,6 +62,24 @@ impl Default for DecompressionConfig {
             force_overwrite: false,
             split_pe: false,
             memory_limit_mb: 0,
+        }
+    }
+}
+
+impl From<&DecompressSettings> for DecompressionConfig {
+    fn from(settings: &DecompressSettings) -> Self {
+        Self {
+            num_threads: settings.threads,
+            max_in_flight_blocks: DEFAULT_MAX_IN_FLIGHT_BLOCKS,
+            range_start: settings.range_start,
+            range_end: settings.range_end,
+            original_order: settings.original_order,
+            header_only: settings.header_only,
+            skip_corrupted: settings.skip_corrupted,
+            corrupted_placeholder: settings.corrupted_placeholder.clone(),
+            force_overwrite: settings.force_overwrite,
+            split_pe: settings.split_pe,
+            memory_limit_mb: settings.memory_limit_mb,
         }
     }
 }

@@ -37,19 +37,7 @@ pub fn decompress(request: DecompressRequest) -> Result<OperationStats> {
     let plan = ValidatedDecompressPlan::new(request)?;
     let request = plan.request();
     let settings = request.settings();
-    let config = DecompressionConfig {
-        num_threads: settings.threads,
-        range_start: settings.range_start,
-        range_end: settings.range_end,
-        original_order: settings.original_order,
-        header_only: settings.header_only,
-        skip_corrupted: settings.skip_corrupted,
-        corrupted_placeholder: settings.corrupted_placeholder.clone(),
-        force_overwrite: settings.force_overwrite,
-        split_pe: settings.split_pe,
-        memory_limit_mb: settings.memory_limit_mb,
-        ..Default::default()
-    };
+    let config = DecompressionConfig::from(settings);
     let input = request.input_path();
     let output = request.output_path();
 

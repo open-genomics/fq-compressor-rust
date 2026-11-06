@@ -6,7 +6,7 @@
 use crate::error::{FqcError, Result};
 use std::path::{Path, PathBuf};
 
-/// Decompression parameters shared by the threaded and sequential paths.
+/// Decompression parameters consumed by the unified decompression pipeline.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct DecompressSettings {
     pub range_start: u64,

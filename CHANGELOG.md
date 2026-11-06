@@ -13,6 +13,8 @@
 
 ### Changed
 
+- 解压配置映射收敛为 `DecompressionConfig::from(&DecompressSettings)`，
+  `api::decompress` 不再逐字段复制；`DecompressSettings` 文档同步为单一 pipeline。
 - 解压调度收敛到单一 `DecompressionPipeline`：删除 `decompression_classic`，
   original-order、split-PE、range、header-only、skip-corrupted 全部由同一套
   Reader→Decompressor→Writer 处理；`--pipeline` 保留为兼容别名。默认多块解压
