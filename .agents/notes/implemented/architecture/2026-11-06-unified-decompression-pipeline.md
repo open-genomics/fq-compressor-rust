@@ -66,7 +66,8 @@ Status: implemented
   - `--original-order` 逐字节一致；
   - split-PE interleaved、consecutive、streaming consecutive 的 R1/R2
     逐字节一致；
-- 新增 `test_original_order_skip_corrupted_emits_placeholders`，覆盖
-  original-order + skip-corrupted 的占位读段路径；
+- `test_original_order_skip_corrupted_emits_placeholders` 通过 forward map
+  逐原始坐标校验：损坏块中的每个占位读段必须落在其 archive id 对应的原始
+  位置，非占位读段逐字段等于输入；
 - 现有 `test_skip_corrupted_emits_placeholder_reads` 与
   `test_pipeline_skip_corrupted_emits_placeholder_reads` 继续通过。

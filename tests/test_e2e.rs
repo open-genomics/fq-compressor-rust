@@ -978,8 +978,16 @@ fn test_original_order_skip_corrupted_emits_placeholders() {
     .execute();
     assert_eq!(compress_exit, 0);
 
-    let reader = FqcReader::open(archive.path()).unwrap();
+    let mut reader = FqcReader::open(archive.path()).unwrap();
     assert!(reader.has_reorder_map(), "original-order test needs a reorder map");
+    reader.load_reorder_map().unwrap();
+    let forward = reader
+        .reorder_forward
+        .clone()
+        .expect("loaded reorder map must expose the forward permutation");
+    let corrupted_entry = reader.block_index.entries[1].clone();
+    let corrupted_start = corrupted_entry.archive_id_start;
+    let corrupted_end = corrupted_entry.archive_id_end();
     drop(reader);
 
     corrupt_block_codec_seq(archive.path(), 1, 0xFF);
@@ -999,27 +1007,30 @@ fn test_original_order_skip_corrupted_emits_placeholders() {
 
     let restored = read_fastq_records(output.path());
     assert_eq!(restored.len(), original.len());
-    let placeholders = restored
-        .iter()
-        .filter(|read| read.id.starts_with("corrupted_block1_"))
-        .count();
-    assert_eq!(placeholders, 6, "corrupted block must keep its read count");
-    assert_eq!(
-        restored
-            .iter()
-            .filter(|read| read.id.starts_with("corrupted_block"))
-            .count(),
-        6
-    );
-    for read in restored.iter().filter(|read| !read.id.starts_with("corrupted_block")) {
-        assert!(
-            original
-                .iter()
-                .any(|original| original.id == read.id && original.sequence == read.sequence),
-            "unexpected non-placeholder read {}",
-            read.id
-        );
+
+    // The forward map is original -> archive. A corrupted archive block must
+    // reappear at exactly the original coordinates that map into its archive
+    // read range, not merely at an arbitrary placeholder position.
+    let mut placeholders = 0;
+    for (original_id, &archive_id) in forward.iter().enumerate() {
+        let read = &restored[original_id];
+        if (corrupted_start..corrupted_end).contains(&archive_id) {
+            let local_idx = archive_id - corrupted_start;
+            assert_eq!(
+                read.id,
+                format!("corrupted_block1_read{local_idx}"),
+                "placeholder at original id {original_id} maps to archive id {archive_id}"
+            );
+            assert_eq!(read.sequence, "NN");
+            assert_eq!(read.quality, "!!");
+            placeholders += 1;
+        } else {
+            assert_eq!(read.id, original[original_id].id);
+            assert_eq!(read.sequence, original[original_id].sequence);
+            assert_eq!(read.quality, original[original_id].quality);
+        }
     }
+    assert_eq!(placeholders, 6, "corrupted block must keep its read count");
 }
 
 #[test]
