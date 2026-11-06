@@ -36,7 +36,7 @@ fqc compress -i INPUT -o OUTPUT [OPTIONS]
 | `--max-block-bases` | 限制每块碱基数（所有读长类别；`0` = 自动：archive/pipeline 的 Long 按 5 Mbp，其他类别按 8 Mbp；streaming 不套自动上限；显式值始终生效） |
 | `--block-reads` | 显式指定每块读段数，范围 `1..=1,000,000`（`0` = 按实际 codec worker 上限与碱基预算自动；`--pipeline` 仍要求至少 `100`） |
 | `--scan-all-lengths` | 检查完整输入而非采样检测长度 |
-| `--pipeline` | 先完整摄入并做全局分析，再并行压缩块；不是低内存流式摄入（严格低内存请用 `--streaming`） |
+| `--pipeline` | 先完整摄入并做全局分析，再并行压缩块；与 archive 共享同一实现，不是低内存流式摄入（严格低内存请用 `--streaming`） |
 | `--pe-layout` | 双端归档元数据 `interleaved` 或 `consecutive`（默认：`interleaved`） |
 | `-f, --force` | 覆盖已存在的输出（仅在成功完成后原子替换；失败时保留旧文件） |
 
@@ -50,7 +50,7 @@ fqc compress -i INPUT -o OUTPUT [OPTIONS]
 - 自动线程数（`--threads 0`）在没有显式 `--memory-limit` 时最多使用 4 个编解码 worker；显式 `--threads` 或 `--memory-limit` 可覆盖该保护。自动分块与 worker 规划会迭代到一致，不会按请求线程数生成远超实际 worker 的块数。
 - `--id-mode tokenize` 会尝试公共前缀 + 可变字段编码，模式不稳定则该块回退 exact；归档 flags 仍记录所选模式。`--id-mode exact` 从不 tokenize
 - `--lossy-quality qvz` 把每个 Phred 值量化到固定 8 级码本 `[7, 15, 20, 25, 30, 35, 40, 41]` 后再走 SCM，不是无损别名，也不是训练过的率失真 QVZ
-- compress pipeline 先完整摄入并做全局分析，然后并行压缩块；它不是块级流式低内存路径。需要严格低内存请用 `--streaming`
+- compress pipeline 与 archive 共享完整摄入实现（归档结果一致），先读完全部读段再并行压缩块；它不是块级流式低内存路径。需要严格低内存请用 `--streaming`；pipeline 还保留每块至少 100 读段的校验。
 - 普通文件输出先写同目录临时文件，成功后再 rename；stdout（`-`）不走事务
 
 ## `decompress`

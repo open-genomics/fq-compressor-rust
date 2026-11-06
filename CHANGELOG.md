@@ -13,6 +13,9 @@
 
 ### Changed
 
+- archive 与 pipeline 压缩收敛为同一个完整摄入 runner：读取、分类、重排、
+  flags、切块和统计只保留一份编排，删除 `archive_runner`；两种模式的归档体与
+  解压结果一致，`--pipeline` 保留模式标签与每块至少 100 读段的校验。
 - streaming 改用与 archive/pipeline 相同的块流水线：解析器按需供给块，压缩
   worker 并行编码，写入器按 block id 顺序提交；只预取 1 个块，常驻内存仍与
   输入大小无关。输出事务改为所有阶段成功后由主线程提交，解析中途失败不会

@@ -6,9 +6,8 @@
 //! Mode-specific orchestration lives in sibling runner modules. This module
 //! owns only the public entry point, validation boundary and shared outcome.
 
-mod archive_runner;
 mod common;
-mod pipeline_runner;
+mod full_ingest_runner;
 mod streaming_runner;
 
 use crate::error::Result;
@@ -47,9 +46,10 @@ impl CompressionEngine {
         let request = plan.request();
         let start = std::time::Instant::now();
         let mut outcome = match plan.mode() {
-            CompressionExecutionMode::Archive => archive_runner::run(request),
+            mode @ (CompressionExecutionMode::Archive | CompressionExecutionMode::Pipeline) => {
+                full_ingest_runner::run(request, mode)
+            }
             CompressionExecutionMode::Streaming => streaming_runner::run(request),
-            CompressionExecutionMode::Pipeline => pipeline_runner::run(request),
         }?;
         outcome.stats.elapsed_seconds = start.elapsed().as_secs_f64();
         Ok(outcome)

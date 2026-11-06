@@ -85,9 +85,9 @@ flowchart LR
     C --> C4
 ```
 
-- archive 压缩自动内存选择已落地；pipeline 全量摄入仍单独处理
+- archive 压缩自动内存选择已落地；archive 与 pipeline 的全量摄入已收敛到同一 runner（2026-11-06）
 - 解析器/重排/管道/归档写入热点已测量（2026-08-20，见 `docs/reference/hotspot-report.md`）：短读旧热点在全局重排（且负收益），长读旧热点在单 block 串行（已由自动分块修复）
 - 下一刀（有数据支撑）：重排自适应 / 默认关闭；长读 archive/pipeline 已按 5M bases/block
   自动切块（2026-10-26，`--max-block-bases` 可覆盖）
-- bounded-ingest streaming 已接入共享块流水线（2026-11-06）：解析器按需取块，压缩 worker 并行，写入器顺序提交；archive/pipeline 仍是全量摄入
+- bounded-ingest streaming 已接入共享块流水线（2026-11-06）：解析器按需取块，压缩 worker 并行，写入器顺序提交；archive/pipeline 仍是全量摄入，并与 streaming 共享同一块阶段
 - 将任何较大的算法或数据结构变更限定在可单独审查的小切片中

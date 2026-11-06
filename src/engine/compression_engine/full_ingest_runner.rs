@@ -1,6 +1,10 @@
 // =============================================================================
-// fqc - Pipeline compression runner
+// fqc - Full-ingest compression runner
 // =============================================================================
+// Archive and pipeline both parse the complete input, classify it, optionally
+// reorder it, and hand pre-chunked reads to the shared block pipeline. They
+// differ only in the mode label and the CLI flags that select them, so they
+// share this runner instead of maintaining two near-identical orchestrations.
 
 use crate::algo::block_compressor::BlockCodecSettings;
 use crate::engine::compression_engine::CompressionOutcome;
@@ -11,13 +15,24 @@ use crate::plan::compress::CompressionRequest;
 use crate::plan::CompressionExecutionMode;
 use crate::plan::ReorderMode;
 
-pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
-    log::info!("Pipeline compression mode");
-    log::info!("pipeline mode applies the archive ingest budget; use --streaming for bounded memory");
+pub(super) fn run(request: &CompressionRequest, mode: CompressionExecutionMode) -> Result<CompressionOutcome> {
+    let mode_label = match mode {
+        CompressionExecutionMode::Archive => "Archive",
+        CompressionExecutionMode::Pipeline => "Pipeline",
+        CompressionExecutionMode::Streaming => {
+            return Err(FqcError::InvalidArgument(
+                "full-ingest runner does not handle streaming mode".to_string(),
+            ))
+        }
+    };
+    log::info!("{} compression mode", mode_label);
+    if mode == CompressionExecutionMode::Pipeline {
+        log::info!("pipeline mode applies the archive ingest budget; use --streaming for bounded memory");
+    }
 
     let input = request.input().resolve();
 
-    // The pipeline classifies the complete ingest itself, so no prefix
+    // The full-ingest path classifies the complete input itself, so no prefix
     // pre-scan is needed here. `codec` deliberately omits the read-length
     // class; it is resolved once exact records are available.
     let pipeline_config = CompressionPipelineConfig {
@@ -41,6 +56,7 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
         max_block_bases: request.settings().max_block_bases,
         force_overwrite: request.settings().force_overwrite,
         memory_limit_mb: request.settings().memory_limit_mb,
+        enforce_min_block_size: mode == CompressionExecutionMode::Pipeline,
     };
 
     let mut pipeline = CompressionPipeline::new(pipeline_config);
@@ -76,13 +92,14 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
     let stats = pipeline.stats().clone();
 
     log::info!(
-        "Pipeline compression complete! {} blocks, {:.2}x ratio",
+        "{} compression complete! {} blocks, {:.2}x ratio",
+        mode_label,
         stats.blocks,
         stats.compression_ratio()
     );
 
     Ok(CompressionOutcome {
-        mode: CompressionExecutionMode::Pipeline,
+        mode,
         detected_read_length_class,
         stats,
     })

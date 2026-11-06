@@ -37,7 +37,7 @@ flowchart TD
 | CLI | `src/main.rs`, `src/commands/*` | 解析参数、打印摘要、映射退出码 |
 | Facade | `src/api.rs` | 稳定的 compress / decompress / info / verify 嵌入入口 |
 | 计划与校验 | `src/plan/*` | 私有字段的 request、执行模式、重排策略、块/worker 固定点规划 |
-| 压缩编排 | `src/engine/compression_engine.rs`, `src/engine/compression_engine/*_runner.rs` | 模式路由；archive / streaming / pipeline 各自 runner |
+| 压缩编排 | `src/engine/compression_engine.rs`, `src/engine/compression_engine/*_runner.rs` | 模式路由；完整摄入（archive/pipeline）与 streaming 两个 runner |
 | 流水线 | `src/pipeline/*` | 块级并行压缩与解压；compress pipeline 仍是完整摄入 |
 | 算法 | `src/algo/*` | ABC、质量模型、ID、全局分析；只依赖 `block` |
 | 归档格式 | `src/archive/*` | `.fqc` 字节布局、reader/writer、原子输出事务接入 |
@@ -73,7 +73,7 @@ flowchart TD
 
 - **Archive 模式**（默认）：完整摄入，可选重排和全局分析
 - **Streaming 模式**（`--streaming`）：按块增量摄入，禁用重排；块阶段与 archive/pipeline 共享，但只预取固定数量的块，常驻内存与输入大小无关
-- **Pipeline 模式**（`--pipeline`）：先完整摄入并做全局分析，再并行压缩块；块阶段有界，但不是低内存摄入路径
+- **Pipeline 模式**（`--pipeline`）：与 archive 共享完整摄入实现，保留显式模式与块大小下限；不是低内存摄入路径
 
 每种模式保持相同输出格式和 CLI 语义，同时变化内存占用和并发行为。
 

@@ -382,3 +382,59 @@ fn streaming_parallel_blocks_keep_order_and_content() {
     );
     assert_eq!(sorted_content(&got), sorted_content(&reads));
 }
+
+// =============================================================================
+// Full-ingest convergence
+// =============================================================================
+
+/// Archive and pipeline share one full-ingest implementation. Pin that the two
+/// mode labels still produce the same block layout and decompressed content.
+#[test]
+fn archive_and_pipeline_share_full_ingest_output() {
+    let dir = tempfile::tempdir().unwrap();
+    let reads = make_records("c", 220, 100);
+    let input = dir.path().join("converge.fastq");
+    write_fastq(&input, &reads);
+
+    let mut archives = Vec::new();
+    for (suffix, use_pipeline) in [("archive", false), ("pipeline", true)] {
+        let archive = dir.path().join(format!("{suffix}.fqc"));
+        let code = CompressCommand::new(CompressOptions {
+            input_path: input.to_string_lossy().into_owned(),
+            output_path: archive.to_string_lossy().into_owned(),
+            use_pipeline,
+            block_size: 100,
+            threads: 2,
+            force_overwrite: true,
+            show_progress: false,
+            ..Default::default()
+        })
+        .execute();
+        assert_eq!(code, 0, "{suffix} compression failed");
+
+        let restored = dir.path().join(format!("{suffix}.fastq"));
+        let code = DecompressCommand::new(DecompressOptions {
+            input_path: archive.to_string_lossy().into_owned(),
+            output_path: restored.to_string_lossy().into_owned(),
+            force_overwrite: true,
+            ..Default::default()
+        })
+        .execute();
+        assert_eq!(code, 0, "{suffix} decompression failed");
+        archives.push((archive, restored));
+    }
+
+    let a_reader = fqc::archive::reader::FqcReader::open(&archives[0].0).unwrap();
+    let p_reader = fqc::archive::reader::FqcReader::open(&archives[1].0).unwrap();
+    assert_eq!(a_reader.block_count(), p_reader.block_count());
+    assert_eq!(a_reader.info().total_reads, p_reader.info().total_reads);
+    drop(a_reader);
+    drop(p_reader);
+
+    assert_eq!(
+        std::fs::read(&archives[0].1).unwrap(),
+        std::fs::read(&archives[1].1).unwrap(),
+        "archive and pipeline must decode to the same FASTQ"
+    );
+    assert_eq!(sorted_content(&parse_fastq(&archives[0].1)), sorted_content(&reads));
+}

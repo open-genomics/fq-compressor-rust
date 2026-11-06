@@ -43,6 +43,9 @@ pub struct CompressionPipelineConfig {
     pub max_block_bases: usize,
     pub force_overwrite: bool,
     pub memory_limit_mb: usize,
+    /// `--pipeline` rejects sub-100 read blocks; archive keeps the historical
+    /// smaller-block allowance for tests and direct library use.
+    pub enforce_min_block_size: bool,
 }
 
 impl Default for CompressionPipelineConfig {
@@ -60,6 +63,7 @@ impl Default for CompressionPipelineConfig {
             max_block_bases: 0,
             force_overwrite: false,
             memory_limit_mb: 0,
+            enforce_min_block_size: true,
         }
     }
 }
@@ -83,7 +87,7 @@ impl CompressionPipelineConfig {
     }
 
     pub fn validate(&self) -> Result<()> {
-        if self.block_size > 0 && self.block_size < crate::plan::MIN_BLOCK_SIZE {
+        if self.enforce_min_block_size && self.block_size > 0 && self.block_size < crate::plan::MIN_BLOCK_SIZE {
             return Err(FqcError::InvalidArgument(format!(
                 "Block size {} is too small (min {})",
                 self.block_size,
@@ -257,7 +261,9 @@ impl CompressionPipeline {
         let all_reads = crate::fastq::ingest::read_all_records(input_path, self.config.memory_limit_mb)?;
 
         if all_reads.is_empty() {
-            return Err(FqcError::InvalidArgument("Input file is empty".to_string()));
+            return Err(FqcError::InvalidArgument(
+                "Input file contains no FASTQ records".to_string(),
+            ));
         }
         let parse_ms = t_parse.elapsed().as_millis() as u64;
         let (parsed_bytes, total_bases) = fold_read_bytes(&all_reads);
@@ -302,7 +308,9 @@ impl CompressionPipeline {
             self.config.memory_limit_mb,
         )?;
         if all_reads.is_empty() {
-            return Err(FqcError::InvalidArgument("Input files are empty".to_string()));
+            return Err(FqcError::InvalidArgument(
+                "Input file contains no FASTQ records".to_string(),
+            ));
         }
         let parse_ms = t_parse.elapsed().as_millis() as u64;
 
@@ -336,7 +344,9 @@ impl CompressionPipeline {
         let all_reads =
             crate::fastq::ingest::read_all_interleaved_records(input_path, pe_layout, self.config.memory_limit_mb)?;
         if all_reads.is_empty() {
-            return Err(FqcError::InvalidArgument("Input file is empty".to_string()));
+            return Err(FqcError::InvalidArgument(
+                "Input file contains no FASTQ records".to_string(),
+            ));
         }
         let parse_ms = t_parse.elapsed().as_millis() as u64;
 
@@ -414,7 +424,7 @@ impl CompressionPipeline {
         );
 
         log::info!(
-            "Read {} records ({} bytes); class={}, pipeline block_size={}, workers={}, in_flight_blocks={}",
+            "Read {} records ({} bytes); class={}, block_size={}, workers={}, in_flight_blocks={}",
             total_reads,
             input_bytes,
             read_length_class.as_str(),
