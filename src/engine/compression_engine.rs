@@ -6,9 +6,9 @@
 //! Mode-specific orchestration lives in sibling runner modules. This module
 //! owns only the public entry point, validation boundary and shared outcome.
 
-mod common;
 mod full_ingest_runner;
 mod streaming_runner;
+mod streaming_support;
 
 use crate::error::Result;
 use crate::plan::compress::{CompressionRequest, ValidatedCompressPlan};

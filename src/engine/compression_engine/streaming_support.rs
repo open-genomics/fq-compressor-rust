@@ -1,5 +1,5 @@
 // =============================================================================
-// fqc - Shared compression planning and input helpers
+// fqc - Streaming compression planning and input helpers
 // =============================================================================
 
 use crate::algo::block_compressor::{BlockCodecSettings, BlockCompressorConfig};
@@ -11,10 +11,9 @@ use crate::types::*;
 use std::collections::BTreeMap;
 use std::path::Path;
 
-/// Compression settings resolved once for codec construction and layout planning.
-///
-/// Archive and streaming use this directly; pipeline resolves the same
-/// `BlockCodecSettings` after it has classified the ingested reads.
+/// Compression settings resolved once for streaming codec construction and
+/// layout planning. Full-ingest modes resolve the same `BlockCodecSettings`
+/// after they have classified the complete input.
 pub(super) struct CodecProfile {
     pub config: BlockCompressorConfig,
     pub thread_limit: usize,

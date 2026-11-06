@@ -21,7 +21,6 @@ use crate::fastq::parser::write_record;
 use crate::io::async_io::AsyncWriter;
 use crate::io::OutputTransaction;
 use crate::memory::DecodeBudget;
-use crate::types::DEFAULT_AUTO_CODEC_WORKERS;
 
 use super::DEFAULT_MAX_IN_FLIGHT_BLOCKS;
 use crate::stats::OperationStats;
@@ -67,19 +66,7 @@ impl Default for DecompressionConfig {
 
 impl DecompressionConfig {
     pub fn effective_threads(&self) -> usize {
-        let detected = if self.num_threads == 0 {
-            std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(4)
-                .max(1)
-        } else {
-            self.num_threads
-        };
-        if self.num_threads == 0 && self.memory_limit_mb == 0 {
-            detected.min(DEFAULT_AUTO_CODEC_WORKERS)
-        } else {
-            detected
-        }
+        crate::plan::codec_thread_limit(self.num_threads, self.memory_limit_mb)
     }
 
     pub fn has_range(&self) -> bool {

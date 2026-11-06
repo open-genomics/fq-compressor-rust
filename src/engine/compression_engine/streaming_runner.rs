@@ -18,7 +18,7 @@ use crate::types::*;
 use std::path::Path;
 use std::time::Instant;
 
-use super::common;
+use super::streaming_support;
 
 /// Streaming prefetches one chunk. The parser is serial, so a deeper queue
 /// only multiplies resident blocks without feeding workers faster.
@@ -40,7 +40,7 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
 
     // Inspect input lengths. This pre-scan is part of streaming's parser cost.
     let t_inspect = Instant::now();
-    let length_stats = common::inspect_input_lengths_for_streaming(
+    let length_stats = streaming_support::inspect_input_lengths_for_streaming(
         &input.primary_path,
         input.secondary_path.as_deref(),
         input.is_interleaved,
@@ -56,7 +56,7 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
 
     let effective_length_class =
         crate::plan::effective_read_length_class(request.settings().requested_read_length_class, &length_stats);
-    let block_size = common::effective_block_size(
+    let block_size = streaming_support::effective_block_size(
         request.settings().block_size,
         effective_length_class,
         &length_stats,
@@ -67,7 +67,7 @@ pub(super) fn run(request: &CompressionRequest) -> Result<CompressionOutcome> {
         false,
     );
 
-    let codec = common::codec_profile(request.settings(), effective_length_class);
+    let codec = streaming_support::codec_profile(request.settings(), effective_length_class);
     let num_workers = crate::plan::memory_limited_worker_count(
         codec.thread_limit,
         codec.worker_budget_bytes,
@@ -165,7 +165,8 @@ fn run_core(
         report.blocks_written
     );
 
-    let input_bytes = common::input_bytes_for(&input.primary_path, input.secondary_path.as_deref(), report.total_bases);
+    let input_bytes =
+        streaming_support::input_bytes_for(&input.primary_path, input.secondary_path.as_deref(), report.total_bases);
     let stats = OperationStats {
         total_reads: report.total_reads,
         total_bases: report.total_bases,

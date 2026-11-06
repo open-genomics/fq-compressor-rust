@@ -13,6 +13,9 @@
 
 ### Changed
 
+- streaming 的块规划辅助从 `engine/common` 更名为 `streaming_support`（现在只服务
+  streaming）；解压 worker 自动上限复用 `plan::codec_thread_limit`，不再维护第二份
+  线程上限判断。
 - archive 与 pipeline 压缩收敛为同一个完整摄入 runner：读取、分类、重排、
   flags、切块和统计只保留一份编排，删除 `archive_runner`；两种模式的归档体与
   解压结果一致，`--pipeline` 保留模式标签与每块至少 100 读段的校验。
