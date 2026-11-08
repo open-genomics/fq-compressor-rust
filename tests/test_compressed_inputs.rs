@@ -35,6 +35,14 @@ fn write_fastq_bytes(path: &std::path::Path, records: &[ReadRecord]) {
     out.flush().unwrap();
 }
 
+fn fastq_bytes(records: &[ReadRecord]) -> Vec<u8> {
+    let mut out = Vec::new();
+    for record in records {
+        fqc::fastq::parser::write_record(&mut out, record).unwrap();
+    }
+    out
+}
+
 fn read_fastq_records(path: &std::path::Path) -> Vec<ReadRecord> {
     let file = std::fs::File::open(path).unwrap();
     let mut parser = fqc::fastq::parser::FastqParser::new(std::io::BufReader::new(file));
@@ -169,6 +177,64 @@ fn zstd_input_roundtrip() {
     enc.finish().unwrap();
 
     compressed_input_roundtrip(&zst, &records);
+}
+
+// =============================================================================
+// Concatenated members / streams
+// =============================================================================
+// RFC 1952 permits multiple gzip members, and `cat a.fastq.gz b.fastq.gz`
+// produces exactly that. bzip2 and xz streams can be concatenated too. All
+// members must be decoded, not just the first one.
+
+#[test]
+fn multi_member_gzip_input_roundtrip() {
+    let dir = tempfile::tempdir().unwrap();
+    let gz = dir.path().join("multi.fastq.gz");
+    let records = make_records(7, 150);
+    let (first, second) = records.split_at(3);
+
+    let mut file = std::fs::File::create(&gz).unwrap();
+    for part in [fastq_bytes(first), fastq_bytes(second)] {
+        let mut enc = flate2::write::GzEncoder::new(file, flate2::Compression::default());
+        enc.write_all(&part).unwrap();
+        file = enc.finish().unwrap();
+    }
+
+    compressed_input_roundtrip(&gz, &records);
+}
+
+#[test]
+fn multi_member_bzip2_input_roundtrip() {
+    let dir = tempfile::tempdir().unwrap();
+    let bz2 = dir.path().join("multi.fastq.bz2");
+    let records = make_records(7, 150);
+    let (first, second) = records.split_at(3);
+
+    let mut file = std::fs::File::create(&bz2).unwrap();
+    for part in [fastq_bytes(first), fastq_bytes(second)] {
+        let mut enc = bzip2::write::BzEncoder::new(file, bzip2::Compression::best());
+        enc.write_all(&part).unwrap();
+        file = enc.finish().unwrap();
+    }
+
+    compressed_input_roundtrip(&bz2, &records);
+}
+
+#[test]
+fn multi_stream_xz_input_roundtrip() {
+    let dir = tempfile::tempdir().unwrap();
+    let xz = dir.path().join("multi.fastq.xz");
+    let records = make_records(7, 150);
+    let (first, second) = records.split_at(3);
+
+    let mut file = std::fs::File::create(&xz).unwrap();
+    for part in [fastq_bytes(first), fastq_bytes(second)] {
+        let mut enc = xz2::write::XzEncoder::new(file, 6);
+        enc.write_all(&part).unwrap();
+        file = enc.finish().unwrap();
+    }
+
+    compressed_input_roundtrip(&xz, &records);
 }
 
 // =============================================================================

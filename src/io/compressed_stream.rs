@@ -157,13 +157,16 @@ pub fn open_compressed_reader(path: impl AsRef<std::path::Path>) -> Result<Box<d
 
     log::debug!("Opening {} (format: {})", path.display(), format.as_str());
 
+    // Multi-stream decoders: concatenated members/streams are legal (for
+    // example `cat a.fastq.gz b.fastq.gz` or BGZF). Single-stream decoders
+    // stop after the first member (gzip/bzip2 silently, xz with an error).
     let reader: Box<dyn Read + Send> = match format {
         #[cfg(feature = "gz")]
-        CompressionFormat::Gzip => Box::new(flate2::read::GzDecoder::new(file)),
+        CompressionFormat::Gzip => Box::new(flate2::read::MultiGzDecoder::new(file)),
         #[cfg(feature = "bz2")]
-        CompressionFormat::Bzip2 => Box::new(bzip2::read::BzDecoder::new(file)),
+        CompressionFormat::Bzip2 => Box::new(bzip2::read::MultiBzDecoder::new(file)),
         #[cfg(feature = "xz")]
-        CompressionFormat::Xz => Box::new(xz2::read::XzDecoder::new(file)),
+        CompressionFormat::Xz => Box::new(xz2::read::XzDecoder::new_multi_decoder(file)),
         CompressionFormat::Zstd => Box::new(
             zstd::Decoder::new(file)
                 .map_err(|e| FqcError::Io(std::io::Error::other(format!("Zstd decoder init failed: {e}"))))?,

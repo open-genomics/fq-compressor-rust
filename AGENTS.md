@@ -49,7 +49,7 @@ src/
 │   └── block_plan.rs    # block_size/workers fixed point and memory profile
 ├── engine/              # Compression mode routing and runners
 │   ├── compression_engine.rs
-│   └── compression_engine/{archive,streaming,pipeline}_runner.rs
+│   └── compression_engine/{full_ingest,streaming}_runner.rs
 ├── block/               # Neutral block domain shared by algo and archive
 │   ├── mod.rs           # BlockMeta / EncodedBlock / DecodedBlock
 │   └── id_codec.rs      # delta + zig-zag + varint IDs

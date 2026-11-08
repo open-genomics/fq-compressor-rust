@@ -4,6 +4,7 @@
 
 use super::system::get_available_memory_mb;
 use crate::error::{FqcError, Result};
+use std::io::Read;
 
 // =============================================================================
 // DecodeBudget — operation-scoped limits for decompress / verify
@@ -176,6 +177,11 @@ impl DecodeBudget {
 }
 
 /// Zstd decompress with an explicit output ceiling (never unbounded `decode_all`).
+///
+/// Uses the streaming decoder instead of `zstd::bulk::decompress` so a forged
+/// `max_out` (derived from attacker-controlled read lengths) cannot make zstd
+/// preallocate that many bytes before decoding a single byte. The ceiling is
+/// enforced while reading; memory grows with actual output, not with `max_out`.
 pub fn zstd_decompress_bounded(data: &[u8], max_out: usize, location: &str) -> Result<Vec<u8>> {
     if max_out == 0 {
         return Err(FqcError::ResourceLimit {
@@ -184,19 +190,28 @@ pub fn zstd_decompress_bounded(data: &[u8], max_out: usize, location: &str) -> R
             allowed: 0,
         });
     }
-    zstd::bulk::decompress(data, max_out).map_err(|e| {
-        // Distinguish capacity hits from corrupt frames when possible.
-        let msg = e.to_string();
-        if msg.contains("Destination buffer is too small") || msg.contains("capacity") {
-            FqcError::ResourceLimit {
-                location: location.to_string(),
-                declared: max_out as u64 + 1,
-                allowed: max_out as u64,
-            }
-        } else {
+    let mut decoder = zstd::stream::read::Decoder::with_buffer(data)
+        .map_err(|e| FqcError::Decompression(format!("{location}: zstd decoder init failed: {e}")))?;
+    // Do not reserve max_out: it is untrusted and may be enormous.
+    let mut out = Vec::with_capacity(max_out.min(64 * 1024));
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = decoder.read(&mut buf).map_err(|e| {
             FqcError::Decompression(format!("{location}: zstd decompress failed: {e} (max_out={max_out})"))
+        })?;
+        if n == 0 {
+            return Ok(out);
         }
-    })
+        let new_len = out.len().saturating_add(n);
+        if new_len > max_out {
+            return Err(FqcError::ResourceLimit {
+                location: location.to_string(),
+                declared: new_len as u64,
+                allowed: max_out as u64,
+            });
+        }
+        out.extend_from_slice(&buf[..n]);
+    }
 }
 
 /// Conservative max output when only compressed length is known.

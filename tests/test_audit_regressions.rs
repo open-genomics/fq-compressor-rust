@@ -6,10 +6,15 @@
 //! - parser rejects '+' line name mismatches
 //! - empty-sequence records round-trip and pass structural validation
 //! - inverted decompression ranges are rejected cleanly
+//! - ABC forward offsets beyond the short read's length still decode
 
 use fqc::algo::abc::{AbcCompressor, AbcConfig};
 use fqc::algo::block_compressor::{BlockCompressor, BlockCompressorConfig};
+use fqc::commands::compress::{CompressCommand, CompressOptions};
+use fqc::commands::decompress::{DecompressCommand, DecompressOptions};
+use fqc::commands::verify::{VerifyCommand, VerifyOptions};
 use fqc::fastq::parser::FastqParser;
+use fqc::plan::ReorderMode;
 use fqc::types::{IdMode, QualityMode, ReadLengthClass, ReadRecord};
 use std::io::BufReader;
 
@@ -277,4 +282,65 @@ fn repro_6_inverted_range_stats() {
         "inverted range should be rejected with usage error, exit code {}",
         code
     );
+}
+
+// ---------------------------------------------------------------------------
+// BUG 9: ABC decoder rejected the encoder's own forward alignment offsets
+// ---------------------------------------------------------------------------
+#[test]
+fn repro_abc_short_read_forward_offset_archive_roundtrip() {
+    // The 10 bp read sits at offset 20 in the 58 bp consensus. That forward
+    // shift is larger than the short read's length, which used to make the
+    // archive compressible but impossible to decompress or verify.
+    let dir = tempfile::tempdir().unwrap();
+    let fastq = dir.path().join("in.fastq");
+    let archive = dir.path().join("out.fqc");
+    let restored = dir.path().join("restored.fastq");
+
+    let long = "ACGTTGCAAGTCCTAGGATCCGATGCTAGCTAGGCTAACGTTAGGCATCGATCGTACG";
+    let short = &long[20..30];
+    let input = format!(
+        "@r1\n{long}\n+\n{}\n@r2\n{short}\n+\n{}\n",
+        "I".repeat(long.len()),
+        "I".repeat(short.len())
+    );
+    std::fs::write(&fastq, &input).unwrap();
+
+    let compress = CompressCommand::new(CompressOptions {
+        input_path: fastq.to_string_lossy().into_owned(),
+        output_path: archive.to_string_lossy().into_owned(),
+        reorder: ReorderMode::Never,
+        show_progress: false,
+        force_overwrite: true,
+        ..CompressOptions::default()
+    })
+    .execute();
+    assert_eq!(compress, 0, "compression must succeed");
+
+    let decompress = DecompressCommand::new(DecompressOptions {
+        input_path: archive.to_string_lossy().into_owned(),
+        output_path: restored.to_string_lossy().into_owned(),
+        range_start: 0,
+        range_end: 0,
+        header_only: false,
+        original_order: false,
+        skip_corrupted: false,
+        corrupted_placeholder: None,
+        split_pe: false,
+        threads: 1,
+        show_progress: false,
+        force_overwrite: true,
+        use_pipeline: false,
+        memory_limit_mb: 0,
+    })
+    .execute();
+    assert_eq!(decompress, 0, "decompression must succeed");
+    assert_eq!(std::fs::read_to_string(&restored).unwrap(), input);
+
+    let verify = VerifyCommand::new(VerifyOptions {
+        input_path: archive,
+        ..VerifyOptions::default()
+    })
+    .execute();
+    assert_eq!(verify, 0, "full verification must pass");
 }

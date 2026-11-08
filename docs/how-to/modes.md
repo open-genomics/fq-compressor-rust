@@ -128,7 +128,7 @@ fqc --memory-limit 0 compress -i reads.fastq -o reads.fqc
 | 场景 | 推荐命令 |
 |------|----------|
 | 标准压缩 | `fqc compress -i in.fq -o out.fqc` |
-| 大文件、内存有限 | `fqc compress -i in.fq -o out.fqc --streaming --memory-limit 1024` |
+| 大文件、内存有限 | `fqc --memory-limit 1024 compress -i in.fq -o out.fqc --streaming` |
 | 长读 | `fqc compress -i long.fq -o out.fqc`（默认自动分块；可用 `--max-block-bases` 覆盖） |
 | 最大吞吐量 | `fqc compress -i in.fq -o out.fqc --pipeline` |
 | 双端输入 | `fqc compress -i R1.fq -2 R2.fq -o out.fqc` |

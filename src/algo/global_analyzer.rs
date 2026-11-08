@@ -443,13 +443,23 @@ impl GlobalAnalyzer {
             })
             .collect();
 
-        // Build minimizer -> read ID index
-        let mut bucket_map: HashMap<u64, Vec<u64>> = HashMap::new();
+        // Build minimizer -> read ID index. 用有序集合而不是 Vec：读被消费后
+        // 直接删除，后续扫描不会反复遍历已用条目（旧实现每一步都从头扫大
+        // bucket，独立读段多时为 O(N × bucket)）。BTreeSet 同时保持确定的
+        // 候选顺序，避免重排结果随运行变化。
+        let mut bucket_map: HashMap<u64, BTreeSet<u64>> = HashMap::new();
         for entries in &all_buckets {
             for &(hash, read_id) in entries {
-                bucket_map.entry(hash).or_default().push(read_id);
+                bucket_map.entry(hash).or_default().insert(read_id);
             }
         }
+        let remove_from_buckets = |bucket_map: &mut HashMap<u64, BTreeSet<u64>>, read_id: u64| {
+            for &(hash, _) in &all_buckets[read_id as usize] {
+                if let Some(bucket) = bucket_map.get_mut(&hash) {
+                    bucket.remove(&read_id);
+                }
+            }
+        };
 
         // Step 2: Greedy reordering (approximate Hamiltonian path).
         //
@@ -463,6 +473,7 @@ impl GlobalAnalyzer {
         ordered.push(0);
         used[0] = true;
         unused.remove(&0);
+        remove_from_buckets(&mut bucket_map, 0);
 
         while ordered.len() < total_reads {
             let last_read = *ordered.last().expect("ordered is never empty - initialized with 0") as usize;
@@ -509,6 +520,7 @@ impl GlobalAnalyzer {
 
             ordered.push(next as u64);
             used[next] = true;
+            remove_from_buckets(&mut bucket_map, next as u64);
         }
 
         Ok(ordered)

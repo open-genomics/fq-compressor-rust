@@ -1,5 +1,6 @@
 //! Decode / verify resource budget tests (FQCR-LIMIT-001).
 
+use fqc::algo::block_compressor::{BlockCompressor, BlockCompressorConfig};
 use fqc::archive::format::{BlockHeader, BLOCK_INDEX_HEADER_SIZE, INDEX_ENTRY_SIZE};
 use fqc::archive::reader::FqcReader;
 use fqc::commands::compress::{CompressCommand, CompressOptions};
@@ -7,6 +8,7 @@ use fqc::commands::decompress::{DecompressCommand, DecompressOptions};
 use fqc::commands::verify::{VerifyCommand, VerifyOptions};
 use fqc::error::FqcError;
 use fqc::memory::{zstd_decompress_bounded, DecodeBudget, HARD_MAX_INDEX_ENTRIES, MIN_DECODE_MEMORY_MB};
+use fqc::types::{encode_codec, CodecFamily, IdMode, QualityMode, ReadLengthClass};
 use std::fs;
 use std::io::{Seek, SeekFrom};
 use std::path::PathBuf;
@@ -221,6 +223,17 @@ fn zstd_bounded_rejects_expansion_past_ceiling() {
 }
 
 #[test]
+fn zstd_bounded_does_not_preallocate_untrusted_ceiling() {
+    let payload = vec![b'A'; 1024];
+    let compressed = zstd::bulk::compress(&payload, 3).unwrap();
+    // The ceiling is attacker-derived (read lengths) and may be astronomically
+    // large. A preallocating decoder (`zstd::bulk::decompress`) would reserve it
+    // up front and abort; the streaming decoder must grow with actual output.
+    let out = zstd_decompress_bounded(&compressed, usize::MAX / 2, "zstd-huge-ceiling").unwrap();
+    assert_eq!(out, payload);
+}
+
+#[test]
 fn mixed_uniform_blocks_fall_back_to_class_upper_bound() {
     let dir = tempfile::tempdir().unwrap();
     let archive = compress_two_block_lengths(dir.path());
@@ -316,5 +329,91 @@ fn parallel_batch_never_zero_and_rejects_oversized_block() {
 
     let huge = budget.limit_bytes; // compressed hint → peak = *3 > limit
     let err = budget.parallel_batch_size(4, huge).unwrap_err();
+    assert_resource_limit(err);
+}
+
+#[test]
+fn forged_read_count_rejected_before_record_skeleton_alloc() {
+    let cfg = BlockCompressorConfig {
+        read_length_class: ReadLengthClass::Short,
+        quality_mode: QualityMode::Lossless,
+        id_mode: IdMode::Exact,
+        max_block_decoded_bytes: 4096,
+        ..Default::default()
+    };
+    let mut bc = BlockCompressor::new(cfg);
+
+    // 100_000 * size_of::<ReadRecord>()(96 B) = 9.6 MB > 4 KiB cap.
+    // The guard must fire before `vec![ReadRecord; read_count]`.
+    let err = bc
+        .decompress_raw(0, 100_000, 0, 0, 0, 0, 0, &[], &[], &[], &[])
+        .unwrap_err();
+    assert_resource_limit(err);
+}
+
+#[test]
+fn decompress_rejects_block_whose_record_skeleton_exceeds_budget() {
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("many.fastq");
+    let archive = dir.path().join("many.fqc");
+    // 90_000 reads × 96 B = 8.24 MB > max_alloc_bytes(16 MiB budget)=8 MiB.
+    write_tiny_fastq(&input, 90_000);
+    let code = CompressCommand::new(CompressOptions {
+        input_path: input.to_string_lossy().into_owned(),
+        output_path: archive.to_string_lossy().into_owned(),
+        force_overwrite: true,
+        reorder: fqc::plan::ReorderMode::Never,
+        block_size: 200_000,
+        threads: 1,
+        show_progress: false,
+        ..Default::default()
+    })
+    .execute();
+    assert_eq!(code, 0, "compress failed");
+
+    let out = dir.path().join("out.fastq");
+    let code = DecompressCommand::new(DecompressOptions {
+        input_path: archive.to_string_lossy().into_owned(),
+        output_path: out.to_string_lossy().into_owned(),
+        force_overwrite: true,
+        memory_limit_mb: MIN_DECODE_MEMORY_MB,
+        show_progress: false,
+        ..Default::default()
+    })
+    .execute();
+    assert_ne!(
+        code, 0,
+        "a block whose ReadRecord skeleton exceeds max_alloc_bytes must be rejected"
+    );
+}
+
+#[test]
+fn forged_uniform_length_rejected_before_decoders() {
+    let cfg = BlockCompressorConfig {
+        id_mode: IdMode::Discard,
+        quality_mode: QualityMode::Discard,
+        max_block_decoded_bytes: 4096,
+        ..Default::default()
+    };
+    let mut bc = BlockCompressor::new(cfg);
+
+    // 1 read whose declared length is 0xFFFFFFFF: skeleton is only 96 B, but
+    // sequence + quality would allocate ~8 GiB. The aggregate decoded-bytes
+    // check must fire before the sequence/quality decoders run.
+    let err = bc
+        .decompress_raw(
+            0,
+            1,
+            u32::MAX,
+            encode_codec(CodecFamily::Raw, 0),
+            encode_codec(CodecFamily::ZstdPlain, 0),
+            encode_codec(CodecFamily::Raw, 0),
+            encode_codec(CodecFamily::DeltaVarint, 0),
+            &[],
+            &[],
+            &[],
+            &[],
+        )
+        .unwrap_err();
     assert_resource_limit(err);
 }

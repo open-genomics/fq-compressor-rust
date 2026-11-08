@@ -334,6 +334,10 @@ impl DecompressionPipeline {
             read_length_class,
             quality_mode,
             id_mode,
+            // 单块 ReadRecord 骨架不得超过单次分配预算：read_count 来自
+            // 文件，旧路径在预算检查前直接按它分配（--memory-limit 16 下
+            // 500k reads 的构造归档峰值超出约 35 MB）。
+            max_block_decoded_bytes: reader.budget().max_alloc_bytes,
             ..Default::default()
         });
 

@@ -119,6 +119,8 @@ pub fn verify_archive(opts: &VerifyOptions) -> Result<VerifyReport> {
         read_length_class: get_read_length_class(flags),
         quality_mode: get_quality_mode(flags),
         id_mode: get_id_mode(flags),
+        // 与 decompress 相同：单块 ReadRecord 骨架受单次分配预算约束。
+        max_block_decoded_bytes: reader.budget().max_alloc_bytes,
         ..Default::default()
     };
 

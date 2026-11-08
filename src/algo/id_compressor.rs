@@ -323,13 +323,20 @@ fn compress_exact(ids: &[&str], zstd_level: i32) -> Result<Vec<u8>> {
     Ok(out)
 }
 
+/// ID 流的绝对内存上限；与逐 ID 上限共同约束伪造归档的声明值。
+const MAX_ID_STREAM_BYTES: usize = 512 * 1024 * 1024;
+/// 单条 ID（含 comment）的平均上限；正常 header 远小于此值。
+const MAX_ID_BYTES_PER_READ: usize = 4 * 1024;
+
 fn decompress_exact(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
     let mut pos = 0;
     let declared_size = uvarint_decode(data, &mut pos)?;
     let uncompressed_size = usize::try_from(declared_size)
         .map_err(|_| FqcError::Format("ID exact uncompressed size exceeds platform limits".to_string()))?;
-    // Cap runaway declarations: at most 64 KiB per ID on average.
-    let max_allowed = (num_ids as usize).saturating_mul(64 * 1024).saturating_add(1024);
+    let max_allowed = (num_ids as usize)
+        .saturating_mul(MAX_ID_BYTES_PER_READ)
+        .saturating_add(1024)
+        .min(MAX_ID_STREAM_BYTES);
     if uncompressed_size > max_allowed {
         return Err(FqcError::ResourceLimit {
             location: "id exact".to_string(),
@@ -490,7 +497,10 @@ fn decompress_tokenize(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
     let declared_size = uvarint_decode(data, &mut pos)?;
     let uncompressed_size = usize::try_from(declared_size)
         .map_err(|_| FqcError::Format("ID tokenize uncompressed size exceeds platform limits".to_string()))?;
-    let max_allowed = (num_ids as usize).saturating_mul(64 * 1024).saturating_add(1024);
+    let max_allowed = (num_ids as usize)
+        .saturating_mul(MAX_ID_BYTES_PER_READ)
+        .saturating_add(1024)
+        .min(MAX_ID_STREAM_BYTES);
     if uncompressed_size > max_allowed {
         return Err(FqcError::ResourceLimit {
             location: "id tokenize".to_string(),
@@ -762,7 +772,10 @@ fn decompress_legacy(data: &[u8], num_ids: u32) -> Result<Vec<String>> {
     use byteorder::{LittleEndian, ReadBytesExt};
     use std::io::{Cursor, Read};
 
-    let max_out = (num_ids as usize).saturating_mul(64 * 1024).saturating_add(1024);
+    let max_out = (num_ids as usize)
+        .saturating_mul(MAX_ID_BYTES_PER_READ)
+        .saturating_add(1024)
+        .min(MAX_ID_STREAM_BYTES);
     let buf = crate::memory::zstd_decompress_bounded(data, max_out, "id legacy")?;
 
     let mut ids = Vec::with_capacity(num_ids as usize);

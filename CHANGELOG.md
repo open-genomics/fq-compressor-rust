@@ -2,8 +2,34 @@
 
 ## [Unreleased]
 
+### Performance
+
+- 2026-11-08 全局重排的 minimizer bucket 改为 `BTreeSet` 并在读被消费后立即移除：
+  旧实现每一步都从头扫描 bucket 中的已用读段，独立读段多时退化为
+  O(N × bucket)。集合同时保持确定的候选顺序。
+
 ### Security
 
+- 2026-11-08 ID 流解码上限收紧：exact/tokenize/legacy 三条路径的声明解码大小
+  从每 read 64 KiB 降到 4 KiB，并增加 512 MiB 绝对上限；伪造 `read_count`
+  的小归档不再能声明数百 GiB 的 ID 输出。新增 `ResourceLimit` 回归测试。
+- 2026-11-08 单块解码字节纳入预算：`decompress_raw` 在
+  `vec![ReadRecord; read_count]` 之前检查 `read_count × 96 B`，并在解出
+  `lengths` 后检查 `骨架 + 2 × 总碱基` 均不超过
+  `DecodeBudget::max_alloc_bytes`。此前 `read_count` 只与块索引/
+  `total_read_count`（按 32 B/read 估算）交叉校验，`--memory-limit 16` 下
+  500k reads 的构造归档会先分配约 48 MB 骨架（实测 RSS 超出约 35 MB）；
+  `uniform_read_length=0xFFFFFFFF` 还会让单条读段尝试 4 GiB 级分配。
+  `BlockCompressorConfig` 新增 `max_block_decoded_bytes`（默认
+  `u64::MAX`，压缩路径不限制），解压与 verify 从 reader budget 填充。
+  新增 3 条回归测试（骨架、伪造长度、端到端块预算）。
+- 2026-11-08 有界 zstd 解压不再按不可信上限预分配：`zstd_decompress_bounded`
+  改用流式解码器，初始容量仅 `min(max_out, 64 KiB)`，输出超过 `max_out` 时
+  返回 `ResourceLimit`。此前 `zstd::bulk::decompress` 会在帧头缺少
+  `Content_Size` 时按 `max_out` 预分配，约 3 KB 的构造 `.fqc`
+  （`uniform_read_length=0xFFFFFFFF`、`read_count=100000`）即可触发
+  `429496729900064` 字节分配并 abort，绕过 `--memory-limit`。新增
+  `zstd_bounded_does_not_preallocate_untrusted_ceiling` 回归测试。
 - 升级 `zstd` 到 0.14.3（`zstd-safe` 8.2.0、`zstd-sys` 2.1.2），修复
   `RUSTSEC-2026-0391`、`RUSTSEC-2026-0398`、`RUSTSEC-2026-0403`、
   `RUSTSEC-2026-0410`；未添加 advisory ignore。
@@ -257,6 +283,13 @@
 
 ### Fixed
 
+- ABC 解码按偏移方向校验重叠：正向 shift 与当前共识长度比较，负向 shift 才与
+  读段长度比较。此前 `|offset| >= read_length` 会拒绝编码器为短读段产生的
+  正向对齐（例如 10 bp 读段落在 58 bp 共识 offset 20），归档压缩成功却无法
+  解压或通过 verify；新增单元与端到端回归测试。
+- gzip/bzip2/xz 输入改用多 member/多流解码器。此前只解压第一个 member：
+  `cat a.fastq.gz b.fastq.gz`、BGZF 等合法多 member 输入会被 gzip/bzip2
+  静默截断，xz 串联则直接报错；新增三种格式的串联回归测试。
 - 块流水线按 `Root < Panicked < Derived` 报告阶段错误：writer 的 I/O 根因
   不再被 reader/compressor 的 channel closed 症状覆盖，compressor 的编码错误
   也不再被 writer 的“块数不足”覆盖；新增输出目录不存在的回归测试。

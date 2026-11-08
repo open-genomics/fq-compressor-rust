@@ -67,6 +67,14 @@ pub struct BlockCompressorConfig {
     pub zstd_level: i32,
     /// ID prefix for discard mode reconstruction (e.g., "read" → @read1, @read2, ...)
     pub id_prefix: String,
+    /// Upper bound for the decoded bytes of one block:
+    /// `read_count * size_of::<ReadRecord>() + 2 * sum(read lengths)`.
+    /// `u64::MAX` disables the check (compression path). Decompress/verify
+    /// set this from `DecodeBudget::max_alloc_bytes`. Both terms come from
+    /// the block header/aux stream, so without this cap a forged archive can
+    /// drive `vec![ReadRecord; read_count]` and per-read sequence/quality
+    /// allocations past `--memory-limit`.
+    pub max_block_decoded_bytes: u64,
 }
 
 impl Default for BlockCompressorConfig {
@@ -79,6 +87,7 @@ impl Default for BlockCompressorConfig {
             consensus_hamming_threshold: 16,
             zstd_level: 3,
             id_prefix: String::from("read"),
+            max_block_decoded_bytes: u64::MAX,
         }
     }
 }
@@ -319,6 +328,18 @@ impl BlockCompressor {
         qual_stream: &[u8],
         aux_stream: &[u8],
     ) -> Result<DecodedBlock> {
+        // read_count comes from the block header. It is cross-checked against
+        // the block index, but not against the memory budget, so a forged
+        // archive can drive `vec![ReadRecord; read_count]` (96 B/read) before
+        // any per-block check. Reject oversized skeletons first.
+        let skeleton_bytes = u64::from(read_count).saturating_mul(std::mem::size_of::<ReadRecord>() as u64);
+        if skeleton_bytes > self.config.max_block_decoded_bytes {
+            return Err(FqcError::ResourceLimit {
+                location: format!("block {block_id} read_record_skeleton"),
+                declared: skeleton_bytes,
+                allowed: self.config.max_block_decoded_bytes,
+            });
+        }
         let mut result = DecodedBlock {
             reads: vec![ReadRecord::default(); read_count as usize],
         };
@@ -400,6 +421,20 @@ impl BlockCompressor {
                 "block {block_id} aux stream decoded {} lengths for {read_count} reads",
                 lengths.len()
             )));
+        }
+
+        // Lengths are untrusted (header uniform value or aux stream). Each
+        // read allocates about `len` bytes for sequence and `len` for
+        // quality, so bound their sum by the same per-block decode budget
+        // before any decoder sees them.
+        let total_bases: u64 = lengths.iter().map(|&l| u64::from(l)).fold(0u64, u64::saturating_add);
+        let decoded_bytes = skeleton_bytes.saturating_add(total_bases.saturating_mul(2));
+        if decoded_bytes > self.config.max_block_decoded_bytes {
+            return Err(FqcError::ResourceLimit {
+                location: format!("block {block_id} decoded_bytes"),
+                declared: decoded_bytes,
+                allowed: self.config.max_block_decoded_bytes,
+            });
         }
 
         let sequences = match seq_family {

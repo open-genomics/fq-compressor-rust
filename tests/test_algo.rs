@@ -284,3 +284,24 @@ fn test_minimizers_handle_ambiguous_bases_and_zero_window() {
     assert!(!minimizers.is_empty());
     assert!(extract_minimizers(b"ACGT", 3, 0).is_empty());
 }
+
+#[test]
+fn test_id_declared_size_is_capped_before_decompression() {
+    fn put_uvarint(mut value: u64, out: &mut Vec<u8>) {
+        while value >= 0x80 {
+            out.push((value as u8) | 0x80);
+            value >>= 7;
+        }
+        out.push(value as u8);
+    }
+
+    let mut data = vec![ID_MAGIC_EXACT];
+    put_uvarint(600 * 1024 * 1024, &mut data);
+    data.push(0);
+
+    let err = decompress_ids(&data, 1, "read").unwrap_err();
+    assert!(
+        matches!(err, fqc::error::FqcError::ResourceLimit { .. }),
+        "expected ResourceLimit, got {err:?}"
+    );
+}

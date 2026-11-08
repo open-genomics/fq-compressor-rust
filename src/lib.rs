@@ -20,9 +20,9 @@
 //!
 //! ## Example
 //! ```bash
-//! fqc compress input.fastq -o archive.fqc
-//! fqc decompress archive.fqc -o output.fastq
-//! fqc verify archive.fqc
+//! fqc compress -i input.fastq -o archive.fqc
+//! fqc decompress -i archive.fqc -o output.fastq
+//! fqc verify -i archive.fqc
 //! ```
 //!
 //! ## Library API
