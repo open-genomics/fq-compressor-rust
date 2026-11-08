@@ -377,6 +377,7 @@ impl DecompressionPipeline {
             // 文件，旧路径在预算检查前直接按它分配（--memory-limit 16 下
             // 500k reads 的构造归档峰值超出约 35 MB）。
             max_block_decoded_bytes: reader.budget().max_alloc_bytes,
+            max_read_length_bytes: Some(read_length_class.max_read_length() as u32),
             ..Default::default()
         });
 

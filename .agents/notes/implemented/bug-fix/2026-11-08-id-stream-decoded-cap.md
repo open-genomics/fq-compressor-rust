@@ -1,4 +1,6 @@
-# ID 流解码上限
+# Agent Note: ID 流解码上限
+
+Status: implemented
 
 ## Problem
 
@@ -12,6 +14,15 @@
 - 单条 ID（含 comment）平均上限降为 4 KiB；正常 header 远小于该值。
 - 增加 512 MiB 的绝对流上限，覆盖“read 数极大且 ID 合法偏长”的归档。
 - 三条路径共用同一对常量，避免再次漂移。
+
+## Alternatives considered
+
+- **只保留总流上限（512 MiB）**：小 `--memory-limit` 下仍允许单块 512 MiB 的
+  ID 声明，与预算无关地突破 `DecodeBudget`。
+- **只收紧平均上限（4 KiB）**：极大的 `read_count` 仍能把声明总量推到 GiB 级，
+  因为 `read_count` 本身不受 ID 长度约束。
+- **按 `DecodeBudget` 动态推导上限**：需要把 budget 传进三个 codec 解码函数，
+  改动面大于两个常量；且绝对上限本来就是对预算的兜底。
 
 ## Consequences
 

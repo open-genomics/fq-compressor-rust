@@ -75,6 +75,14 @@ pub struct BlockCompressorConfig {
     /// drive `vec![ReadRecord; read_count]` and per-read sequence/quality
     /// allocations past `--memory-limit`.
     pub max_block_decoded_bytes: u64,
+    /// Hard per-read length ceiling enforced while decoding, in bytes.
+    ///
+    /// Archive-managed decode paths set this from the read-length class in the
+    /// (untrusted) header, so a crafted archive that declares a smaller class
+    /// cannot use it to under-estimate the decode budget. `None` (library /
+    /// test use) keeps the historical behaviour of decoding whatever the block
+    /// declares, as long as `max_block_decoded_bytes` allows it.
+    pub max_read_length_bytes: Option<u32>,
 }
 
 impl Default for BlockCompressorConfig {
@@ -88,6 +96,7 @@ impl Default for BlockCompressorConfig {
             zstd_level: 3,
             id_prefix: String::from("read"),
             max_block_decoded_bytes: u64::MAX,
+            max_read_length_bytes: None,
         }
     }
 }
@@ -421,6 +430,18 @@ impl BlockCompressor {
                 "block {block_id} aux stream decoded {} lengths for {read_count} reads",
                 lengths.len()
             )));
+        }
+
+        // 单条读长的硬上限：归档的读长分类来自头部（不可信），而解压预算
+        // （worker 数、--original-order 峰值）按分类上限推导。这里拒掉超过
+        // 分类上限的读长，保证那些估算永远是上界而不是猜测。
+        if let Some(max_read_len) = self.config.max_read_length_bytes {
+            if let Some(&bad) = lengths.iter().find(|&&l| l > max_read_len) {
+                return Err(FqcError::Format(format!(
+                    "block {block_id} read length {bad} exceeds the {} class limit {max_read_len}",
+                    self.config.read_length_class.as_str()
+                )));
+            }
         }
 
         // Lengths are untrusted (header uniform value or aux stream). Each

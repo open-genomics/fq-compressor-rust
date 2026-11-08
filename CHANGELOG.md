@@ -14,6 +14,22 @@
 
 ### Security
 
+- 2026-11-08 读长分类上限与解压预算统一：解压预算（worker 数、
+  `--original-order` 峰值估算）以前直接用头部 flags 里的读长分类，
+  而 `Long` 用的是 100 kbp 的「经验值」而非上限，伪造或异常的归档会让估算
+  变成低估。现在 `ReadLengthClass::max_read_length()` 给出三类硬上限
+  （Short 511、Medium 10239、Long 4 MiB），并：
+  - `validate_block_headers` 拒绝声明长度超过分类上限的块头；
+  - 解压/verify 路径把该上限作为 `BlockCompressorConfig::max_read_length_bytes`
+    传给解码器，逐条读长超过上限即返回格式错误；
+  - `memory_estimate_read_length()` 直接等于该上限（不再有「经验值」分支），
+    因此估算永远是上界。新增 `forged_short_class_with_long_reads_is_rejected`
+    回归（改 flags 分类位后 2000 bp 块必须被拒）。
+
+  **兼容性**：单条读长超过 4 MiB 的归档会被拒绝解码；真实测序读长（最长 ONT
+  约 2.5 Mbp）远低于该值。`--original-order` 对 Long 归档的估算变得更保守
+  （按上限而非经验值），必要时提高 `--memory-limit` 或走默认顺序输出。
+
 - 2026-11-08 ID 流解码上限收紧：exact/tokenize/legacy 三条路径的声明解码大小
   从每 read 64 KiB 降到 4 KiB，并增加 512 MiB 绝对上限；伪造 `read_count`
   的小归档不再能声明数百 GiB 的 ID 输出。新增 `ResourceLimit` 回归测试。

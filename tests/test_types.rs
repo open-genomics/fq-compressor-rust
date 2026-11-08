@@ -122,20 +122,28 @@ fn test_constants() {
 #[test]
 fn memory_estimates_use_class_upper_bounds() {
     // Decode falls back to class ceilings when the archive has no uniform
-    // length. These are upper bounds for Short/Medium and a practical fallback
-    // for Long, not the old fixed 256 bp short-read constant.
+    // length. All three are hard ceilings enforced at decode
+    // (`max_read_length`), so the estimate is an upper bound rather than a
+    // practical guess, even when the class byte in the header is forged.
     assert_eq!(
         ReadLengthClass::Short.memory_estimate_read_length(),
         SPRING_MAX_READ_LENGTH
     );
     assert_eq!(
         ReadLengthClass::Medium.memory_estimate_read_length(),
-        LONG_READ_THRESHOLD
+        LONG_READ_THRESHOLD - 1
     );
     assert_eq!(
         ReadLengthClass::Long.memory_estimate_read_length(),
-        LONG_READ_MEMORY_ESTIMATE_BP
+        MAX_LONG_READ_LENGTH
     );
+    for class in [ReadLengthClass::Short, ReadLengthClass::Medium, ReadLengthClass::Long] {
+        assert_eq!(
+            class.memory_estimate_read_length(),
+            class.max_read_length(),
+            "estimate and enforced ceiling must stay identical"
+        );
+    }
 }
 
 #[test]

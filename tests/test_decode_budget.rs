@@ -417,3 +417,62 @@ fn forged_uniform_length_rejected_before_decoders() {
         .unwrap_err();
     assert_resource_limit(err);
 }
+
+#[test]
+fn forged_short_class_with_long_reads_is_rejected() {
+    // 归档的读长分类只是头部的一个字节（不可信）。解压预算（worker 数、
+    // --original-order 峰值）按分类上限推导，所以把 Medium 归档的分类位改成
+    // Short 后，块头声明的 2000 bp 读长必须被拒绝——否则分类上限会变成
+    // 一个小得多的低估。
+    use fqc::archive::format::{flags, MAGIC_HEADER_SIZE};
+    use std::io::{Read, Write};
+
+    let dir = tempfile::tempdir().unwrap();
+    let input = dir.path().join("long.fastq");
+    let archive = dir.path().join("long.fqc");
+    {
+        use std::fmt::Write as _;
+        let mut out = String::new();
+        for i in 0..40 {
+            let seq = "ACGT".repeat(500); // 2000 bp → Medium class
+            let qual = "I".repeat(2000);
+            write!(out, "@r{i}\n{seq}\n+\n{qual}\n").unwrap();
+        }
+        fs::write(&input, out).unwrap();
+    }
+    let code = CompressCommand::new(CompressOptions {
+        input_path: input.to_string_lossy().into_owned(),
+        output_path: archive.to_string_lossy().into_owned(),
+        force_overwrite: true,
+        reorder: fqc::plan::ReorderMode::Never,
+        show_progress: false,
+        ..Default::default()
+    })
+    .execute();
+    assert_eq!(code, 0, "compress failed");
+
+    // 打开正常归档应当成功：块头声明了统一 2000 bp，估算直接用它。
+    let reader = FqcReader::open(&archive).unwrap();
+    assert_eq!(reader.memory_estimate_read_length(), 2000);
+    assert!(2000 <= ReadLengthClass::Medium.max_read_length());
+    drop(reader);
+
+    // 只改分类位，别的一律不动。
+    let mut bytes = Vec::new();
+    fs::File::open(&archive).unwrap().read_to_end(&mut bytes).unwrap();
+    // GlobalHeader = u32 header_size 之后才是 u64 flags。
+    let flags_offset = MAGIC_HEADER_SIZE + std::mem::size_of::<u32>();
+    let mut raw = u64::from_le_bytes(bytes[flags_offset..flags_offset + 8].try_into().unwrap());
+    raw = (raw & !flags::READ_LENGTH_CLASS_MASK) | ((ReadLengthClass::Short as u64) << flags::READ_LENGTH_CLASS_SHIFT);
+    bytes[flags_offset..flags_offset + 8].copy_from_slice(&raw.to_le_bytes());
+    fs::File::create(&archive).unwrap().write_all(&bytes).unwrap();
+
+    let err = match FqcReader::open(&archive) {
+        Ok(_) => panic!("forged Short class with 2000 bp reads must be rejected"),
+        Err(err) => err,
+    };
+    match err {
+        FqcError::Format(msg) => assert!(msg.contains("class limit"), "unexpected format error: {msg}"),
+        other => panic!("expected Format error, got {other}"),
+    }
+}

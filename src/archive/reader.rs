@@ -121,7 +121,8 @@ impl FqcReader {
             )));
         }
         Self::validate_block_index(&block_index, header_end, &footer, global_header.total_read_count)?;
-        let uniform_read_length = Self::validate_block_headers(&mut reader, &block_index, &footer)?;
+        let read_length_class = crate::archive::format::get_read_length_class(global_header.flags);
+        let uniform_read_length = Self::validate_block_headers(&mut reader, &block_index, &footer, read_length_class)?;
 
         Ok(Self {
             path: path.to_path_buf(),
@@ -248,6 +249,7 @@ impl FqcReader {
         reader: &mut BufReader<File>,
         block_index: &BlockIndex,
         footer: &FileFooter,
+        read_length_class: ReadLengthClass,
     ) -> Result<Option<u32>> {
         let mut uniform_length = Some(0u32);
         let block_region_end = if footer.has_reorder_map() {
@@ -260,6 +262,17 @@ impl FqcReader {
             reader.seek(SeekFrom::Start(entry.offset))?;
             let header = BlockHeader::read(reader)?;
             let length = header.uniform_read_length;
+            // 读长分类来自全局头 flags（不可信）。解压预算（worker 数、
+            // --original-order 峰值）由分类上限推导，所以这里先校验声明长度
+            // 与分类一致：伪造"短读"分类却声明超长读的归档直接拒绝，
+            // 否则分类上限会变成低估。
+            let class_ceiling = read_length_class.max_read_length() as u32;
+            if length > class_ceiling {
+                return Err(FqcError::Format(format!(
+                    "block {idx} uniform read length {length} exceeds the {} class limit {class_ceiling}",
+                    read_length_class.as_str()
+                )));
+            }
             if !header.has_uniform_length() {
                 uniform_length = None;
             } else {

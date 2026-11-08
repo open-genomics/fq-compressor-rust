@@ -121,6 +121,9 @@ pub fn verify_archive(opts: &VerifyOptions) -> Result<VerifyReport> {
         id_mode: get_id_mode(flags),
         // 与 decompress 相同：单块 ReadRecord 骨架受单次分配预算约束。
         max_block_decoded_bytes: reader.budget().max_alloc_bytes,
+        // 读长分类来自头部（不可信），解码预算按分类上限推导；这里同步拒绝
+        // 超过该上限的读长，避免伪造"短读"分类让估算变成低估。
+        max_read_length_bytes: Some(get_read_length_class(flags).max_read_length() as u32),
         ..Default::default()
     };
 

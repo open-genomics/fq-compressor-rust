@@ -62,11 +62,16 @@ pub const MIN_BLOCK_READS_LONG: usize = 500;
 /// explicit `--threads` or `--memory-limit` opts out of this guard.
 pub const DEFAULT_AUTO_CODEC_WORKERS: usize = 4;
 
-/// Fallback read length for Long-class memory estimates when the archive does
-/// not expose a uniform block length. This is a practical upper estimate, not
-/// a hard maximum: a single ultra-long read can exceed it, in which case the
-/// block-header estimate should be preferred.
-pub const LONG_READ_MEMORY_ESTIMATE_BP: usize = 100_000;
+/// Hard per-read length ceiling enforced while decoding (`Long` class).
+///
+/// The archive's read-length class lives in the header and is therefore
+/// untrusted, while decode budgets (worker counts, `--original-order` peak
+/// estimates) are derived from it. Decode rejects any read longer than the
+/// class ceiling, which makes every class-derived estimate a true upper bound
+/// instead of a heuristic. 4 MiB sits above real sequencing reads (the longest
+/// ONT reads are ~2.5 Mbp), so it bounds hostile input without rejecting data
+/// that a sequencer can actually produce.
+pub const MAX_LONG_READ_LENGTH: usize = 4 * 1024 * 1024;
 
 /// Spring ABC max read length
 pub const SPRING_MAX_READ_LENGTH: usize = 511;
@@ -240,18 +245,31 @@ impl ReadLengthClass {
         }
     }
 
+    /// Hard ceiling on a single read length for this class.
+    ///
+    /// `classify_read_length` guarantees `Short` reads are at most
+    /// `SPRING_MAX_READ_LENGTH` and `Medium` reads stay below
+    /// `LONG_READ_THRESHOLD`; `Long` has no natural ceiling, so it uses
+    /// `MAX_LONG_READ_LENGTH`. The block-header validator and the block
+    /// decoder both enforce this value, which is what lets
+    /// `memory_estimate_read_length` be a real upper bound.
+    pub fn max_read_length(self) -> usize {
+        match self {
+            Self::Short => SPRING_MAX_READ_LENGTH,
+            Self::Medium => LONG_READ_THRESHOLD - 1,
+            Self::Long => MAX_LONG_READ_LENGTH,
+        }
+    }
+
     /// Upper-bound read length for memory estimates when only the archive's
     /// length class is known.
     ///
-    /// `Short` and `Medium` use the class ceilings. `Long` has no finite
-    /// ceiling, so it uses a practical fallback; callers that can read a
-    /// block header should prefer its uniform length instead.
+    /// This is `max_read_length` (a ceiling enforced at decode), not an
+    /// average: estimates built on it may reject work that would fit, but
+    /// never under-estimate a forged archive that declares a smaller class.
+    /// Callers that can read a block header still prefer its uniform length.
     pub fn memory_estimate_read_length(self) -> usize {
-        match self {
-            Self::Short => SPRING_MAX_READ_LENGTH,
-            Self::Medium => LONG_READ_THRESHOLD,
-            Self::Long => LONG_READ_MEMORY_ESTIMATE_BP,
-        }
+        self.max_read_length()
     }
 }
 
