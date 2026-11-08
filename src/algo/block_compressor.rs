@@ -540,11 +540,25 @@ impl BlockCompressor {
         uniform_read_length: u32,
         lengths: &[u32],
     ) -> Result<Vec<String>> {
+        // Raw 质量流表示 Discard 模式：解压只产出占位质量串，不需要
+        // order-2 上下文模型（约 13 MiB）。避免为每个 discard block 白建一次模型。
+        if family == CodecFamily::Raw {
+            if !data.is_empty() {
+                return Err(FqcError::Format(
+                    "Discarded quality stream must not contain payload bytes".to_string(),
+                ));
+            }
+            let length_vec: Vec<u32> = if uniform_read_length > 0 {
+                vec![uniform_read_length; read_count as usize]
+            } else {
+                lengths.to_vec()
+            };
+            return Ok(length_vec.iter().map(|&len| "!".repeat(len as usize)).collect());
+        }
+
         let mut qcfg = self.config.to_quality_config();
         match family {
-            CodecFamily::Raw => {
-                qcfg.quality_mode = QualityMode::Discard;
-            }
+            CodecFamily::Raw => unreachable!("Raw quality stream handled above"),
             CodecFamily::ScmV1 => {
                 qcfg.context_order = ContextOrder::Order2;
                 if qcfg.quality_mode == QualityMode::Discard {

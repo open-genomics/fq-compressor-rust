@@ -182,6 +182,13 @@ impl CompressCommand {
     }
 
     fn validate_options(&self) -> Result<()> {
+        // stdin 只能提供一条流；同时给 -2 时旧实现会静默忽略 R2 并返回成功，
+        // 生成的归档缺少 mate。宁可在参数阶段拒绝。
+        if self.opts.input_path == "-" && self.opts.input2_path.is_some() {
+            return Err(FqcError::InvalidArgument(
+                "second input (-2) cannot be combined with stdin (-); provide both mates as files".to_string(),
+            ));
+        }
         if self.opts.input_path != "-" && !std::path::Path::new(&self.opts.input_path).exists() {
             return Err(FqcError::Io(std::io::Error::new(
                 std::io::ErrorKind::NotFound,

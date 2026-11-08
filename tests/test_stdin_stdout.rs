@@ -194,3 +194,25 @@ fn decompress_split_pe_to_stdout_is_rejected() {
         "--split-pe with stdout must be rejected, got {code}"
     );
 }
+
+#[test]
+fn stdin_with_second_input_is_rejected() {
+    // `-i - -2 R2.fastq` 只能读到 stdin 一条流；旧实现静默忽略 R2 并成功，
+    // 归档缺少 mate。必须在参数阶段拒绝。
+    let dir = tempfile::tempdir().unwrap();
+    let r2 = dir.path().join("r2.fastq");
+    std::fs::write(&r2, "@r/2\nACGT\n+\nIIII\n").unwrap();
+    let opts = CompressOptions {
+        input_path: "-".into(),
+        input2_path: Some(r2.to_string_lossy().into_owned()),
+        output_path: dir.path().join("out.fqc").to_string_lossy().into_owned(),
+        show_progress: false,
+        force_overwrite: true,
+        ..Default::default()
+    };
+
+    let code = CompressCommand::new(opts).execute();
+
+    assert_eq!(code, ExitCode::Usage as i32);
+    assert!(!dir.path().join("out.fqc").exists());
+}

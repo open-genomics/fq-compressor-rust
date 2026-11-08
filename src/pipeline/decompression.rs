@@ -23,6 +23,18 @@ use crate::plan::decompress::DecompressSettings;
 
 use super::decompression_writer::{spawn_writer_thread, BlockResult, WriterPlan};
 use super::DEFAULT_MAX_IN_FLIGHT_BLOCKS;
+
+/// 多条线程同时失败时优先返回真实根因，而不是 channel 关闭的次生错误。
+fn prefer_thread_error(errors: Vec<FqcError>) -> FqcError {
+    let mut fallback = None;
+    for error in errors {
+        if !format!("{error}").contains("channel closed") {
+            return error;
+        }
+        fallback.get_or_insert(error);
+    }
+    fallback.unwrap_or_else(|| FqcError::Decompression("Decompression pipeline failed without an error".to_string()))
+}
 use crate::stats::OperationStats;
 
 // =============================================================================
@@ -242,17 +254,44 @@ impl DecompressionPipeline {
         let writer_handle = spawn_writer_thread(writer_input, result_rx);
 
         // ---- Wait ----
-        let reader_read_ms = reader_handle
-            .join()
-            .map_err(|_| FqcError::Decompression("Reader thread panicked".to_string()))??;
+        // 先 join 全部线程再决定返回哪个错误：解码/写入失败会让别处的 channel
+        // 关闭并产生 "channel closed" 次生错误，提前返回会把它当成根因。
+        let mut thread_errors: Vec<FqcError> = Vec::new();
+        let reader_read_ms = match reader_handle.join() {
+            Ok(Ok(ms)) => Some(ms),
+            Ok(Err(err)) => {
+                thread_errors.push(err);
+                None
+            }
+            Err(_) => {
+                thread_errors.push(FqcError::Decompression("Reader thread panicked".to_string()));
+                None
+            }
+        };
         for h in decomp_handles {
-            h.join()
-                .map_err(|_| FqcError::Decompression("Decompressor thread panicked".to_string()))??;
+            match h.join() {
+                Ok(Ok(())) => {}
+                Ok(Err(err)) => thread_errors.push(err),
+                Err(_) => thread_errors.push(FqcError::Decompression("Decompressor thread panicked".to_string())),
+            }
         }
         let decode_ms = decode_ns.load(std::sync::atomic::Ordering::Relaxed) / 1_000_000;
-        let writer = writer_handle
-            .join()
-            .map_err(|_| FqcError::Decompression("Writer thread panicked".to_string()))??;
+        let writer = match writer_handle.join() {
+            Ok(Ok(writer)) => Some(writer),
+            Ok(Err(err)) => {
+                thread_errors.push(err);
+                None
+            }
+            Err(_) => {
+                thread_errors.push(FqcError::Decompression("Writer thread panicked".to_string()));
+                None
+            }
+        };
+        if !thread_errors.is_empty() || reader_read_ms.is_none() || writer.is_none() {
+            return Err(prefer_thread_error(thread_errors));
+        }
+        let reader_read_ms = reader_read_ms.expect("checked above");
+        let writer = writer.expect("checked above");
 
         let elapsed = start.elapsed();
         self.stats = OperationStats {

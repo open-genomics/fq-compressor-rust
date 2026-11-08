@@ -4,6 +4,10 @@
 
 ### Performance
 
+- 2026-11-08 Raw（Discard）质量流解压不再构造 order-2 质量模型：此前每个
+  discard block 都会 `ScmQualityCompressor::new` 分配约 13 MiB 上下文模型，
+  只为返回占位质量串；现在直接按长度生成 `!` 串。现有 decode 测试套件通过。
+
 - 2026-11-08 全局重排的 minimizer bucket 改为 `BTreeSet` 并在读被消费后立即移除：
   旧实现每一步都从头扫描 bucket 中的已用读段，独立读段多时退化为
   O(N × bucket)。集合同时保持确定的候选顺序。
@@ -38,6 +42,13 @@
   残留的旧 VitePress 锁文件；`npm audit --package-lock-only` 返回 0 vulnerabilities。
 
 ### Changed
+
+- 2026-11-08 `compress -i - -2 R2.fastq` 在参数阶段拒绝：stdin 只能提供一条
+  流，旧实现静默忽略 R2、生成缺少 mate 的归档并返回成功。新增
+  `stdin_with_second_input_is_rejected` 回归。
+- 2026-11-08 解压线程错误优先返回真实根因：reader/decoder/writer 全部 join
+  后再选择错误，跳过由其它线程失败引发的 `channel closed` 次生错误。
+
 
 - 解压配置映射收敛为 `DecompressionConfig::from(&DecompressSettings)`，
   `api::decompress` 不再逐字段复制；`DecompressSettings` 文档同步为单一 pipeline。
